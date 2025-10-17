@@ -1,0 +1,82 @@
+trigger:
+
+- dev   # adjust branch name if needed
+
+pool:
+  name: 'IISPool'   # your agent pool name in Azure DevOps
+
+
+variables:
+  buildConfiguration: 'Release'
+
+stages:
+- stage: Build
+  displayName: 'Build .NET 8 backend'
+  jobs:
+  - job: BuildJob
+    steps:
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '8.x'   # .NET SDK
+
+    - script: dotnet restore
+      displayName: 'Restore dependencies'
+
+    - script: dotnet publish -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
+      displayName: 'Build & publish backend'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend'
+        ArtifactName: 'backend'
+        publishLocation: 'Container'
+
+- stage: Deploy
+  displayName: 'Deploy to IIS'
+  dependsOn: Build
+  jobs:
+  - deployment: DeployJob
+    environment: 'Production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: backend
+
+          - task: PowerShell@2
+            displayName: 'Stop App Pool, clear old files & deploy new'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Import-Module WebAdministration
+
+                $appPool = "Backend"
+                $source = "$(Pipeline.Workspace)\backend\*"
+                $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
+
+                Write-Host "Stopping App Pool: $appPool"
+                try {
+                  if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
+                      Stop-WebAppPool -Name $appPool
+                  } else {
+                      Write-Host "App Pool '$appPool' is already stopped."
+                  }
+                } catch {
+                  Write-Host "Warning: Could not stop App Pool. Continuing... ($($_.Exception.Message))"
+                }
+
+                Write-Host "Removing old files in $destination"
+                Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+                Write-Host "Copying new build from $source to $destination"
+                Copy-Item -Path $source -Destination $destination -Recurse -Force
+
+                Write-Host "Starting App Pool: $appPool"
+                if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
+                    Start-WebAppPool -Name $appPool
+                } else {
+                    Write-Host "App Pool '$appPool' is already running."
+                }
+
