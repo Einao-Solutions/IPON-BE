@@ -53,8 +53,8 @@ public class FileServices
     private PaymentService _paymentService;
     
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    // private string attachmentBaseUrl = "https://integration.iponigeria.com";
-    private string attachmentBaseUrl = "http://localhost:5044";
+    private string attachmentBaseUrl = "https://integration.iponigeria.com";
+    // private string attachmentBaseUrl = "http://localhost:5044";
 
     //adding log service
     private ILoggerService _log;
@@ -3472,10 +3472,6 @@ public class FileServices
                 CorrespondenceEmail = fileInfo.Correspondence?.email,
                 CorrespondencePhone = fileInfo.Correspondence?.phone,
                 PatentAbstract = fileInfo.PatentAbstract,
-                PriorityInfo = fileInfo.PriorityInfo,
-                FirstPriorityInfo = fileInfo.FirstPriorityInfo,
-                CorrespondenceNationality = fileInfo.Correspondence?.Nationality,
-                CorrespondenceState = fileInfo.Correspondence?.state,
             };
             return updateCost;
         }
@@ -4387,12 +4383,6 @@ public class FileServices
                 .Push(f => f.PostRegApplications, renewal)
                 .Push(f => f.ApplicationHistory, renewalHistory);
 
-            // Ensure status remains Inactive if it was Inactive
-            if (file.FileStatus == ApplicationStatuses.Inactive)
-            {
-                update = update.Set(f => f.FileStatus, ApplicationStatuses.Active);
-            }
-
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
@@ -5130,10 +5120,10 @@ public class FileServices
                 if (updateData.PaymentRRR != null)
                 {
                     RemitaResponseClass payDetails = await _remitaPaymentUtils.GetDetailsByRRR(updateData.PaymentRRR);
-                    // if (payDetails == null || payDetails.status != "00")
-                    // {
-                    //     throw new Exception($"Payment Not Found or Invalid RRR, {updateData.PaymentRRR}");
-                    // }
+                    if (payDetails == null || payDetails.status != "00")
+                    {
+                        throw new Exception($"Payment Not Found or Invalid RRR, ${updateData.PaymentRRR}");
+                    }
                     Console.WriteLine(payDetails);
                     var payment = new PaymentRecord
                     {
@@ -5484,33 +5474,15 @@ public class FileServices
                         correspondence.email = updateData.CorrespondenceEmail;
                         hasCorrespondence = true;
                     }
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceNationality))
-                    {
-                        clerical.OldCorrespondenceNationality = file.Correspondence?.Nationality;
-                        clerical.NewCorrespondenceNationality = updateData.CorrespondenceNationality;
-                        correspondence.Nationality = updateData.CorrespondenceNationality;
-                        hasCorrespondence = true;
-                    }
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceState))
-                    {
-                        clerical.OldCorrespondenceState = file.Correspondence?.state;
-                        clerical.NewCorrespondenceState = updateData.CorrespondenceState;
-                        correspondence.state = updateData.CorrespondenceState;
-                        hasCorrespondence = true;
-                    }
 
                     if (!string.IsNullOrEmpty(poaUrl))
                     {
                         var poaIndex = attachments.FindIndex(a => a.name == "poa");
                         if (poaIndex >= 0)
-                        {
                             attachments[poaIndex].url = new List<string> { poaUrl };
-                            clerical.OldPowerOfAttorneyUrl = attachments[poaIndex].url.FirstOrDefault();
-                        }
-                        else{
+                        else
                             attachments.Add(new AttachmentType { name = "poa", url = new List<string> { poaUrl } });
-                            clerical.OldPowerOfAttorneyUrl = "None";
-                        }
+                        clerical.OldPowerOfAttorneyUrl = attachments[poaIndex].url[0];
                         clerical.NewPowerOfAttorneyUrl = poaUrl;
                     }
                     if (!string.IsNullOrEmpty(otherAttUrl))
@@ -5552,21 +5524,6 @@ public class FileServices
                                 clerical.NewFileTitle = updateData.FileTitle;
                                 break;
                         }
-                    }
-                        // Add this block for PatentAbstract
-                    if (!string.IsNullOrWhiteSpace(updateData.PatentAbstract))
-                    {
-                        clerical.OldPatentAbstract = file.PatentAbstract;
-                        updateDef = updateDef.Set(f => f.PatentAbstract, updateData.PatentAbstract);
-                        clerical.NewPatentAbstract = updateData.PatentAbstract;
-                    }
-
-                    //// Add this block for PatentApplicationType
-                    if (updateData.PatentApplicationType != null)
-                    {
-                        clerical.OldPatentApplicationType = file.PatentApplicationType ?? default;
-                        updateDef = updateDef.Set(f => f.PatentApplicationType, updateData.PatentApplicationType.Value);
-                        clerical.NewPatentApplicationType = updateData.PatentApplicationType.Value;
                     }
 
                     if (updateData.TrademarkLogo != null)
@@ -5732,56 +5689,6 @@ public class FileServices
                     // Update DB
                     updateDef = updateDef.Set(f => f.Inventors, file.Inventors);
                     break;
-                case "PriorityInfo":
-                    // Archive old values for audit/history
-                    
-                    clerical.OldFirstPriorityInfo = file.FirstPriorityInfo?.Select(p => new PriorityInfo
-                    {
-                        id = p.id,
-                        number = p.number,
-                        Country = p.Country,
-                        Date = p.Date
-                    }).ToList();
-                    clerical.OldPriorityInfo = file.PriorityInfo?.Select(p => new PriorityInfo
-                    {
-                        id = p.id,
-                        number = p.number,
-                        Country = p.Country,
-                        Date = p.Date
-                    }).ToList();
-
-                    // Replace with new lists (add, edit, delete at once)
-                    if (updateData.FirstPriorityInfo != null)
-                    {
-                        foreach (var p in updateData.FirstPriorityInfo)
-                            p.id ??= Guid.NewGuid().ToString();
-                        file.FirstPriorityInfo = updateData.FirstPriorityInfo;
-                    }
-                    else
-                    {
-                        file.FirstPriorityInfo = new List<PriorityInfo>();
-                    }
-
-                    if (updateData.PriorityInfo != null)
-                    {
-                        foreach (var p in updateData.PriorityInfo)
-                            p.id ??= Guid.NewGuid().ToString();
-                        file.PriorityInfo = updateData.PriorityInfo;
-                    }
-                    else
-                    {
-                        file.PriorityInfo = new List<PriorityInfo>();
-                    }
-
-                    // Archive new values for audit/history
-                    clerical.NewFirstPriorityInfo = file.FirstPriorityInfo;
-                    clerical.NewPriorityInfo = file.PriorityInfo;
-
-                    // Update DB
-                    updateDef = updateDef
-                        .Set(f => f.FirstPriorityInfo, file.FirstPriorityInfo)
-                        .Set(f => f.PriorityInfo, file.PriorityInfo);
-                break;
 
             }
             // Final DB update
