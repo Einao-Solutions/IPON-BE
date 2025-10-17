@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification of Opposition</title>
+    <style>
+
+        /* Basic email-safe styles */
+
+        body { margin:0; padding:0; background-color:#f4f4f6; }
+
+        table { border-collapse:collapse; }
+
+        .container { width:100%; max-width:600px; margin:20px auto; }
+
+        .card { background:#ffffff; border-radius:6px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+
+        h1 { font-size:20px; margin:0 0 10px 0; }
+
+        p { margin:0 0 12px 0; line-height:1.45; color:#333333; }
+
+        .muted { color:#6b7280; font-size:13px; }
+
+        .details { background:#f9fafb; padding:12px; border-radius:6px; margin:12px 0; }
+
+        .detail-row { margin:6px 0; }
+
+        .cta { display:inline-block; padding:10px 16px; border-radius:6px; text-decoration:none; font-weight:600; }
+
+        .btn-primary { background:#0b72ef; color:#ffffff; }
+
+        .footer { font-size:12px; color:#6b7280; margin-top:16px; }
+
+        @media (max-width:420px){ .card{padding:16px;} h1{font-size:18px;} }
+    </style>
+</head>
+<body>
+<table role="presentation" width="100%">
+    <tr>
+        <td align="center">
+            <table class="container" role="presentation">
+                <tr>
+                    <td class="card">
+                        <h1>Notification of Opposition</h1>
+                        <p class="muted">Hello <strong>{ApplicantName}</strong>,</p>
+                        <p>We wish to inform you that your trademark application has received an <strong>opposition</strong>. Please review the details below carefully and act within the stated timeframe.</p>
+                        <div class="details">
+                            <div class="detail-row"><strong>Trademark Title:</strong>{Title}</div>
+                            <div class="detail-row"><strong>File Number:</strong> {FileNumber}</div>
+                            <div class="detail-row"><strong>Date of Opposition:</strong> {OppositionDate}</div>
+                            <div class="detail-row"><strong>Opposing Party:</strong>{OpposerName}</div>
+                            <div class="detail-row"><strong>Reason for Opposition:</strong>{Reason}</div>
+                        </div>
+                        <h2 style="font-size:16px; margin:10px 0 6px 0;">Next Steps</h2>
+                        <p>Please review the opposition details carefully. You are required to file a <strong>Counter Statement</strong> through the <a href="https://portal.iponigeria.com" target="_blank">online portal</a> within <strong>thirty (30) days</strong> of receipt of this notification. Failure to do so will result in the application being treated as <em>Abandoned</em>.</p>
+                        <p style="margin-top:12px;">If you need assistance or clarification, contact our support team at <a href="mailto:trademarks@iponigeria.com">trademarks@iponigeria.com</a>.</p>
+                        <p style="margin-top:18px;">Thank you,</p>
+                        <p style="margin-bottom:4px;"><br>[Insert Signature]<br><strong>{SignatoryName}</strong><br>Head of Opposition Unit<br>The Trademark Registry<br>Federal Ministry of Industry, Trade and Investment<br>Federal Capital Territory, Abuja, Nigeria</p>
+                        <div class="footer">This is an automated notice from the Trademark Registry. If you believe you have received this message in error, please contact trademarks@iponigeria.com immediately.</div>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>
+ 
