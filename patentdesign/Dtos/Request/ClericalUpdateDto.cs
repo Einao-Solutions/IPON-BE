@@ -33,7 +33,6 @@ namespace patentdesign.Dtos.Request
         public string? CorrespondenceEmail { get; set; }
         public string? CorrespondencePhone { get; set; }
         public string? CorrespondenceNationality { get; set; }
-        public string? CorrespondenceState { get; set; }
         public PatentApplicationTypes? PatentApplicationType { get; set; }
         public string? TitleOfInvention { get; set; }
         public string? FileOrigin { get; set; }
@@ -68,17 +67,6 @@ namespace patentdesign.Dtos.Request
         public List<string>? NewInventorStates { get; set; }
         public List<string>? OldInventorCities { get; set; }
         public List<string>? NewInventorCities { get; set; }
-
-        // For priority info update
-        public List<PriorityInfo>? FirstPriorityInfo { get; set; }
-        public List<PriorityInfo>? PriorityInfo { get; set; }
-
-        // For audit/history (optional, if you want to track old/new in the DTO)
-        public List<PriorityInfo>? OldFirstPriorityInfo { get; set; }
-        public List<PriorityInfo>? NewFirstPriorityInfo { get; set; }
-        public List<PriorityInfo>? OldPriorityInfo { get; set; }
-        public List<PriorityInfo>? NewPriorityInfo { get; set; }
-        public string? PatentAbstract { get; set; }
     }
 
     public class ClericalUpdateDetailsDto
