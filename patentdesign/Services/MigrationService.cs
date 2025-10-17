@@ -279,21 +279,8 @@ public class MigrationService
             {
                 Console.WriteLine(payment);
             }
-            
             var paid = await _paymentService.CheckPayment(paymentId);
-            XpayApplicant applicant = null;
-            XpayTwallet xpay = null;
-            
-            if (paid == null)
-            {
-                Console.WriteLine("Not a remita id");
-                xpay = await _xpayTwalletCollection.Find(x => x.transID == searchId).FirstOrDefaultAsync();
-                if (xpay == null) throw new Exception("Payment Not Found");
-                
-                string appId = xpay.applicantID.ToString() ?? "";
-                applicant = await _xpayApplicantCollection.Find(a => a.xid == appId).FirstOrDefaultAsync();
-                if (applicant == null) throw new Exception("Applicant Not Found");
-            }
+            if (paid == null) Console.WriteLine("Not a remita id");
            
             ApplicationStatuses status = ApplicationStatuses.None;
             switch (payment?.data_status)
@@ -329,34 +316,36 @@ public class MigrationService
                     status = ApplicationStatuses.AwaitingSearch;
                     break;
             }
-            
+            var xpay = await _xpayTwalletCollection.Find(x=>x.transID == searchId).FirstOrDefaultAsync();
+            if (xpay == null) throw new Exception("Payment Not Found");
+            string appId = xpay.applicantID.ToString() ?? "";
+            var applicant = await _xpayApplicantCollection.Find(a => a.xid == appId).FirstOrDefaultAsync();
+            if (applicant == null) throw new Exception("Applicant Not Found");
             var applicants = new List<ApplicantInfo>();
             var app = new ApplicantInfo
             {
-                Name = paid?.payerName ?? applicant?.xname,
-                Email = paid?.payerEmail ?? applicant?.xemail,
-                Address = applicant?.address,
-                Phone = paid?.payerPhoneNumber ?? applicant?.xmobile,
+                Name = paid.payerName ?? applicant.xname,
+                Email = paid.payerEmail ?? applicant.xemail,
+                Address = applicant.address,
+                Phone = paid.payerPhoneNumber ?? applicant.xmobile,
             };
             applicants.Add(app);
-            
             var history = new List<ApplicationInfo>();
-            var altDate = !string.IsNullOrEmpty(paid?.paymentDate) 
+            var altDate = !string.IsNullOrEmpty(paid.paymentDate) 
                 ? DateTime.Parse(paid.paymentDate) 
                 : DateTime.Now;
 
             var newApp = new ApplicationInfo
             {
-                PaymentId = paid?.rrr ?? paymentId,
-                ApplicationDate = xpay?.xreg_date ?? altDate,
+                PaymentId = paid.rrr ?? paymentId,
+                ApplicationDate = xpay.xreg_date ?? altDate,
                 ApplicationType = FormApplicationTypes.NewApplication,
                 CurrentStatus = status 
             };
             history.Add(newApp);
-            
             var details = new MarkInfoDto
             {
-                FilingDate = xpay?.xreg_date.ToString() ?? altDate.ToString(),
+                FilingDate = xpay.xreg_date.ToString(),
                 FileStatus = status,
                 Applicants = applicants,
                 ApplicationHistory = history

@@ -227,15 +227,6 @@ public record ClericalUpdate
     public string? NewCorrespondenceEmail { get; set; }
     public string? OldCorrespondencePhone { get; set; }
     public string? NewCorrespondencePhone { get; set; }
-    public string? OldCorrespondenceNationality { get; set; }
-    public string? NewCorrespondenceNationality { get; set; }
-    public string? OldCorrespondenceState { get; set; }
-    public string? NewCorrespondenceState { get; set; }
-    public string? OldPatentAbstract { get; set; }
-    public string? NewPatentAbstract { get; set; }
-
-    public PatentApplicationTypes OldPatentApplicationType { get; set; }
-    public PatentApplicationTypes NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
     public string? NewRepresentationUrl { get; set; }
     public string? OldPowerOfAttorneyUrl { get; set; }
@@ -279,12 +270,6 @@ public record ClericalUpdate
     public List<string>? NewInventorStates { get; set; }
     public List<string>? OldInventorCities { get; set; }
     public List<string>? NewInventorCities { get; set; }
-
-    // For priority info update
-    public List<PriorityInfo>? OldFirstPriorityInfo { get; set; }
-    public List<PriorityInfo>? NewFirstPriorityInfo { get; set; }
-    public List<PriorityInfo>? OldPriorityInfo { get; set; }
-    public List<PriorityInfo>? NewPriorityInfo { get; set; }
 }
 
 public record Appeal
