@@ -1,71 +1,58 @@
-# ===========================
-# PRODUCTION DEPLOYMENT PIPELINE
-# ===========================
-
-# Only trigger this pipeline when code is pushed to the production branch
 trigger:
-  branches:
-    include:
-      - production
+  - production    # Only run when changes are pushed to 'production' branch
 
-# Disable PR-triggered runs
-pr: none
+pr: none        # Prevent pipeline from running on Pull Requests
 
-# Use your self-hosted IIS agent pool
 pool:
-  name: 'IISPool'
+  name: 'IISPool'   # Your self-hosted agent pool
 
 variables:
   buildConfiguration: 'Release'
 
 stages:
-  # ===========================
-  # 1️⃣ BUILD STAGE
-  # ===========================
+  # ================================
+  # 🔨 BUILD STAGE
+  # ================================
   - stage: Build
     displayName: 'Build .NET 8 Backend'
     jobs:
       - job: BuildJob
-        displayName: 'Restore, Build, and Publish'
+        displayName: 'Build and Publish'
         steps:
           - task: UseDotNet@2
-            displayName: 'Install .NET 8 SDK'
             inputs:
               packageType: 'sdk'
               version: '8.x'
-          
-          # Restore dependencies
+            displayName: 'Install .NET 8 SDK'
+
+          - script: dir
+            displayName: 'List project directory (debug step)'
+
           - script: dotnet restore ./patentdesign.csproj
+            workingDirectory: '$(System.DefaultWorkingDirectory)'
             displayName: 'Restore dependencies'
-          
-          # Build & publish to artifact staging directory
+
           - script: dotnet publish ./patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
-            displayName: 'Build & Publish Backend'
-          
-          # Optional: verify the artifact folder exists
-          - script: dir $(Build.ArtifactStagingDirectory)
-            displayName: 'Check Artifact Directory'
-          
-          # Publish the build output as an artifact
+            workingDirectory: '$(System.DefaultWorkingDirectory)'
+            displayName: 'Build & Publish backend'
+
           - task: PublishBuildArtifacts@1
-            displayName: 'Publish Build Artifacts'
             inputs:
               PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend'
               ArtifactName: 'backend'
               publishLocation: 'Container'
+            displayName: 'Publish build artifacts'
   
   
-  # ===========================
-  # 2️⃣ DEPLOY STAGE
-  # ===========================
+  # ================================
+  # 🚀 DEPLOY STAGE
+  # ================================
   - stage: Deploy
     displayName: 'Deploy to IIS Server'
     dependsOn: Build
-    # 🔒 Only deploy if manually triggered or approved
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/production'))
     jobs:
       - deployment: DeployJob
-        displayName: 'Deploy to IIS'
+        displayName: 'Deploy Application'
         environment: 'Production'
         strategy:
           runOnce:
@@ -75,7 +62,7 @@ stages:
                   artifact: backend
 
                 - task: PowerShell@2
-                  displayName: 'Stop App Pool, Clear Old Files, and Deploy New Build'
+                  displayName: 'Stop App Pool, clear old files & deploy new version'
                   inputs:
                     targetType: 'inline'
                     script: |

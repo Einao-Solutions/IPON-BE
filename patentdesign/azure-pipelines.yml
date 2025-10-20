@@ -1,46 +1,60 @@
 trigger:
-  - dev   # only runs when code is pushed to the dev branch
+  - dev           # Runs only when changes are pushed to 'dev' branch
 
-pr: none
+pr: none        # Prevents auto-builds for pull requests
 
 pool:
-  name: 'IISPool'
+  name: 'IISPool'   # Your self-hosted agent pool name
 
 variables:
-  buildConfiguration: 'Release'
+  buildConfiguration: 'Debug'   # Typically use Debug for dev
+  environmentName: 'Development'
 
 stages:
+  # ================================
+  # 🔨 BUILD STAGE
+  # ================================
   - stage: Build
-    displayName: 'Build .NET 8 backend'
+    displayName: 'Build .NET 8 Backend (Dev)'
     jobs:
       - job: BuildJob
+        displayName: 'Build and Publish for Dev'
         steps:
           - task: UseDotNet@2
             inputs:
               packageType: 'sdk'
               version: '8.x'
-          
-          # ✅ Since YAML is in the same folder as the .csproj, just reference it directly
+            displayName: 'Install .NET 8 SDK'
+
+          - script: dir
+            displayName: 'List project directory (debug step)'
+
+          - script: dotnet restore ./patentdesign.csproj
+            workingDirectory: '$(System.DefaultWorkingDirectory)'
+            displayName: 'Restore dependencies'
+
           - script: dotnet publish ./patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
-            displayName: 'Build & publish backend'
-          
-          # Optional: check folder contents before publish
-          - script: dir $(Build.ArtifactStagingDirectory)
-            displayName: 'Check Artifact Directory'
+            workingDirectory: '$(System.DefaultWorkingDirectory)'
+            displayName: 'Build & Publish backend'
 
           - task: PublishBuildArtifacts@1
             inputs:
               PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend'
               ArtifactName: 'backend'
               publishLocation: 'Container'
-
+            displayName: 'Publish build artifacts'
+  
+  
+  # ================================
+  # 🚀 DEPLOY STAGE (DEV)
+  # ================================
   - stage: Deploy
-    displayName: 'Deploy to IIS'
+    displayName: 'Deploy to Dev IIS Server'
     dependsOn: Build
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dev'))
     jobs:
       - deployment: DeployJob
-        environment: 'Production'
+        displayName: 'Deploy Application (Dev)'
+        environment: 'Development'
         strategy:
           runOnce:
             deploy:
@@ -49,15 +63,15 @@ stages:
                   artifact: backend
 
                 - task: PowerShell@2
-                  displayName: 'Stop App Pool, clear old files & deploy new'
+                  displayName: 'Stop Dev App Pool, clear old files & deploy new version'
                   inputs:
                     targetType: 'inline'
                     script: |
                       Import-Module WebAdministration
                       
-                      $appPool = "Backend"
+                      $appPool = "IPONigeriaBackend-Dev"   # Dev app pool
                       $source = "$(Pipeline.Workspace)\backend\*"
-                      $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
+                      $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"   # Dev destination
                       
                       Write-Host "Stopping App Pool: $appPool"
                       try {
