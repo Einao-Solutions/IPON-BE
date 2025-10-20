@@ -57,7 +57,7 @@ stages:
               script: |
                 Import-Module WebAdministration
                 
-                $appPool = "IPONigeriaBackend-Dev"
+                $appPool = "Backend"
                 $source = "$(Pipeline.Workspace)\backend\*"
                 $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
                 
