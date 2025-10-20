@@ -1,19 +1,15 @@
 trigger:
-  - dev           # Runs only when changes are pushed to 'dev' branch
-
-pr: none        # Prevents auto-builds for pull requests
+  - dev
 
 pool:
-  name: 'IISPool'   # Your self-hosted agent pool name
+  name: 'IISPool'
+
+pr: none
 
 variables:
-  buildConfiguration: 'Debug'   # Typically use Debug for dev
-  environmentName: 'Development'
+  buildConfiguration: 'Debug'
 
 stages:
-  # ================================
-  # 🔨 BUILD STAGE
-  # ================================
   - stage: Build
     displayName: 'Build .NET 8 Backend (Dev)'
     jobs:
@@ -35,7 +31,7 @@ stages:
 
           - script: dotnet publish ./patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
             workingDirectory: '$(System.DefaultWorkingDirectory)'
-            displayName: 'Build & Publish backend'
+            displayName: 'Build & publish backend'
 
           - task: PublishBuildArtifacts@1
             inputs:
@@ -43,11 +39,7 @@ stages:
               ArtifactName: 'backend'
               publishLocation: 'Container'
             displayName: 'Publish build artifacts'
-  
-  
-  # ================================
-  # 🚀 DEPLOY STAGE (DEV)
-  # ================================
+
   - stage: Deploy
     displayName: 'Deploy to Dev IIS Server'
     dependsOn: Build
@@ -69,9 +61,9 @@ stages:
                     script: |
                       Import-Module WebAdministration
                       
-                      $appPool = "IPONigeriaBackend-Dev"   # Dev app pool
+                      $appPool = "IPONigeriaBackend-Dev"
                       $source = "$(Pipeline.Workspace)\backend\*"
-                      $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"   # Dev destination
+                      $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
                       
                       Write-Host "Stopping App Pool: $appPool"
                       try {

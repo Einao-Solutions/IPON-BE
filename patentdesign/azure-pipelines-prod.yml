@@ -1,97 +1,91 @@
-trigger:
-  - production    # Only run when changes are pushed to 'production' branch
 
-pr: none        # Prevent pipeline from running on Pull Requests
+trigger:
+
+- production   # adjust branch name if needed
 
 pool:
-  name: 'IISPool'   # Your self-hosted agent pool
+  name: 'IISPool'   # your agent pool name in Azure DevOps
 
+pr: none
 variables:
   buildConfiguration: 'Release'
 
 stages:
-  # ================================
-  # 🔨 BUILD STAGE
-  # ================================
-  - stage: Build
-    displayName: 'Build .NET 8 Backend'
-    jobs:
-      - job: BuildJob
-        displayName: 'Build and Publish'
-        steps:
-          - task: UseDotNet@2
+- stage: Build
+  displayName: 'Build .NET 8 backend'
+  jobs:
+  - job: BuildJob
+    displayName: 'Build and Publish for Production'
+    steps:
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '8.x'   # .NET SDK
+      displayName: 'Install .NET 8 SDK'
+
+    - script: dir
+      displayName: 'List project directory (debug step)'
+
+    - script: dotnet restore ./patentdesign.csproj
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      displayName: 'Restore dependencies'
+
+    - script: dotnet publish ./patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
+      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      displayName: 'Build & publish backend'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend'
+        ArtifactName: 'backend'
+        publishLocation: 'Container'
+      displayName: 'Publish build artifacts'
+
+- stage: Deploy
+  displayName: 'Deploy to IIS'
+  dependsOn: Build
+  jobs:
+  - deployment: DeployJob
+    displayName: 'Deploy Application (Production)'
+    environment: 'Production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: backend
+
+          - task: PowerShell@2
+            displayName: 'Stop App Pool, clear old files & deploy new'
             inputs:
-              packageType: 'sdk'
-              version: '8.x'
-            displayName: 'Install .NET 8 SDK'
+              targetType: 'inline'
+              script: |
+                Import-Module WebAdministration
 
-          - script: dir
-            displayName: 'List project directory (debug step)'
+                $appPool = "IPONigeriaBackend"
+                $source = "$(Pipeline.Workspace)\backend\*"
+                $destination = "C:\inetpub\wwwroot\IPO Nigeria Backend"
 
-          - script: dotnet restore ./patentdesign.csproj
-            workingDirectory: '$(System.DefaultWorkingDirectory)'
-            displayName: 'Restore dependencies'
+                Write-Host "Stopping App Pool: $appPool"
+                try {
+                  if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
+                      Stop-WebAppPool -Name $appPool
+                  } else {
+                      Write-Host "App Pool '$appPool' is already stopped."
+                  }
+                } catch {
+                  Write-Host "Warning: Could not stop App Pool. Continuing... ($($_.Exception.Message))"
+                }
 
-          - script: dotnet publish ./patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
-            workingDirectory: '$(System.DefaultWorkingDirectory)'
-            displayName: 'Build & Publish backend'
+                Write-Host "Removing old files in $destination"
+                Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
 
-          - task: PublishBuildArtifacts@1
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/backend'
-              ArtifactName: 'backend'
-              publishLocation: 'Container'
-            displayName: 'Publish build artifacts'
-  
-  
-  # ================================
-  # 🚀 DEPLOY STAGE
-  # ================================
-  - stage: Deploy
-    displayName: 'Deploy to IIS Server'
-    dependsOn: Build
-    jobs:
-      - deployment: DeployJob
-        displayName: 'Deploy Application'
-        environment: 'Production'
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - download: current
-                  artifact: backend
+                Write-Host "Copying new build from $source to $destination"
+                Copy-Item -Path $source -Destination $destination -Recurse -Force
 
-                - task: PowerShell@2
-                  displayName: 'Stop App Pool, clear old files & deploy new version'
-                  inputs:
-                    targetType: 'inline'
-                    script: |
-                      Import-Module WebAdministration
-                      
-                      $appPool = "IPONigeriaBackend"
-                      $source = "$(Pipeline.Workspace)\backend\*"
-                      $destination = "C:\inetpub\wwwroot\IPO Nigeria Backend"
-                      
-                      Write-Host "Stopping App Pool: $appPool"
-                      try {
-                        if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
-                            Stop-WebAppPool -Name $appPool
-                        } else {
-                            Write-Host "App Pool '$appPool' is already stopped."
-                        }
-                      } catch {
-                        Write-Host "Warning: Could not stop App Pool. Continuing... ($($_.Exception.Message))"
-                      }
-                      
-                      Write-Host "Removing old files in $destination"
-                      Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
-                      
-                      Write-Host "Copying new build from $source to $destination"
-                      Copy-Item -Path $source -Destination $destination -Recurse -Force
-                      
-                      Write-Host "Starting App Pool: $appPool"
-                      if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
-                          Start-WebAppPool -Name $appPool
-                      } else {
-                          Write-Host "App Pool '$appPool' is already running."
-                      }
+                Write-Host "Starting App Pool: $appPool"
+                if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
+                    Start-WebAppPool -Name $appPool
+                } else {
+                    Write-Host "App Pool '$appPool' is already running."
+                }
