@@ -6,7 +6,7 @@ trigger:
 pool:
   name: 'IISPool'   # your agent pool name in Azure DevOps
 
-
+pr: none
 variables:
   buildConfiguration: 'Release'
 
