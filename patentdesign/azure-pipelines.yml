@@ -25,11 +25,11 @@ stages:
           - script: dir
             displayName: 'List project directory (debug step)'
 
-          - script: dotnet restore ./patentdesign.csproj
+          - script: dotnet restore ./patentdesign/patentdesign.csproj
             workingDirectory: '$(System.DefaultWorkingDirectory)'
             displayName: 'Restore dependencies'
 
-          - script: dotnet publish ./patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
+          - script: dotnet publish ./patentdesign/patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
             workingDirectory: '$(System.DefaultWorkingDirectory)'
             displayName: 'Build & publish backend'
 
