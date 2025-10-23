@@ -6218,17 +6218,11 @@ public class FileServices
         if (!string.IsNullOrWhiteSpace(request.TitleOfDesign)) existing.TitleOfDesign = request.TitleOfDesign;
         if (!string.IsNullOrWhiteSpace(request.StatementOfNovelty)) existing.StatementOfNovelty = request.StatementOfNovelty;
         if (!string.IsNullOrWhiteSpace(request.TitleOfTradeMark)) existing.TitleOfTradeMark = request.TitleOfTradeMark;
-        if (!string.IsNullOrWhiteSpace(request.TrademarkClassDescription)) existing.TrademarkClassDescription = request.TrademarkClassDescription;
         if (!string.IsNullOrWhiteSpace(request.TrademarkDisclaimer)) existing.TrademarkDisclaimer = request.TrademarkDisclaimer;
         if (!string.IsNullOrWhiteSpace(request.RtmNumber)) existing.RtmNumber = request.RtmNumber;
         if (!string.IsNullOrWhiteSpace(request.Comment)) existing.Comment = request.Comment;
-        if (!string.IsNullOrWhiteSpace(request.MigratedPCTNo)) existing.MigratedPCTNo = request.MigratedPCTNo;
 
         // Nullable types
-        if (request.LastRequestDate != null) existing.LastRequestDate = request.LastRequestDate.Value;
-        if (request.LastRequest != null) existing.LastRequest = request.LastRequest.Value;
-        if (request.FileStatus != null) existing.FileStatus = request.FileStatus.Value;
-        if (request.Type != null) existing.Type = request.Type.Value;
         if (request.PatentApplicationType != null) existing.PatentApplicationType = request.PatentApplicationType.Value;
         if (request.PatentType != null) existing.PatentType = request.PatentType.Value;
         if (request.DesignType != null) existing.DesignType = request.DesignType.Value;
@@ -6256,9 +6250,6 @@ public class FileServices
             if (!string.IsNullOrWhiteSpace(request.Correspondence.state))
                 existing.Correspondence.state = request.Correspondence.state;
         }
-
-        if (request.FieldStatus != null && request.FieldStatus.Any())
-            existing.FieldStatus = request.FieldStatus;
 
         void MergeList<T>(List<T> existingList, List<T> incomingList, Func<T, string> getId, Action<T, T> mergeItem)
         {
@@ -6299,20 +6290,6 @@ public class FileServices
                 if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
             });
 
-        if (request.Revisions?.Any() == true)
-            MergeList(existing.Revisions, request.Revisions, x => x.TransactionId, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.AssociatedTrade)) e.AssociatedTrade = u.AssociatedTrade;
-                if (u.OldValue != null) e.OldValue = u.OldValue;
-                if (u.NewValue != null) e.NewValue = u.NewValue;
-                if (!string.IsNullOrWhiteSpace(u.Property)) e.Property = u.Property;
-                if (!string.IsNullOrWhiteSpace(u.AmountPaid)) e.AmountPaid = u.AmountPaid;
-                if (!string.IsNullOrWhiteSpace(u.TransactionId)) e.TransactionId = u.TransactionId;
-                if (u.DateTime != default) e.DateTime = u.DateTime;
-                if (!string.IsNullOrWhiteSpace(u.userName)) e.userName = u.userName;
-                if (!string.IsNullOrWhiteSpace(u.userId)) e.userId = u.userId;
-                if (u.currentStatus.HasValue) e.currentStatus = u.currentStatus;
-            });
-
         if (request.PriorityInfo?.Any() == true)
             MergeList(existing.PriorityInfo, request.PriorityInfo, x => x.id, (e, u) => {
                 if (!string.IsNullOrWhiteSpace(u.number)) e.number = u.number;
@@ -6324,122 +6301,6 @@ public class FileServices
             MergeList(existing.Attachments, request.Attachments, x => x.name, (e, u) => {
                 if (!string.IsNullOrWhiteSpace(u.name)) e.name = u.name;
                 if (u.url != null && u.url.Any()) e.url = u.url;
-            });
-
-        //if (request.ApplicationHistory?.Any() == true)
-        //    MergeList(existing.ApplicationHistory, request.ApplicationHistory, x => x.id, (e, u) => {
-        //        e.ApplicationType = u.ApplicationType;
-        //        e.CurrentStatus = u.CurrentStatus;
-        //        if (u.ExpiryDate != null) e.ExpiryDate = u.ExpiryDate;
-        //        if (!string.IsNullOrWhiteSpace(u.PaymentId)) e.PaymentId = u.PaymentId;
-        //        if (!string.IsNullOrWhiteSpace(u.CertificatePaymentId)) e.CertificatePaymentId = u.CertificatePaymentId;
-        //        if (u.ApplicationDate != default) e.ApplicationDate = u.ApplicationDate;
-        //        if (!string.IsNullOrWhiteSpace(u.LicenseType)) e.LicenseType = u.LicenseType;
-        //        if (!string.IsNullOrWhiteSpace(u.OldValue)) e.OldValue = u.OldValue;
-        //        if (!string.IsNullOrWhiteSpace(u.NewValue)) e.NewValue = u.NewValue;
-        //        if (!string.IsNullOrWhiteSpace(u.FieldToChange)) e.FieldToChange = u.FieldToChange;
-        //        if (u.Letters != null && u.Letters.Any()) e.Letters = u.Letters;
-        //        if (u.StatusHistory?.Any() == true) e.StatusHistory = u.StatusHistory;
-        //        if (u.ApplicationLetters?.Any() == true) e.ApplicationLetters = u.ApplicationLetters;
-        //        if (u.Assignment != null) e.Assignment = u.Assignment;
-        //        if (!string.IsNullOrWhiteSpace(u.RegisteredUser)) e.RegisteredUser = u.RegisteredUser;
-        //    });
-
-        if (request.Registered_Users?.Any() == true)
-            MergeList(existing.Registered_Users, request.Registered_Users, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.FileId)) e.FileId = u.FileId;
-                if (u.isApproved.HasValue) e.isApproved = u.isApproved;
-            });
-
-        if (request.RegisteredUsers?.Any() == true)
-            MergeList(existing.RegisteredUsers, request.RegisteredUsers, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.FileId)) e.FileId = u.FileId;
-                if (u.isApproved.HasValue) e.isApproved = u.isApproved;
-            });
-
-        if (request.Assignees?.Any() == true)
-            MergeList(existing.Assignees, request.Assignees, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.FileId)) e.FileId = u.FileId;
-                if (!string.IsNullOrWhiteSpace(u.rrr)) e.rrr = u.rrr;
-                if (!string.IsNullOrWhiteSpace(u.AuthorizationLetterUrl)) e.AuthorizationLetterUrl = u.AuthorizationLetterUrl;
-                if (!string.IsNullOrWhiteSpace(u.AssignmentDeedUrl)) e.AssignmentDeedUrl = u.AssignmentDeedUrl;
-                if (u.isApproved.HasValue) e.isApproved = u.isApproved;
-            });
-
-        if (request.PostRegApplications?.Any() == true)
-            MergeList(existing.PostRegApplications, request.PostRegApplications, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.RecordalType)) e.RecordalType = u.RecordalType;
-                if (!string.IsNullOrWhiteSpace(u.FileNumber)) e.FileNumber = u.FileNumber;
-                if (!string.IsNullOrWhiteSpace(u.FilingDate)) e.FilingDate = u.FilingDate;
-                if (!string.IsNullOrWhiteSpace(u.DateTreated)) e.DateTreated = u.DateTreated;
-                if (!string.IsNullOrWhiteSpace(u.Reason)) e.Reason = u.Reason;
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.dateOfRecordal)) e.dateOfRecordal = u.dateOfRecordal;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.documentUrl)) e.documentUrl = u.documentUrl;
-                if (!string.IsNullOrWhiteSpace(u.document2Url)) e.document2Url = u.document2Url;
-                if (!string.IsNullOrWhiteSpace(u.receiptUrl)) e.receiptUrl = u.receiptUrl;
-                if (!string.IsNullOrWhiteSpace(u.certificateUrl)) e.certificateUrl = u.certificateUrl;
-                if (!string.IsNullOrWhiteSpace(u.rejectionUrl)) e.rejectionUrl = u.rejectionUrl;
-                if (!string.IsNullOrWhiteSpace(u.acknowledgementUrl)) e.acknowledgementUrl = u.acknowledgementUrl;
-                if (!string.IsNullOrWhiteSpace(u.message)) e.message = u.message;
-                if (!string.IsNullOrWhiteSpace(u.rrr)) e.rrr = u.rrr;
-            });
-
-        if (request.ClericalUpdates?.Any() == true)
-            MergeList(existing.ClericalUpdates, request.ClericalUpdates, x => x.Id, (e, u) =>
-            {
-                if (!string.IsNullOrWhiteSpace(u.UpdateType)) e.UpdateType = u.UpdateType;
-                if (u.FilingDate != default) e.FilingDate = u.FilingDate;
-                if (!string.IsNullOrWhiteSpace(u.PaymentRRR)) e.PaymentRRR = u.PaymentRRR;
-                if (!string.IsNullOrWhiteSpace(u.OldTrademarkLogo)) e.OldTrademarkLogo = u.OldTrademarkLogo;
-                if (!string.IsNullOrWhiteSpace(u.NewTrademarkLogo)) e.NewTrademarkLogo = u.NewTrademarkLogo;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantName)) e.OldApplicantName = u.OldApplicantName;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantName)) e.NewApplicantName = u.NewApplicantName;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantAddress)) e.OldApplicantAddress = u.OldApplicantAddress;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantAddress)) e.NewApplicantAddress = u.NewApplicantAddress;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantNationality)) e.OldApplicantNationality = u.OldApplicantNationality;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantNationality)) e.NewApplicantNationality = u.NewApplicantNationality;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantEmail)) e.OldApplicantEmail = u.OldApplicantEmail;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantEmail)) e.NewApplicantEmail = u.NewApplicantEmail;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantPhone)) e.OldApplicantPhone = u.OldApplicantPhone;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantPhone)) e.NewApplicantPhone = u.NewApplicantPhone;
-                if (!string.IsNullOrWhiteSpace(u.OldFileClass)) e.OldFileClass = u.OldFileClass;
-                if (!string.IsNullOrWhiteSpace(u.NewFileClass)) e.NewFileClass = u.NewFileClass;
-                if (!string.IsNullOrWhiteSpace(u.OldClassDescription)) e.OldClassDescription = u.OldClassDescription;
-                if (!string.IsNullOrWhiteSpace(u.NewClassDescription)) e.NewClassDescription = u.NewClassDescription;
-                if (!string.IsNullOrWhiteSpace(u.OldFileTitle)) e.OldFileTitle = u.OldFileTitle;
-                if (!string.IsNullOrWhiteSpace(u.NewFileTitle)) e.NewFileTitle = u.NewFileTitle;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondenceName)) e.OldCorrespondenceName = u.OldCorrespondenceName;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondenceName)) e.NewCorrespondenceName = u.NewCorrespondenceName;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondenceAddress)) e.OldCorrespondenceAddress = u.OldCorrespondenceAddress;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondenceAddress)) e.NewCorrespondenceAddress = u.NewCorrespondenceAddress;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondenceEmail)) e.OldCorrespondenceEmail = u.OldCorrespondenceEmail;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondenceEmail)) e.NewCorrespondenceEmail = u.NewCorrespondenceEmail;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondencePhone)) e.OldCorrespondencePhone = u.OldCorrespondencePhone;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondencePhone)) e.NewCorrespondencePhone = u.NewCorrespondencePhone;
-                if (!string.IsNullOrWhiteSpace(u.OldRepresentationUrl)) e.OldRepresentationUrl = u.OldRepresentationUrl;
-                if (!string.IsNullOrWhiteSpace(u.NewRepresentationUrl)) e.NewRepresentationUrl = u.NewRepresentationUrl;
-                if (!string.IsNullOrWhiteSpace(u.OldPowerOfAttorneyUrl)) e.OldPowerOfAttorneyUrl = u.OldPowerOfAttorneyUrl;
-                if (!string.IsNullOrWhiteSpace(u.NewPowerOfAttorneyUrl)) e.NewPowerOfAttorneyUrl = u.NewPowerOfAttorneyUrl;
             });
 
         await _fillingCollection.ReplaceOneAsync(
