@@ -5,6 +5,7 @@ using System.Net.Mail;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
+using Org.BouncyCastle.Asn1.Cms;
 
 namespace patentdesign.Models;
 
@@ -285,6 +286,10 @@ public record ClericalUpdate
     public List<PriorityInfo>? NewFirstPriorityInfo { get; set; }
     public List<PriorityInfo>? OldPriorityInfo { get; set; }
     public List<PriorityInfo>? NewPriorityInfo { get; set; }
+    public bool? IsAmendment { get; set; } = false;
+    public DateTime? DateTreated { get; set; }
+    public string? Reason { get; set; }
+    public bool? IsApproved { get; set; } = false;
 }
 
 public record Appeal
@@ -682,7 +687,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment
 }
 public enum ApplicationLetters
 {

@@ -98,5 +98,13 @@ namespace patentdesign.Dtos.Request
         public string? NewValue4 { get; set; }
         public string? NewRepresentation { get; set; }
         public string? NewPowerOfAttorneyUrl { get; set; }
+        public bool? IsAmendment { get; set; }
     }   
+
+    public class AmendmentDto
+    {
+        public string fileId { get; set; }
+        public string appId { get; set; }
+        public string reason { get; set; }
+    }
 }
