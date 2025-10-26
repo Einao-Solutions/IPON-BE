@@ -21,7 +21,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<Filling?>> GetFile(string id)
     {
-        return await fileService.GetFileAsync(id); 
+        return await fileService.GetFileAsync(id);
     }
 
     [HttpDelete("{id}")]
@@ -529,7 +529,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         {
             return NoContent();
         }
-        
+
         return Ok(res);
     }
 
@@ -807,7 +807,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
     [HttpPost("ClericalUpdate")]
-    public async Task<IActionResult> ClericalUpdate([FromForm]ClericalUpdateDto clericalUpdate)
+    public async Task<IActionResult> ClericalUpdate([FromForm] ClericalUpdateDto clericalUpdate)
     {
         var res = await fileService.ClericalUpdate(clericalUpdate);
         if (res == false)
@@ -817,7 +817,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
     [HttpPost("UpdateRecordalStatus")]
-    public async Task<IActionResult> UpdateRecordalStatus([FromQuery]string fileId,[FromQuery] string rrr)
+    public async Task<IActionResult> UpdateRecordalStatus([FromQuery] string fileId, [FromQuery] string rrr)
     {
         var res = await fileService.UpdateRecordalStatus(fileId, rrr);
         if (res == false)
@@ -827,7 +827,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
     [HttpPost("UpdateCertificatePaymentStatus")]
-    public async Task<IActionResult> UpdateCertificatePaymentStatus([FromQuery]string fileId, [FromQuery]string rrr)
+    public async Task<IActionResult> UpdateCertificatePaymentStatus([FromQuery] string fileId, [FromQuery] string rrr)
     {
         var res = await fileService.UpdateCertificatePaymentStatus(fileId, rrr);
         if (res == false)
@@ -838,7 +838,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     [HttpGet("GetClericalUpdateApp")]
-    public async Task<IActionResult> GetClericalUpdateApp([FromQuery] string fileId,[FromQuery] string appId)
+    public async Task<IActionResult> GetClericalUpdateApp([FromQuery] string fileId, [FromQuery] string appId)
     {
         var res = await fileService.GetClericalUpdateApp(fileId, appId);
         if (res == null)
@@ -943,7 +943,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     [HttpPost("appeal-module")]
-    public async Task<IActionResult> AppealModule([FromForm]AppealDto appeal)
+    public async Task<IActionResult> AppealModule([FromForm] AppealDto appeal)
     {
         var result = await fileService.UploadAppealFiles(appeal);
 
@@ -1034,5 +1034,17 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-        
+
+    [HttpPost("approve-amendment")]
+    public async Task<IActionResult> ApproveAmendment([FromBody] AmendmentDto dto)
+    {
+        var res = await fileService.ApproveAmendmentAsync(dto);
+        if (res == false)
+        {
+            Console.WriteLine("Failed to approve amendment");
+            return NotFound();
+        }
+        return Ok(res);
+
+    }
 }
