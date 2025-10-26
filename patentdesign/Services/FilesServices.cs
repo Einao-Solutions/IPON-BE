@@ -6086,20 +6086,14 @@ public class FileServices
             {
                 //Id = filling.Id,
                 FileId = filling.FileId,
-                LastRequestDate = filling.LastRequestDate,
-                CreatorAccount = filling.CreatorAccount,
-                FileStatus = filling.FileStatus,
                 FileOrigin = filling.FileOrigin,
                 FilingCountry = filling.FilingCountry,
-                //DateCreated = filling.DateCreated,
                 Type = filling.Type,
                 TitleOfInvention = filling.TitleOfInvention,
                 PatentAbstract = filling.PatentAbstract,
                 Correspondence = filling.Correspondence,
-                LastRequest = filling.LastRequest,
                 applicants = filling.applicants,
                 PatentApplicationType = filling.PatentApplicationType,
-                Revisions = filling.Revisions,
                 PatentType = filling.PatentType,
                 Inventors = filling.Inventors,
                 PriorityInfo = filling.PriorityInfo,
@@ -6109,7 +6103,6 @@ public class FileServices
                 StatementOfNovelty = filling.StatementOfNovelty,
                 DesignCreators = filling.DesignCreators,
                 Attachments = filling.Attachments,
-                FieldStatus = filling.FieldStatus,
                 TitleOfTradeMark = filling.TitleOfTradeMark,
                 TrademarkClass = filling.TrademarkClass,
                 TrademarkClassDescription = filling.TrademarkClassDescription,
@@ -6118,12 +6111,6 @@ public class FileServices
                 TrademarkDisclaimer = filling.TrademarkDisclaimer,
                 RtmNumber = filling.RtmNumber,
                 Comment = filling.Comment,
-                Registered_Users = filling.Registered_Users,
-                RegisteredUsers = filling.RegisteredUsers,
-                Assignees = filling.Assignees,
-                PostRegApplications = filling.PostRegApplications,
-                ClericalUpdates = filling.ClericalUpdates,
-                MigratedPCTNo = filling.MigratedPCTNo
             };
 
             return dto;
@@ -6212,7 +6199,6 @@ public class FileServices
             return (404, "Filing record not found");
 
         // Scalar fields
-        if (!string.IsNullOrWhiteSpace(request.CreatorAccount)) existing.CreatorAccount = request.CreatorAccount;
         if (!string.IsNullOrWhiteSpace(request.TitleOfInvention)) existing.TitleOfInvention = request.TitleOfInvention;
         if (!string.IsNullOrWhiteSpace(request.PatentAbstract)) existing.PatentAbstract = request.PatentAbstract;
         if (!string.IsNullOrWhiteSpace(request.TitleOfDesign)) existing.TitleOfDesign = request.TitleOfDesign;
@@ -6221,6 +6207,7 @@ public class FileServices
         if (!string.IsNullOrWhiteSpace(request.TrademarkDisclaimer)) existing.TrademarkDisclaimer = request.TrademarkDisclaimer;
         if (!string.IsNullOrWhiteSpace(request.RtmNumber)) existing.RtmNumber = request.RtmNumber;
         if (!string.IsNullOrWhiteSpace(request.Comment)) existing.Comment = request.Comment;
+        if (!string.IsNullOrEmpty(request.FilingCountry)) existing.FilingCountry = request.FilingCountry;
 
         // Nullable types
         if (request.PatentApplicationType != null) existing.PatentApplicationType = request.PatentApplicationType.Value;
@@ -6267,41 +6254,96 @@ public class FileServices
             }
         }
 
-        if (request.applicants?.Any() == true)
-            MergeList(existing.applicants, request.applicants, x => x.id, (e, u) => { if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name; if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country; if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city; if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone; if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email; if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address; });
+        // === FULL REPLACEMENT for these 4 fields ===
+        if (request.applicants != null)
+            existing.applicants = request.applicants;
 
-        if (request.Inventors?.Any() == true)
-            MergeList(existing.Inventors, request.Inventors, x => x.id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country;
-                if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-            });
+        if (request.Inventors != null)
+            existing.Inventors = request.Inventors;
 
-        if (request.DesignCreators?.Any() == true)
-            MergeList(existing.DesignCreators, request.DesignCreators, x => x.id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country;
-                if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-            });
+        if (request.PriorityInfo != null)
+            existing.PriorityInfo = request.PriorityInfo;
 
-        if (request.PriorityInfo?.Any() == true)
-            MergeList(existing.PriorityInfo, request.PriorityInfo, x => x.id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.number)) e.number = u.number;
-                if (!string.IsNullOrWhiteSpace(u.Country)) e.Country = u.Country;
-                if (!string.IsNullOrWhiteSpace(u.Date)) e.Date = u.Date;
-            });
+        if (request.FirstPriorityInfo != null)
+            existing.FirstPriorityInfo = request.FirstPriorityInfo;
 
-        if (request.Attachments?.Any() == true)
-            MergeList(existing.Attachments, request.Attachments, x => x.name, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.name)) e.name = u.name;
-                if (u.url != null && u.url.Any()) e.url = u.url;
-            });
+        if (request.DesignCreators != null)
+            existing.DesignCreators = request.DesignCreators;
+
+        if (request.UpdatedAttachments != null)
+        {
+            var newAttachments = new List<AttachmentType>();
+
+            // 1. Add existing attachments
+            foreach (var att in request.UpdatedAttachments.ExistingAttachments)
+            {
+                newAttachments.Add(new AttachmentType
+                {
+                    name = att.name,
+                    url = att.url
+                });
+            }
+
+            // 2. Add new attachments, merging if name exists
+            var groupedNewFiles = request.UpdatedAttachments.NewAttachments.GroupBy(f => f.Name);
+            foreach (var group in groupedNewFiles)
+            {
+                var uploadedUrls = await UploadAttachment(group.ToList());
+                var existingAttachment = newAttachments.FirstOrDefault(a => a.name == group.Key);
+                if (existingAttachment != null)
+                {
+                    // Append new URLs to existing attachment
+                    existingAttachment.url.AddRange(uploadedUrls);
+                }
+                else
+                {
+                    // Create new attachment entry
+                    newAttachments.Add(new AttachmentType
+                    {
+                        name = group.Key,
+                        url = uploadedUrls
+                    });
+                }
+            }
+
+            existing.Attachments = newAttachments;
+        }
+
+        //if (request.UpdatedAttachments != null)
+        //{
+        //    var newAttachments = new List<AttachmentType>();
+
+        //    // 1. Process existing attachments (URLs)
+        //    foreach (var att in request.UpdatedAttachments.ExistingAttachments)
+        //    {
+        //        newAttachments.Add(new AttachmentType
+        //        {
+        //            name = att.name,
+        //            url = att.url
+        //        });
+        //    }
+
+        //    // 2. Process new attachments (files to upload)
+        //    var groupedNewFiles = request.UpdatedAttachments.NewAttachments.GroupBy(f => f.Name);
+        //    foreach (var group in groupedNewFiles)
+        //    {
+        //        var uploadedUrls = await UploadAttachment(group.ToList());
+        //        newAttachments.Add(new AttachmentType
+        //        {
+        //            name = group.Key,
+        //            url = uploadedUrls
+        //        });
+        //    }
+
+        //    // 3. Replace the attachments list with the new one
+        //    existing.Attachments = newAttachments;
+        //}
+
+        //if (request.Attachments?.Any() == true)
+        //    MergeList(existing.Attachments, request.Attachments, x => x.name, (e, u) => {
+        //        if (!string.IsNullOrWhiteSpace(u.name)) e.name = u.name;
+        //        if (u.url != null && u.url.Any()) e.url = u.url;
+        //    });
 
         await _fillingCollection.ReplaceOneAsync(
             x => x.FileId == request.FileId, existing
@@ -6318,7 +6360,6 @@ public class FileServices
             "File Info",
             request.UpdatedBy ?? "Unknown User"
         );
-
 
         return (200, "Filing record updated successfully.");
     }
