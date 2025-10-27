@@ -37,7 +37,7 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                 column.Item().Height(10);
                 column.Item().AlignCenter().Text($"NIGERIA").FontFamily(Fonts.TimesNewRoman).FontSize(13).Bold();
                 column.Item().Height(10);
-                column.Item().AlignCenter().Text($"Certificate Of Change of Applicant Name")
+                column.Item().AlignCenter().Text($"Certificate Of Change of Applicant Address")
                     .FontFamily("Certificate").FontSize(30).Bold().FontColor(Colors.Green.Darken3);
                 column.Item().Height(10);
                 column.Item().AlignCenter().Text($"TRADE MARKS ACT").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
