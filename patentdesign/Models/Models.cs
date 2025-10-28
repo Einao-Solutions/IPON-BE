@@ -8,7 +8,23 @@ using MongoDB.Bson.Serialization.Options;
 using Org.BouncyCastle.Asn1.Cms;
 
 namespace patentdesign.Models;
+public class AppUser
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; }
+    public string Email { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public UserTypes UserType { get; set; }
+    public List<UserRoles> UserRoles { get; set; } = new();
+    public bool isVerified { get; set; } = false;
+    public string? Signature { get; set; }
+    public AccountType AccountType { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime? LastUpdatedAt { get; set; }
 
+}
 public record DesignForm
 {
     [Required] public ApplicantInfo ApplicantInfo { get; set; } = new();

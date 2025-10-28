@@ -1,18 +1,21 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Security.Authentication;
+using Microsoft.IdentityModel.Tokens;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 using patentdesign.Models;
 using patentdesign.Services;
-using patentdesign.Utils;
-using QuestPDF.Infrastructure;
-using QuestPDF.Drawing;
 using patentdesign.Services.Implementation;
 using patentdesign.Services.Interface;
+using patentdesign.Utils;
+using QuestPDF.Drawing;
+using QuestPDF.Infrastructure;
+using System.Security.Authentication;
+using System.Text;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +33,24 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
+
+// ------------------JWT-------------------------
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
+            )
+        };
+    });
 
 // ------------------ QuestPDF ------------------
 QuestPDF.Settings.License = LicenseType.Community;
