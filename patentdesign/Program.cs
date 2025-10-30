@@ -98,6 +98,7 @@ builder.Services.AddSingleton<AssignmentService>();
 builder.Services.AddSingleton<PaymentService>();
 builder.Services.AddSingleton<MigrationService>();
 builder.Services.AddSingleton<EmailServices>();
+builder.Services.AddSingleton<AuthServices>();
 
 // ------------------ Build & Configure App ------------------
 var app = builder.Build();

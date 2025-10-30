@@ -52,7 +52,6 @@ namespace patentdesign.Services
                     FirstName = req.FirstName,
                     LastName = req.LastName,
                     AccountType = req.AccountType,
-                    UserType = req.UserType,
                     UserRoles = req.UserRoles,
                     isVerified = req.isVerified,
                     Signature = req.Signature,
@@ -90,7 +89,7 @@ namespace patentdesign.Services
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        public async Task<string?> LoginUser(LoginDto req)
+        public async Task<AuthUserDto> LoginUser(LoginDto req)
         {
             try
             {
@@ -102,7 +101,12 @@ namespace patentdesign.Services
                     return null;
 
                 var token = GenerateJwtToken(user);
-                return token;
+                AuthUserDto authUser = new AuthUserDto
+                {
+                    Token = token,
+                    User = user
+                };
+                return authUser;
             }
             catch (Exception)
             {

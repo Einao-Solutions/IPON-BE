@@ -10,8 +10,6 @@ namespace patentdesign.Dtos.Request
         public string LastName { get; set; }
         public string Email { get; set; } 
         public string Password { get; set; } 
-        public string Salt { get; set; } 
-        public UserTypes UserType { get; set; }
         public List<UserRoles> UserRoles { get; set; } 
         public bool isVerified { get; set; } = false;
         public string? Signature { get; set; }
@@ -21,5 +19,12 @@ namespace patentdesign.Dtos.Request
     {
         public string Email { get; set; }
         public string Password { get; set; }
+    }
+
+    public class AuthUserDto
+    {
+        public string Token { get; set; }
+        public AppUser User { get; set; }
+
     }
 }

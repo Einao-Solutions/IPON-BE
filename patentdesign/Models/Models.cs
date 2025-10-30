@@ -12,6 +12,7 @@ public class AppUser
 {
     [BsonId]
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string CreatorId { get; set; }
     public string FirstName { get; set; } = "";
     public string LastName { get; set; }
     public string Email { get; set; } = "";
@@ -23,8 +24,10 @@ public class AppUser
     public AccountType AccountType { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public DateTime? LastUpdatedAt { get; set; }
-
+    public List<string>? Files { get; set; } = new();
+    public List<string>? VerificationDocs { get; set; }
 }
+
 public record DesignForm
 {
     [Required] public ApplicantInfo ApplicantInfo { get; set; } = new();

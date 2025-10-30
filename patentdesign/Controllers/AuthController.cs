@@ -21,9 +21,9 @@ namespace patentdesign.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto req)
         {
-            var token = await authServices.LoginUser(req);
-            if (token == null) return Unauthorized("Invalid email or password");
-            return Ok(new { token });
+            var user = await authServices.LoginUser(req);
+            if (user == null) return Unauthorized("Invalid email or password");
+            return Ok(user);
         }
     }
 }
