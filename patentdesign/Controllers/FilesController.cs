@@ -1,4 +1,5 @@
 using Azure.Core;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
@@ -7,6 +8,7 @@ using patentdesign.Services;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/files")]
 public class FilesController(FileServices fileService) : ControllerBase

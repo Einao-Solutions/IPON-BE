@@ -106,6 +106,7 @@ namespace patentdesign.Services
                     Token = token,
                     User = user
                 };
+                Console.WriteLine("Token: " + token);
                 return authUser;
             }
             catch (Exception)
@@ -113,5 +114,6 @@ namespace patentdesign.Services
                 throw;
             }
         }
+        
     }
 }
