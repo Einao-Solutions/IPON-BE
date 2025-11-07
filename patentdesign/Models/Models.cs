@@ -21,8 +21,7 @@ public class AppUser
     public string Nationality { get; set; } = "";
     public NigerianStates State { get; set; }
     public string PasswordHash { get; set; } = "";
-    public UserTypes UserType { get; set; }
-    public List<UserRoles> UserRoles { get; set; } = new();
+    public List<Roles> UserRoles { get; set; } = new();
     public bool isVerified { get; set; } = false;
     public string? Signature { get; set; }
     public AccountType AccountType { get; set; }

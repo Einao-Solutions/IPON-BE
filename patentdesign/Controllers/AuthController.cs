@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using patentdesign.Services;
 
@@ -24,6 +25,13 @@ namespace patentdesign.Controllers
             var user = await authServices.LoginUser(req);
             if (user == null) return Unauthorized("Invalid email or password");
             return Ok(user);
+        }
+        [HttpPost("transfer")]
+        public async Task<IActionResult> Transfer([FromBody] MigrateUserDto req)
+        {
+            var result = await authServices.TransferUser(req);
+            if (!result) return BadRequest("Transfer failed");
+            return Ok(new { message = "Transfer successful" });
         }
     }
 }

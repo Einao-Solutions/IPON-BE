@@ -9,24 +9,32 @@
     }
     public enum Roles
     {
+        User,
+        Staff,
         TrademarkSearch,
         TrademarkExaminer,
         TrademarkOpposition,
         TrademarkAcceptance,
         TrademarkCertification,
+        TrademarkPublication,
         TrademarkRegistrar,
         PatentSearch,
         PatentExaminer,
         PatentCertification,
+        AppealExaminer,
         DesignSearch,
         DesignExaminer,
         DesignCertification,
         PatentDesignRegistrar,
-        Ministry,
+        Finance,
+        PermSec,
+        Minister,
+        Tech,
         SuperAdmin
     }
     public enum NigerianStates
     {
+        None,
         Abia,
         Adamawa,
         AkwaIbom,

@@ -5,12 +5,15 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
 using Org.BouncyCastle.Crypto.Generators;
+using Org.BouncyCastle.Ocsp;
 using patentdesign.Dtos.Request;
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Authentication;
 using System.Security.Claims;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace patentdesign.Services
 {
@@ -18,6 +21,7 @@ namespace patentdesign.Services
     {
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
+        private static IMongoCollection<Filling> _fillingCollection;
         private MongoClient _mongoClient;
 
         public AuthServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config)
@@ -36,6 +40,7 @@ namespace patentdesign.Services
             _mongoClient = new MongoClient(settings);
             var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
             _users = pdDb.GetCollection<AppUser>("appUsers");
+            _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
         }
 
         public async Task<bool> CreateUser(RegisterDto req)
@@ -114,6 +119,144 @@ namespace patentdesign.Services
                 throw;
             }
         }
-        
+        private NigerianStates MapToNigerianState(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return NigerianStates.None;
+
+            // Trim and lower for comparisons
+            var s = raw.Trim();
+
+            // Remove the word "state" if present (e.g. "Lagos State" -> "Lagos")
+            s = Regex.Replace(s, @"\bstate\b", "", RegexOptions.IgnoreCase).Trim();
+
+            // Common aliases
+            var alias = s.ToLowerInvariant();
+            switch (alias)
+            {
+                case "abuja":
+                case "fct":
+                case "federal capital territory":
+                case "federal capital":
+                    return NigerianStates.FederalCapitalTerritory;
+            }
+
+            // Normalize: remove non-letters, collapse spaces, then remove spaces to match enum naming
+            var cleaned = Regex.Replace(s, @"[^A-Za-z\s]", " ").Trim();
+            cleaned = Regex.Replace(cleaned, @"\s+", " ");
+            var key = cleaned.Replace(" ", ""); // e.g. "Cross River" -> "CrossRiver", "Akwa Ibom" -> "AkwaIbom"
+
+            if (Enum.TryParse<NigerianStates>(key, true, out var parsed))
+                return parsed;
+
+            // As fallback, try parsing the cleaned string directly (some enums match single-word names)
+            if (Enum.TryParse<NigerianStates>(cleaned, true, out parsed))
+                return parsed;
+
+            return NigerianStates.None;
+        }
+        private List<Roles> MapToRole(List<UserRoles?> roles)
+        {
+            if (roles == null || roles.Count == 0) return new List<Roles> { Roles.User };
+            var mappedRoles = new List<Roles>();
+            foreach (var role in roles)
+            {
+                if (role == null)
+                {
+                    mappedRoles.Add(Roles.User);
+                    continue;
+                }
+                mappedRoles.Add(role switch
+                {
+                    UserRoles.PatentExaminer => Roles.PatentExaminer,
+                    UserRoles.PatentSearch => Roles.PatentSearch,
+                    UserRoles.TrademarkExaminer => Roles.TrademarkExaminer,
+                    UserRoles.TrademarkSearch => Roles.TrademarkSearch,
+                    UserRoles.DesignSearch => Roles.DesignSearch,
+                    UserRoles.DesignExaminer => Roles.DesignExaminer,
+                    UserRoles.TrademarkOpposition => Roles.TrademarkOpposition,
+                    UserRoles.TrademarkCertification => Roles.TrademarkCertification,
+                    UserRoles.Finance => Roles.Finance,
+                    UserRoles.Tickets => Roles.Tech,
+                    UserRoles.Users => Roles.User,
+                    UserRoles.Agent => Roles.User,
+                    UserRoles.Productivity => Roles.Staff,
+                    UserRoles.Support => Roles.Tech,
+                    UserRoles.PublicationMenu => Roles.TrademarkAcceptance,
+                    UserRoles.OppositionMenu => Roles.TrademarkOpposition,
+                    UserRoles.StaffMenu => Roles.Staff,
+                    UserRoles.BackOffice => Roles.Staff,
+                    UserRoles.AppealExaminer => Roles.TrademarkAcceptance,
+                    UserRoles.SuperAdmin => Roles.SuperAdmin,
+                    UserRoles.TrademarkAcceptance => Roles.TrademarkAcceptance,
+                    _ => Roles.User,
+                });
+            }
+            return mappedRoles;
+        }
+        //private AccountType MapAccountType(List<UserRoles?> roles, UserTypes? type)
+        //{
+        //    if (roles == null || roles.Count < 1) return AccountType.Individual;
+        //    if (roles.Contains("Patent", "Trademark", "Design")) return AccountType.Officer;
+        //    if (type != null)
+        //    {
+        //        return type switch
+        //        {
+        //            UserTypes.User => AccountType.Individual,
+        //            UserTypes.Search_Patent => AccountType.Officer,
+        //            UserTypes.Search_Design => AccountType.Officer,
+        //            UserTypes.Advanced => AccountType.Tech,
+        //            UserTypes.All => AccountType.Tech,
+        //            UserTypes.Admin => AccountType.Tech,
+        //            UserTypes.design_examiner => AccountType.Officer,
+        //            UserTypes.patent_examiner => AccountType.Officer,
+        //            UserTypes.AppealExaminer => AccountType.Officer,
+        //            _ => AccountType.Individual,
+        //        };
+        //    }
+        //}
+        public async Task<bool> TransferUser(MigrateUserDto dto)
+        {
+            try
+            {
+                var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.password);
+                var filings = await _fillingCollection.Find(f => f.CreatorAccount == dto.id).ToListAsync();
+                var files = new List<string>();
+                if (filings != null && filings.Count > 0)
+                {
+                    files = filings
+                        .Select(f => f.FileId)
+                        .Where(id => !string.IsNullOrWhiteSpace(id))
+                        .ToList();
+                }
+                var corr = dto.DefaultCorrespondence;
+                var state = MapToNigerianState(corr?.state);
+                var newUser = new AppUser
+                {
+                    Id = dto.uuid,
+                    CreatorId = dto.id,
+                    FirstName = dto.firstName,
+                    LastName = dto.lastName,
+                    Email = dto.email,
+                    PhoneNumber = corr.phone ?? "",
+                    Address = corr.address ?? "",
+                    //AccountType = dto.AccountType ?? AccountType.Individual,
+                    //UserRoles = dto.UserRoles ?? new List<UserRoles>(),
+                    CreatedAt = DateTime.Now,
+                    isVerified = dto.verified ?? false,
+                    PasswordHash = hashedPassword,
+                    Nationality = "",
+                    State = state,
+                    Signature = dto.Signature,
+                    VerificationDocs = new List<string>(),
+                    Files = files,
+                };
+                await _users.InsertOneAsync(newUser);
+                return true;
+            }
+            catch (MongoWriteException)
+            {
+                return false;
+            }
+        }
     }
 }
