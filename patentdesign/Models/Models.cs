@@ -807,7 +807,7 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, Amendment
+    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval
 }
 
 public record AssignmentCertificateType

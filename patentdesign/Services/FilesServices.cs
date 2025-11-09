@@ -5186,7 +5186,7 @@ public class FileServices
                 {
                     id = Guid.NewGuid().ToString(),
                     ApplicationType = FormApplicationTypes.Amendment,
-                    CurrentStatus = ApplicationStatuses.Amendment,
+                    CurrentStatus = ApplicationStatuses.AwaitingApproval,
                     ApplicationDate = DateTime.Now,
                     PaymentId = updateData.PaymentRRR,
                     FieldToChange = updateData.UpdateType,
@@ -5196,7 +5196,7 @@ public class FileServices
                         new ApplicationHistory{
                             Date = DateTime.Now,
                             beforeStatus = ApplicationStatuses.AwaitingPayment,
-                            afterStatus = ApplicationStatuses.Amendment,
+                            afterStatus = ApplicationStatuses.AwaitingApproval,
                             Message = "Clerical Update",
                             User = applicant?.Name,
                             UserId = file.CreatorAccount
