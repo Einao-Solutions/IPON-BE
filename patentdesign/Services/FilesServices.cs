@@ -6692,6 +6692,359 @@ public class FileServices
     }
 
 
+    //public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
+    //{
+    //    // Fetch the file
+    //    var file = await _fillingCollection.Find(f => f.FileId == dto.fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //    {
+    //        Console.WriteLine($" File {dto.fileId} not found.");
+    //        return false;
+    //    }
+
+    //    // Find the clerical update flagged as an amendment
+    //    var clerical = file.ClericalUpdates?
+    //        .FirstOrDefault(c => c.Id == dto.appId && c.IsAmendment == true);
+    //    if (clerical == null)
+    //    {
+    //        Console.WriteLine($"Clerical amendment {dto.appId} not found or not marked as amendment.");
+    //        return false;
+    //    }
+    //    var app = file.ApplicationHistory.FirstOrDefault(c => c.id == dto.appId);
+    //    if (app == null)
+    //    {
+    //        Console.WriteLine($" Application history {dto.appId} not found.");
+    //        return false;
+    //    }
+    //    app.CurrentStatus = ApplicationStatuses.Approved;
+    //    clerical.IsApproved = true;
+    //    clerical.DateTreated = DateTime.Now;
+    //    clerical.Reason = dto.reason;
+
+    //    Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
+
+    //    //Determine which field to update based on UpdateType
+    //    var updates = new List<UpdateDefinition<Filling>>();
+
+    //    switch (clerical.UpdateType)
+    //    {
+    //        case "ApplicantName":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantName))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Name", clerical.NewApplicantName));
+    //            break;
+
+    //        case "ApplicantAddress":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantAddress))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Address", clerical.NewApplicantAddress));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantEmail))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Email", clerical.NewApplicantEmail));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantPhone))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Phone", clerical.NewApplicantPhone));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantNationality))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Country", clerical.NewApplicantNationality));
+    //            break;
+
+    //        case "FileClass":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileClass))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
+    //            if (!string.IsNullOrEmpty(clerical.NewClassDescription))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
+    //            if (!string.IsNullOrEmpty(clerical.NewDisclaimer))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
+    //            break;
+
+    //        case "Correspondence":
+    //            var corr = new CorrespondenceType();
+    //            bool hasCorrespondence = false;
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.name, clerical.NewCorrespondenceName));
+    //                hasCorrespondence = true;
+    //            }
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.phone, clerical.NewCorrespondencePhone));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.address, clerical.NewCorrespondenceAddress));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.email, clerical.NewCorrespondenceEmail));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceNationality))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.Nationality, clerical.NewCorrespondenceNationality));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceState))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.state, clerical.NewCorrespondenceState));
+    //                hasCorrespondence = true;
+    //            }
+    //            // Handle POA and Attachments
+    //            if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
+    //            {
+    //                var poaIndex = file.Attachments.FindIndex(a => a.name == "poa");
+    //                if (poaIndex >= 0)
+    //                {
+    //                   updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "poa",
+    //                        url = new List<string> { clerical.NewPowerOfAttorneyUrl }
+    //                    }));
+    //                }
+    //            }
+
+    //            if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                {
+    //                    name = "other",
+    //                    url = new List<string> { clerical.NewAttachmentUrl }
+    //                }));
+    //            }
+    //            break;
+
+    //        case "FileTitle":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileTitle)) {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+    //            }
+    //            if (!string.IsNullOrEmpty(clerical.NewTrademarkLogo))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo)));
+    //            }
+    //            if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
+    //            {
+    //                var index = file.Attachments.FindIndex(a => a.name == "representation");
+    //                if (index >= 0)
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Set($"Attachments.{index}.url", new List<string> { clerical.NewRepresentationUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "representation",
+    //                        url = new List<string> { clerical.NewRepresentationUrl }
+    //                    }));
+    //                }
+    //            }
+    //            break;
+            
+    //    }
+
+
+    //    if (updates.Count == 0)
+    //    {
+    //        Console.WriteLine($" No field updates for {clerical.UpdateType}");
+    //        return false;
+    //    }
+
+    //    var fieldUpdate = Builders<Filling>.Update.Combine(updates);
+
+    //    var arrayFilters = new List<ArrayFilterDefinition>
+    //    {
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'app.id': '" + dto.appId + "' }"),
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'c.Id': '" + dto.appId + "' }")
+    //    };
+
+    //    var combinedUpdate = Builders<Filling>.Update.Combine(
+    //        fieldUpdate,
+    //        Builders<Filling>.Update.Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.Approved),
+    //        Builders<Filling>.Update.Set("ClericalUpdates.$[c].IsApproved", true),
+    //        Builders<Filling>.Update.Set("ClericalUpdates.$[c].DateTreated", clerical.DateTreated),
+    //        Builders<Filling>.Update.Set("ClericalUpdates.$[c].Reason", clerical.Reason)
+    //    );
+
+    //    var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId);
+
+    //    var updateOptions = new UpdateOptions
+    //    {
+    //        ArrayFilters = arrayFilters
+    //    };
+
+    //    await _fillingCollection.UpdateOneAsync(filter, combinedUpdate, updateOptions);
+
+    //    Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}");
+    //    return true;
+    //}
+
+    //public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
+    //{
+    //    // Fetch the file
+    //    var file = await _fillingCollection.Find(f => f.FileId == dto.fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //    {
+    //        Console.WriteLine($" File {dto.fileId} not found.");
+    //        return false;
+    //    }
+
+    //    // Find the clerical update flagged as an amendment
+    //    var clerical = file.ClericalUpdates?
+    //        .FirstOrDefault(c => c.Id == dto.appId && c.IsAmendment == true);
+    //    if (clerical == null)
+    //    {
+    //        Console.WriteLine($"Clerical amendment {dto.appId} not found or not marked as amendment.");
+    //        return false;
+    //    }
+    //    var app = file.ApplicationHistory.FirstOrDefault(c => c.id == dto.appId);
+    //    if (app == null)
+    //    {
+    //        Console.WriteLine($" Application history {dto.appId} not found.");
+    //        return false;
+    //    }
+
+    //    // Update in-memory state for audit
+    //    app.CurrentStatus = ApplicationStatuses.Approved;
+    //    clerical.IsApproved = true;
+    //    clerical.DateTreated = DateTime.Now;
+    //    clerical.Reason = dto.reason;
+
+    //    Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
+
+    //    // Determine which field-specific updates to apply
+    //    var updates = new List<UpdateDefinition<Filling>>();
+
+    //    switch (clerical.UpdateType)
+    //    {
+    //        case "ApplicantName":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantName))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Name", clerical.NewApplicantName));
+    //            break;
+
+    //        case "ApplicantAddress":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantAddress))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Address", clerical.NewApplicantAddress));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantEmail))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Email", clerical.NewApplicantEmail));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantPhone))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Phone", clerical.NewApplicantPhone));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantNationality))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Country", clerical.NewApplicantNationality));
+    //            break;
+
+    //        case "FileClass":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileClass))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
+    //            if (!string.IsNullOrEmpty(clerical.NewClassDescription))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
+    //            if (!string.IsNullOrEmpty(clerical.NewDisclaimer))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
+    //            break;
+
+    //        case "Correspondence":
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.name, clerical.NewCorrespondenceName));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.phone, clerical.NewCorrespondencePhone));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.address, clerical.NewCorrespondenceAddress));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.email, clerical.NewCorrespondenceEmail));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceNationality))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.Nationality, clerical.NewCorrespondenceNationality));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceState))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.state, clerical.NewCorrespondenceState));
+
+    //            if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
+    //            {
+    //                var poaIndex = file.Attachments?.FindIndex(a => a.name == "poa") ?? -1;
+    //                if (poaIndex >= 0)
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "poa",
+    //                        url = new List<string> { clerical.NewPowerOfAttorneyUrl }
+    //                    }));
+    //                }
+    //            }
+
+    //            if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                {
+    //                    name = "other",
+    //                    url = new List<string> { clerical.NewAttachmentUrl }
+    //                }));
+    //            }
+    //            break;
+
+    //        case "FileTitle":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileTitle))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+    //            if (!string.IsNullOrEmpty(clerical.NewTrademarkLogo))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo)));
+    //            if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
+    //            {
+    //                var index = file.Attachments?.FindIndex(a => a.name == "representation") ?? -1;
+    //                if (index >= 0)
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Set($"Attachments.{index}.url", new List<string> { clerical.NewRepresentationUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "representation",
+    //                        url = new List<string> { clerical.NewRepresentationUrl }
+    //                    }));
+    //                }
+    //            }
+    //            break;
+    //    }
+
+    //    // Always set application status & clerical approval metadata (do this even if there are no field updates)
+    //    // Use array filters to target the correct application history element and clerical update element
+    //    var arrayFilters = new List<ArrayFilterDefinition>
+    //    {
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'app.id': '" + dto.appId + "' }"),
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'c.Id': '" + dto.appId + "' }")
+    //    };
+
+    //    // Build the final combined update definitions
+    //    var updatesList = new List<UpdateDefinition<Filling>>();
+    //    if (updates.Any())
+    //        updatesList.AddRange(updates);
+
+    //    // Mandatory updates: set application status and clerical approved metadata
+    //    updatesList.Add(Builders<Filling>.Update.Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.Approved));
+    //    updatesList.Add(Builders<Filling>.Update.Set("ClericalUpdates.$[c].IsApproved", true));
+    //    updatesList.Add(Builders<Filling>.Update.Set("ClericalUpdates.$[c].DateTreated", clerical.DateTreated));
+    //    updatesList.Add(Builders<Filling>.Update.Set("ClericalUpdates.$[c].Reason", clerical.Reason));
+
+    //    var combinedUpdate = Builders<Filling>.Update.Combine(updatesList);
+
+    //    var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId);
+
+    //    var updateOptions = new UpdateOptions
+    //    {
+    //        ArrayFilters = arrayFilters
+    //    };
+
+    //    var result = await _fillingCollection.UpdateOneAsync(filter, combinedUpdate, updateOptions);
+
+    //    Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}. ModifiedCount: {result.ModifiedCount}");
+
+    //    return result.ModifiedCount > 0;
+    //}
+   
     public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
     {
         // Fetch the file
@@ -6710,12 +7063,15 @@ public class FileServices
             Console.WriteLine($"Clerical amendment {dto.appId} not found or not marked as amendment.");
             return false;
         }
+
         var app = file.ApplicationHistory.FirstOrDefault(c => c.id == dto.appId);
         if (app == null)
         {
             Console.WriteLine($" Application history {dto.appId} not found.");
             return false;
         }
+
+        // Update in-memory state for audit
         app.CurrentStatus = ApplicationStatuses.Approved;
         clerical.IsApproved = true;
         clerical.DateTreated = DateTime.Now;
@@ -6723,7 +7079,7 @@ public class FileServices
 
         Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
 
-        //Determine which field to update based on UpdateType
+        // Determine which field-specific updates to apply
         var updates = new List<UpdateDefinition<Filling>>();
 
         switch (clerical.UpdateType)
@@ -6741,7 +7097,7 @@ public class FileServices
                 if (!string.IsNullOrEmpty(clerical.NewApplicantPhone))
                     updates.Add(Builders<Filling>.Update.Set("applicants.0.Phone", clerical.NewApplicantPhone));
                 if (!string.IsNullOrEmpty(clerical.NewApplicantNationality))
-                    updates.Add(Builders<Filling>.Update.Set("applicants.0.Country", clerical.NewApplicantNationality));
+                    updates.Add(Builders<Filling>.Update.Set("applicants.0.country", clerical.NewApplicantNationality));
                 break;
 
             case "FileClass":
@@ -6754,49 +7110,25 @@ public class FileServices
                 break;
 
             case "Correspondence":
-                var corr = new CorrespondenceType();
-                bool hasCorrespondence = false;
                 if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.name, clerical.NewCorrespondenceName));
-                    hasCorrespondence = true;
-                }
                 if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.phone, clerical.NewCorrespondencePhone));
-                    hasCorrespondence = true;
-                }
-
                 if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.address, clerical.NewCorrespondenceAddress));
-                    hasCorrespondence = true;
-                }
-
                 if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.email, clerical.NewCorrespondenceEmail));
-                    hasCorrespondence = true;
-                }
-
                 if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceNationality))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.Nationality, clerical.NewCorrespondenceNationality));
-                    hasCorrespondence = true;
-                }
-
                 if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceState))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.state, clerical.NewCorrespondenceState));
-                    hasCorrespondence = true;
-                }
-                // Handle POA and Attachments
+
                 if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
                 {
-                    var poaIndex = file.Attachments.FindIndex(a => a.name == "poa");
+                    var poaIndex = file.Attachments?.FindIndex(a => a.name == "poa") ?? -1;
                     if (poaIndex >= 0)
                     {
-                       updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
+                        updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
                     }
                     else
                     {
@@ -6819,16 +7151,13 @@ public class FileServices
                 break;
 
             case "FileTitle":
-                if (!string.IsNullOrEmpty(clerical.NewFileTitle)) {
+                if (!string.IsNullOrEmpty(clerical.NewFileTitle))
                     updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
-                }
                 if (!string.IsNullOrEmpty(clerical.NewTrademarkLogo))
-                {
                     updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo)));
-                }
                 if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
                 {
-                    var index = file.Attachments.FindIndex(a => a.name == "representation");
+                    var index = file.Attachments?.FindIndex(a => a.name == "representation") ?? -1;
                     if (index >= 0)
                     {
                         updates.Add(Builders<Filling>.Update.Set($"Attachments.{index}.url", new List<string> { clerical.NewRepresentationUrl }));
@@ -6843,43 +7172,24 @@ public class FileServices
                     }
                 }
                 break;
-            
         }
 
+        // Persist changes: include field updates (if any) AND overwrite the arrays to ensure IsApproved/DateTreated/etc persist.
+        var finalUpdates = new List<UpdateDefinition<Filling>>();
+        if (updates.Any()) finalUpdates.AddRange(updates);
 
-        if (updates.Count == 0)
-        {
-            Console.WriteLine($" No field updates for {clerical.UpdateType}");
-            return false;
-        }
+        // Ensure the approved status and clerical metadata are saved into arrays (we updated them in-memory already)
+        finalUpdates.Add(Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory));
+        finalUpdates.Add(Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates));
 
-        var fieldUpdate = Builders<Filling>.Update.Combine(updates);
-
-        var arrayFilters = new List<ArrayFilterDefinition>
-        {
-            new JsonArrayFilterDefinition<BsonDocument>("{ 'app.id': '" + dto.appId + "' }"),
-            new JsonArrayFilterDefinition<BsonDocument>("{ 'c.Id': '" + dto.appId + "' }")
-        };
-
-        var combinedUpdate = Builders<Filling>.Update.Combine(
-            fieldUpdate,
-            Builders<Filling>.Update.Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.Approved),
-            Builders<Filling>.Update.Set("ClericalUpdates.$[c].IsApproved", true),
-            Builders<Filling>.Update.Set("ClericalUpdates.$[c].DateTreated", clerical.DateTreated),
-            Builders<Filling>.Update.Set("ClericalUpdates.$[c].Reason", clerical.Reason)
-        );
+        var combinedUpdate = Builders<Filling>.Update.Combine(finalUpdates);
 
         var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId);
 
-        var updateOptions = new UpdateOptions
-        {
-            ArrayFilters = arrayFilters
-        };
+        var result = await _fillingCollection.UpdateOneAsync(filter, combinedUpdate);
 
-        await _fillingCollection.UpdateOneAsync(filter, combinedUpdate, updateOptions);
+        Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}. ModifiedCount: {result.ModifiedCount}");
 
-        Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}");
-        return true;
+        return result.ModifiedCount > 0;
     }
-
 }
