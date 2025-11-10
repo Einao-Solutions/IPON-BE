@@ -45,22 +45,30 @@ namespace patentdesign.Services
 
         public async Task<bool> CreateUser(RegisterDto req)
         {
+            if (req == null) throw new ArgumentNullException(nameof(req));
+            if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+                return false;
+
             try
             {
-                var existing = await _users.Find(u => u.Email == req.Email).FirstOrDefaultAsync();
+                Console.WriteLine("Creating user...");
+                var emailNormalized = req.Email.Trim().ToLowerInvariant();
+                var existing = await _users.Find(u => u.Email == emailNormalized).FirstOrDefaultAsync();
+                if (existing != null) return false;
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(req.Password);
 
                 var user = new AppUser
                 {
-                    Email = req.Email,
-                    FirstName = req.FirstName,
-                    LastName = req.LastName,
-                    AccountType = req.AccountType,
-                    UserRoles = req.UserRoles,
-                    isVerified = req.isVerified,
-                    Signature = req.Signature,
-                    PasswordHash = hashedPassword
+                    Id = Guid.NewGuid().ToString(),
+                    Email = emailNormalized,
+                    FirstName = req.FirstName?.Trim() ?? string.Empty,
+                    LastName = req.LastName?.Trim() ?? string.Empty,
+                    PhoneNumber = req.Phone?.Trim() ?? string.Empty,
+                    AccountType = AccountType.Individual,
+                    PasswordHash = hashedPassword,
+                    UserRoles = new List<Roles> { Roles.User },
+                    CreatedAt = DateTime.UtcNow
                 };
 
                 await _users.InsertOneAsync(user);
@@ -68,6 +76,13 @@ namespace patentdesign.Services
             }
             catch (MongoWriteException)
             {
+                // Insert failed (duplicate key or write error)
+                return false;
+            }
+            catch (Exception e)
+            {
+                // Unexpected error - log if you have logging, then return false
+                Console.WriteLine(e);
                 return false;
             }
         }
@@ -154,17 +169,12 @@ namespace patentdesign.Services
 
             return NigerianStates.None;
         }
-        private List<Roles> MapToRole(List<UserRoles?> roles)
+        private List<Roles> MapToRole(List<UserRoles> roles)
         {
             if (roles == null || roles.Count == 0) return new List<Roles> { Roles.User };
             var mappedRoles = new List<Roles>();
             foreach (var role in roles)
             {
-                if (role == null)
-                {
-                    mappedRoles.Add(Roles.User);
-                    continue;
-                }
                 mappedRoles.Add(role switch
                 {
                     UserRoles.PatentExaminer => Roles.PatentExaminer,
@@ -193,33 +203,68 @@ namespace patentdesign.Services
             }
             return mappedRoles;
         }
-        //private AccountType MapAccountType(List<UserRoles?> roles, UserTypes? type)
-        //{
-        //    if (roles == null || roles.Count < 1) return AccountType.Individual;
-        //    if (roles.Contains("Patent", "Trademark", "Design")) return AccountType.Officer;
-        //    if (type != null)
-        //    {
-        //        return type switch
-        //        {
-        //            UserTypes.User => AccountType.Individual,
-        //            UserTypes.Search_Patent => AccountType.Officer,
-        //            UserTypes.Search_Design => AccountType.Officer,
-        //            UserTypes.Advanced => AccountType.Tech,
-        //            UserTypes.All => AccountType.Tech,
-        //            UserTypes.Admin => AccountType.Tech,
-        //            UserTypes.design_examiner => AccountType.Officer,
-        //            UserTypes.patent_examiner => AccountType.Officer,
-        //            UserTypes.AppealExaminer => AccountType.Officer,
-        //            _ => AccountType.Individual,
-        //        };
-        //    }
-        //}
+        private AccountType MapAccountType(List<UserRoles> roles, UserTypes? type)
+        {
+            // If no roles provided, fall back to user type mapping or default to Individual
+            if (type.HasValue)
+            {
+                return type switch
+                {
+                    UserTypes.User => AccountType.Individual,
+                    UserTypes.Search_Patent => AccountType.Officer,
+                    UserTypes.Search_Design => AccountType.Officer,
+                    UserTypes.Advanced => AccountType.Tech,
+                    UserTypes.All => AccountType.Tech,
+                    UserTypes.Admin => AccountType.Tech,
+                    UserTypes.design_examiner => AccountType.Officer,
+                    UserTypes.patent_examiner => AccountType.Officer,
+                    UserTypes.AppealExaminer => AccountType.Officer,
+                    _ => AccountType.Individual,
+                };
+            }
+            if (roles == null || roles.Count == 0)
+            {
+                if (type.HasValue)
+                {
+                    return type switch
+                    {
+                        UserTypes.User => AccountType.Individual,
+                        UserTypes.Search_Patent => AccountType.Officer,
+                        UserTypes.Search_Design => AccountType.Officer,
+                        UserTypes.Advanced => AccountType.Tech,
+                        UserTypes.All => AccountType.Tech,
+                        UserTypes.Admin => AccountType.Tech,
+                        UserTypes.design_examiner => AccountType.Officer,
+                        UserTypes.patent_examiner => AccountType.Officer,
+                        UserTypes.AppealExaminer => AccountType.Officer,
+                        _ => AccountType.Individual,
+                    };
+                }
+
+                return AccountType.Individual;
+            }
+
+            // If roles explicitly indicate individual-level users
+            if (roles.Exists(r => r == UserRoles.Users || r == UserRoles.Agent))
+            {
+                return AccountType.Individual;
+            }
+            else if (roles.Exists(r => r == UserRoles.Tickets || r == UserRoles.Support || r == UserRoles.SuperAdmin))
+            {
+                return AccountType.Tech;
+            }
+            else
+            {
+                return AccountType.Officer;
+            }
+        }
         public async Task<bool> TransferUser(MigrateUserDto dto)
         {
             try
             {
+                Console.WriteLine("Creator id:" + dto._id);
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.password);
-                var filings = await _fillingCollection.Find(f => f.CreatorAccount == dto.id).ToListAsync();
+                var filings = await _fillingCollection.Find(f => f.CreatorAccount == dto._id).ToListAsync();
                 var files = new List<string>();
                 if (filings != null && filings.Count > 0)
                 {
@@ -230,17 +275,19 @@ namespace patentdesign.Services
                 }
                 var corr = dto.DefaultCorrespondence;
                 var state = MapToNigerianState(corr?.state);
+                var roles = MapToRole(dto.UserRoles);
+                var accType = MapAccountType(dto.UserRoles, dto.UserType);
                 var newUser = new AppUser
                 {
                     Id = dto.uuid,
-                    CreatorId = dto.id,
+                    CreatorId = dto?._id,
                     FirstName = dto.firstName,
                     LastName = dto.lastName,
                     Email = dto.email,
-                    PhoneNumber = corr.phone ?? "",
-                    Address = corr.address ?? "",
-                    //AccountType = dto.AccountType ?? AccountType.Individual,
-                    //UserRoles = dto.UserRoles ?? new List<UserRoles>(),
+                    PhoneNumber = corr?.phone ?? "",
+                    Address = corr?.address ?? "",
+                    AccountType = accType,
+                    UserRoles = roles,
                     CreatedAt = DateTime.Now,
                     isVerified = dto.verified ?? false,
                     PasswordHash = hashedPassword,

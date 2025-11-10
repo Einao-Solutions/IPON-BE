@@ -16,8 +16,8 @@ namespace patentdesign.Controllers
         public async Task<IActionResult> Register([FromBody] RegisterDto req)
         {
             var newUser = await authServices.CreateUser(req);
-            if (!newUser) return BadRequest("User already exists");
-            return Ok(new { message  = "User created successfully"});
+            if (!newUser) return BadRequest("Failed to Register");
+            return Ok(new { message = "User created successfully" });
         }
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto req)
@@ -30,7 +30,10 @@ namespace patentdesign.Controllers
         public async Task<IActionResult> Transfer([FromBody] MigrateUserDto req)
         {
             var result = await authServices.TransferUser(req);
-            if (!result) return BadRequest("Transfer failed");
+            if (!result)
+            {
+                return BadRequest("Transfer failed");
+            }
             return Ok(new { message = "Transfer successful" });
         }
     }
