@@ -8,6 +8,28 @@ using MongoDB.Bson.Serialization.Options;
 using Org.BouncyCastle.Asn1.Cms;
 
 namespace patentdesign.Models;
+public class AppUser
+{
+    [BsonId]
+    public string Id { get; set; }
+    public string? CreatorId { get; set; }
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string PhoneNumber { get; set; } = "";
+    public string Address { get; set; } = "";
+    public string Nationality { get; set; } = "";
+    public NigerianStates? State { get; set; } = NigerianStates.None;
+    public string PasswordHash { get; set; } = "";
+    public List<Roles> UserRoles { get; set; } = new();
+    public bool isVerified { get; set; } = false;
+    public string? Signature { get; set; }
+    public AccountType? AccountType { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime? LastUpdatedAt { get; set; }
+    public List<string>? Files { get; set; } = new();
+    public List<string>? VerificationDocs { get; set; }
+}
 
 public record DesignForm
 {
