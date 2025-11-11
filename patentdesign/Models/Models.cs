@@ -6,6 +6,7 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
 using Org.BouncyCastle.Asn1.Cms;
+using patentdesign.Enums;
 
 namespace patentdesign.Models;
 public class AppUser

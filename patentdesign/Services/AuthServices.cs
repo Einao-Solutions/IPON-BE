@@ -8,6 +8,7 @@ using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Ocsp;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Authentication;

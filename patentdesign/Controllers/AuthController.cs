@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
-using patentdesign.Models;
+using patentdesign.Enums;
 using patentdesign.Services;
 
 namespace patentdesign.Controllers

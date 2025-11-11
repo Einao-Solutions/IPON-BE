@@ -1,4 +1,5 @@
-﻿using patentdesign.Models;
+﻿using patentdesign.Enums;
+using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request
 {

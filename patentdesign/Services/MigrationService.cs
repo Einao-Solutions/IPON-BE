@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Utils;
 namespace patentdesign.Services;

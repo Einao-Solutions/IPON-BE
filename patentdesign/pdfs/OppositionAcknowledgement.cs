@@ -1,6 +1,6 @@
 ﻿// using QRCoder;
 
-using patentdesign.Models;
+using patentdesign.Enums;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;

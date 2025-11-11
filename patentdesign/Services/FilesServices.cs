@@ -14,6 +14,7 @@ using MongoDB.Driver;
 using MongoDB.Driver.Linq;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.pdfs;
 using patentdesign.Services.Interface;

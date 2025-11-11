@@ -1,4 +1,4 @@
-﻿namespace patentdesign.Models
+﻿namespace patentdesign.Enums
 {
     public enum AccountType
     {

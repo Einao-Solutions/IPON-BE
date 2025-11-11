@@ -3,12 +3,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
-[Authorize]
+//[Authorize]
 [ApiController]
 [Route("api/files")]
 public class FilesController(FileServices fileService) : ControllerBase
@@ -455,7 +456,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(result);
     }
-
+    
     [HttpGet("GetAvailabilitySearch")]
     public async Task<IActionResult> GetMarkAvailability([FromQuery] string title, [FromQuery] int? classNo, [FromQuery] string type)
     {

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Utils;
 using QuestPDF.Fluent;

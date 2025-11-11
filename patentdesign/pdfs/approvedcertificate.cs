@@ -1,4 +1,3 @@
-
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
