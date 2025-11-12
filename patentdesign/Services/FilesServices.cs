@@ -56,8 +56,8 @@ public class FileServices
     private PaymentService _paymentService;
     
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    // private string attachmentBaseUrl = "https://integration.iponigeria.com";
-    private string attachmentBaseUrl = "http://localhost:5044";
+    private string attachmentBaseUrl = "https://integration.iponigeria.com";
+    // private string attachmentBaseUrl = "http://localhost:5044";
 
     //adding log service
     private ILoggerService _log;
@@ -3475,10 +3475,6 @@ public class FileServices
                 CorrespondenceEmail = fileInfo.Correspondence?.email,
                 CorrespondencePhone = fileInfo.Correspondence?.phone,
                 PatentAbstract = fileInfo.PatentAbstract,
-                PriorityInfo = fileInfo.PriorityInfo,
-                FirstPriorityInfo = fileInfo.FirstPriorityInfo,
-                CorrespondenceNationality = fileInfo.Correspondence?.Nationality,
-                CorrespondenceState = fileInfo.Correspondence?.state,
             };
             return updateCost;
         }
@@ -4415,12 +4411,6 @@ public class FileServices
                 .Push(f => f.PostRegApplications, renewal)
                 .Push(f => f.ApplicationHistory, renewalHistory);
 
-            // Ensure status remains Inactive if it was Inactive
-            if (file.FileStatus == ApplicationStatuses.Inactive)
-            {
-                update = update.Set(f => f.FileStatus, ApplicationStatuses.Active);
-            }
-
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
@@ -5158,10 +5148,10 @@ public class FileServices
                 if (updateData.PaymentRRR != null)
                 {
                     RemitaResponseClass payDetails = await _remitaPaymentUtils.GetDetailsByRRR(updateData.PaymentRRR);
-                    // if (payDetails == null || payDetails.status != "00")
-                    // {
-                    //     throw new Exception($"Payment Not Found or Invalid RRR, {updateData.PaymentRRR}");
-                    // }
+                    if (payDetails == null || payDetails.status != "00")
+                    {
+                        throw new Exception($"Payment Not Found or Invalid RRR, ${updateData.PaymentRRR}");
+                    }
                     Console.WriteLine(payDetails);
                     var payment = new PaymentRecord
                     {
@@ -5512,33 +5502,15 @@ public class FileServices
                         correspondence.email = updateData.CorrespondenceEmail;
                         hasCorrespondence = true;
                     }
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceNationality))
-                    {
-                        clerical.OldCorrespondenceNationality = file.Correspondence?.Nationality;
-                        clerical.NewCorrespondenceNationality = updateData.CorrespondenceNationality;
-                        correspondence.Nationality = updateData.CorrespondenceNationality;
-                        hasCorrespondence = true;
-                    }
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceState))
-                    {
-                        clerical.OldCorrespondenceState = file.Correspondence?.state;
-                        clerical.NewCorrespondenceState = updateData.CorrespondenceState;
-                        correspondence.state = updateData.CorrespondenceState;
-                        hasCorrespondence = true;
-                    }
 
                     if (!string.IsNullOrEmpty(poaUrl))
                     {
                         var poaIndex = attachments.FindIndex(a => a.name == "poa");
                         if (poaIndex >= 0)
-                        {
                             attachments[poaIndex].url = new List<string> { poaUrl };
-                            clerical.OldPowerOfAttorneyUrl = attachments[poaIndex].url.FirstOrDefault();
-                        }
-                        else{
+                        else
                             attachments.Add(new AttachmentType { name = "poa", url = new List<string> { poaUrl } });
-                            clerical.OldPowerOfAttorneyUrl = "None";
-                        }
+                        clerical.OldPowerOfAttorneyUrl = attachments[poaIndex].url[0];
                         clerical.NewPowerOfAttorneyUrl = poaUrl;
                     }
                     if (!string.IsNullOrEmpty(otherAttUrl))
@@ -5580,21 +5552,6 @@ public class FileServices
                                 clerical.NewFileTitle = updateData.FileTitle;
                                 break;
                         }
-                    }
-                        // Add this block for PatentAbstract
-                    if (!string.IsNullOrWhiteSpace(updateData.PatentAbstract))
-                    {
-                        clerical.OldPatentAbstract = file.PatentAbstract;
-                        updateDef = updateDef.Set(f => f.PatentAbstract, updateData.PatentAbstract);
-                        clerical.NewPatentAbstract = updateData.PatentAbstract;
-                    }
-
-                    //// Add this block for PatentApplicationType
-                    if (updateData.PatentApplicationType != null)
-                    {
-                        clerical.OldPatentApplicationType = file.PatentApplicationType ?? default;
-                        updateDef = updateDef.Set(f => f.PatentApplicationType, updateData.PatentApplicationType.Value);
-                        clerical.NewPatentApplicationType = updateData.PatentApplicationType.Value;
                     }
 
                     if (updateData.TrademarkLogo != null)
