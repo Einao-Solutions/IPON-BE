@@ -1,4 +1,5 @@
-﻿using patentdesign.Models;
+﻿using patentdesign.Enums;
+using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request
 {
@@ -6,8 +7,6 @@ namespace patentdesign.Dtos.Request
     {
         public string FileId { get; set; } = null!;
         public string? UpdatedBy { get; set; } 
-        public DateTime? LastRequestDate { get; set; }
-        public string? CreatorAccount { get; set; }
         public ApplicationStatuses? FileStatus { get; set; }
         public FileTypes? Type { get; set; }
         public string? FileOrigin {  get; set; }
@@ -15,7 +14,6 @@ namespace patentdesign.Dtos.Request
         public string? TitleOfInvention { get; set; }
         public string? PatentAbstract { get; set; }
         public CorrespondenceType? Correspondence { get; set; }
-        public DateTime? LastRequest { get; set; }
         public List<ApplicantInfo>? applicants { get; set; }
         public PatentApplicationTypes? PatentApplicationType { get; set; }
         public List<Revision>? Revisions { get; set; }
@@ -27,7 +25,8 @@ namespace patentdesign.Dtos.Request
         public string? TitleOfDesign { get; set; }
         public string? StatementOfNovelty { get; set; }
         public List<ApplicantInfo>? DesignCreators { get; set; }
-        public List<AttachmentType>? Attachments { get; set; }
+        public AttachmentUpdateDto? UpdatedAttachments { get; set; }
+        public List<AttachmentType> Attachments { get; set; } = new();
         public Dictionary<string, ApplicationStatuses>? FieldStatus { get; set; }
         public string? TitleOfTradeMark { get; set; }
         public int? TrademarkClass { get; set; }
@@ -37,11 +36,13 @@ namespace patentdesign.Dtos.Request
         public string? TrademarkDisclaimer { get; set; }
         public string? RtmNumber { get; set; }
         public string? Comment { get; set; }
-        public List<RegisteredUser>? Registered_Users { get; set; }
-        public List<RegisteredUser>? RegisteredUsers { get; set; }
-        public List<Assignee>? Assignees { get; set; }
-        public List<PostRegistrationApp>? PostRegApplications { get; set; }
-        public List<ClericalUpdate>? ClericalUpdates { get; set; }
         public string? MigratedPCTNo { get; set; }
+    }
+
+    public class AttachmentUpdateDto
+    {
+        public List<TT> NewAttachments { get; set; } = new();
+        public List<AttachmentType> ExistingAttachments { get; set; } = new();
+
     }
 }

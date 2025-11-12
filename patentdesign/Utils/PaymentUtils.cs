@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Bogus.DataSets;
 using Microsoft.Extensions.Options;
+using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Utils;

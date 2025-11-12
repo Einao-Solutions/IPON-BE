@@ -1,4 +1,6 @@
+using MongoDB.Bson.Serialization.Attributes;
 using patentdesign.Models;
+using System.Text.Json.Serialization;
 
 namespace patentdesign.Dtos.Response;
 
@@ -50,4 +52,20 @@ public class ClaimDetailsDto
     public string? PaymentId { get; set; }
     public DateTime? RequestDate { get; set; }
     public List<string>? Documents { get; set; }
+}
+public class MigrateUserDto
+{
+    [JsonPropertyName("_id")]
+    public string? _id { get; set; } 
+    public string? uuid { get; set; }
+    public string? name { get; set; }
+    public string? firstName { get; set; }
+    public string? lastName { get; set; }
+    public string? password { get; set; }
+    public string? email { get; set; }
+    public bool? verified { get; set; }
+    public string? Signature { get; set; }
+    public UserTypes? UserType { get; set; }
+    public List<UserRoles>? UserRoles { get; set; }
+    public CorrespondenceType? DefaultCorrespondence { get; set; }
 }

@@ -5,8 +5,32 @@ using System.Net.Mail;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
+using Org.BouncyCastle.Asn1.Cms;
+using patentdesign.Enums;
 
 namespace patentdesign.Models;
+public class AppUser
+{
+    [BsonId]
+    public string Id { get; set; }
+    public string? CreatorId { get; set; }
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string PhoneNumber { get; set; } = "";
+    public string Address { get; set; } = "";
+    public string Nationality { get; set; } = "";
+    public NigerianStates? State { get; set; } = NigerianStates.None;
+    public string PasswordHash { get; set; } = "";
+    public List<Roles> UserRoles { get; set; } = new();
+    public bool isVerified { get; set; } = false;
+    public string? Signature { get; set; }
+    public AccountType? AccountType { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime? LastUpdatedAt { get; set; }
+    public List<string>? Files { get; set; } = new();
+    public List<string>? VerificationDocs { get; set; }
+}
 
 public record DesignForm
 {
@@ -270,6 +294,16 @@ public record ClericalUpdate
     public List<string>? NewInventorStates { get; set; }
     public List<string>? OldInventorCities { get; set; }
     public List<string>? NewInventorCities { get; set; }
+
+    // For priority info update
+    public List<PriorityInfo>? OldFirstPriorityInfo { get; set; }
+    public List<PriorityInfo>? NewFirstPriorityInfo { get; set; }
+    public List<PriorityInfo>? OldPriorityInfo { get; set; }
+    public List<PriorityInfo>? NewPriorityInfo { get; set; }
+    public bool? IsAmendment { get; set; } = false;
+    public DateTime? DateTreated { get; set; }
+    public string? Reason { get; set; }
+    public bool? IsApproved { get; set; } = false;
 }
 
 public record Appeal
@@ -667,7 +701,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment
 }
 public enum ApplicationLetters
 {
@@ -787,7 +821,7 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, Amendment
+    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval
 }
 
 public record AssignmentCertificateType

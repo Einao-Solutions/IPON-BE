@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;

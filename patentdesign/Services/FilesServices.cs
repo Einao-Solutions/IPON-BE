@@ -2,6 +2,7 @@ using Amazon.Runtime.Internal;
 using Azure.Core;
 using Bogus.DataSets;
 using CloudinaryDotNet.Actions;
+using CloudinaryDotNet.Core;
 using F23.StringSimilarity;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -13,6 +14,7 @@ using MongoDB.Driver;
 using MongoDB.Driver.Linq;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.pdfs;
 using patentdesign.Services.Interface;
@@ -20,6 +22,7 @@ using patentdesign.Utils;
 using QuestPDF.Fluent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Net.Mail;
 using System.Reflection.Metadata.Ecma335;
 using System.Security.Authentication;
 using System.Security.Cryptography;
@@ -4258,22 +4261,47 @@ public class FileServices
 
             if (file == null) return false;
 
-            // Find recordal
-            var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
-            if (recordal == null) return false;
-
-            recordal.DateTreated = DateTime.Now.ToString();
-            recordal.Reason = recordalApp.reason;
-            // Update Application Status
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
 
+            // Try find both types of recordal (post-registration or clerical)
+            var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
+            var clerical = file.ClericalUpdates?.FirstOrDefault(p => p.Id == recordalApp.appId);
+
+            if (recordal == null && clerical == null)
+            {
+                return false;
+            }
+
+            // Mark whichever was found as denied and add reason / date
+            if (recordal != null)
+            {
+                // PostRegistrationApp.DateTreated is stored as string elsewhere — keep consistency
+                recordal.DateTreated = DateTime.Now.ToString();
+                recordal.Reason = recordalApp.reason;
+            }
+
+            if (clerical != null)
+            {
+                clerical.DateTreated = DateTime.Now;
+                clerical.Reason = recordalApp.reason;
+                clerical.IsApproved = false;
+            }
+
             app.CurrentStatus = ApplicationStatuses.Rejected;
 
-            // Now write the full modified lists back to the DB
-            var update = Builders<Filling>.Update
-                .Set(f => f.PostRegApplications, file.PostRegApplications)
-                .Set(f => f.ApplicationHistory, file.ApplicationHistory);
+            var updates = new List<UpdateDefinition<Filling>>
+            {
+                Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory)
+            };
+
+            if (recordal != null)
+                updates.Add(Builders<Filling>.Update.Set(f => f.PostRegApplications, file.PostRegApplications));
+
+            if (clerical != null)
+                updates.Add(Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates));
+
+            var update = Builders<Filling>.Update.Combine(updates);
 
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
@@ -5148,8 +5176,8 @@ public class FileServices
                 appHistory = new ApplicationInfo
                 {
                     id = Guid.NewGuid().ToString(),
-                    ApplicationType = FormApplicationTypes.ClericalUpdate,
-                    CurrentStatus = ApplicationStatuses.Amendment,
+                    ApplicationType = FormApplicationTypes.Amendment,
+                    CurrentStatus = ApplicationStatuses.AwaitingApproval,
                     ApplicationDate = DateTime.Now,
                     PaymentId = updateData.PaymentRRR,
                     FieldToChange = updateData.UpdateType,
@@ -5159,7 +5187,7 @@ public class FileServices
                         new ApplicationHistory{
                             Date = DateTime.Now,
                             beforeStatus = ApplicationStatuses.AwaitingPayment,
-                            afterStatus = ApplicationStatuses.Amendment,
+                            afterStatus = ApplicationStatuses.AwaitingApproval,
                             Message = "Clerical Update",
                             User = applicant?.Name,
                             UserId = file.CreatorAccount
@@ -5653,6 +5681,7 @@ public class FileServices
                     // Update DB
                     updateDef = updateDef.Set(f => f.applicants, file.applicants);
                     break;
+
                 case "EditInventors":
                     // Archive old inventors for audit/history
                     clerical.OldInventorNames = file.Inventors.Select(i => i.Name).ToList();
@@ -5690,20 +5719,101 @@ public class FileServices
                     updateDef = updateDef.Set(f => f.Inventors, file.Inventors);
                     break;
 
+                case "PriorityInfo":
+                    // Archive old values for audit/history
+                    
+                    clerical.OldFirstPriorityInfo = file.FirstPriorityInfo?.Select(p => new PriorityInfo
+                    {
+                        id = p.id,
+                        number = p.number,
+                        Country = p.Country,
+                        Date = p.Date
+                    }).ToList();
+                    clerical.OldPriorityInfo = file.PriorityInfo?.Select(p => new PriorityInfo
+                    {
+                        id = p.id,
+                        number = p.number,
+                        Country = p.Country,
+                        Date = p.Date
+                    }).ToList();
+
+                    // Replace with new lists (add, edit, delete at once)
+                    if (updateData.FirstPriorityInfo != null)
+                    {
+                        foreach (var p in updateData.FirstPriorityInfo)
+                            p.id ??= Guid.NewGuid().ToString();
+                        file.FirstPriorityInfo = updateData.FirstPriorityInfo;
+                    }
+                    else
+                    {
+                        file.FirstPriorityInfo = new List<PriorityInfo>();
+                    }
+
+                    if (updateData.PriorityInfo != null)
+                    {
+                        foreach (var p in updateData.PriorityInfo)
+                            p.id ??= Guid.NewGuid().ToString();
+                        file.PriorityInfo = updateData.PriorityInfo;
+                    }
+                    else
+                    {
+                        file.PriorityInfo = new List<PriorityInfo>();
+                    }
+
+                    // Archive new values for audit/history
+                    clerical.NewFirstPriorityInfo = file.FirstPriorityInfo;
+                    clerical.NewPriorityInfo = file.PriorityInfo;
+
+                    // Update DB
+                    updateDef = updateDef
+                        .Set(f => f.FirstPriorityInfo, file.FirstPriorityInfo)
+                        .Set(f => f.PriorityInfo, file.PriorityInfo);
+                break;
+
             }
-            // Final DB update
+            
+            bool isAmendment = file.FileStatus == ApplicationStatuses.Publication
+                || file.FileStatus == ApplicationStatuses.AwaitingCertification;
+
             Console.WriteLine("Committing update to DB...");
-            var finalUpdate = Builders<Filling>.Update.Combine(
-                updateDef,
-                Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
-                Builders<Filling>.Update.Push(f => f.ClericalUpdates, clerical));
+
+            if (isAmendment)
+            {
+                // Do not apply updateDef — only push history and clerical record
+                Console.WriteLine("File is under publication or awaiting certification — Amendment.");
+                clerical.IsAmendment = true;
+                var pendingUpdate = Builders<Filling>.Update.Combine(
+                    Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
+                    Builders<Filling>.Update.Push(f => f.ClericalUpdates, clerical)
+                );
+
+                await _fillingCollection.UpdateOneAsync(
+                    Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
+                    pendingUpdate
+                );
+
+                Console.WriteLine("Clerical update saved (Amendment).");
+                return true;
+            }
+            else
+            {
+                // Apply the actual changes to fields + push clerical + history
+                var finalUpdate = Builders<Filling>.Update.Combine(
+                    updateDef,
+                    Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
+                    Builders<Filling>.Update.Push(f => f.ClericalUpdates, clerical)
+                );
+
+                await _fillingCollection.UpdateOneAsync(
+                    Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
+                    finalUpdate
+                );
+
+                Console.WriteLine("Clerical update completed successfully.");
+                return true;
+            }
 
 
-            await _fillingCollection.UpdateOneAsync(
-                Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId), finalUpdate);
-            Console.WriteLine("Clerical update completed successfully.");
-
-            return true;
         }
         catch (Exception ex)
         {
@@ -5723,7 +5833,6 @@ public class FileServices
 
         var clerical = file.ClericalUpdates?.FirstOrDefault(p => p.Id == appId);
         if (clerical == null) return null;
-        
         var update = new ClericalUpdateDetailsDto
         {
             UpdateType = clerical.UpdateType,
@@ -5733,54 +5842,44 @@ public class FileServices
         {
             case "ApplicantName":
                 update.OldValue = clerical?.OldApplicantName;
-                update.NewValue = file.applicants[0].Name;
+                update.NewValue = clerical?.NewApplicantName;
                 break;
             case "ApplicantAddress":
                 update.OldValue = clerical?.OldApplicantAddress;
-                update.NewValue = file.applicants[0].Address;
+                update.NewValue = clerical?.NewApplicantAddress;
                 update.OldValue2 = clerical?.OldApplicantEmail;
-                update.NewValue2 = file.applicants[0].Email;
+                update.NewValue2 = clerical?.NewApplicantEmail;
                 update.OldValue3 = clerical?.OldApplicantPhone;
-                update.NewValue3 = file.applicants[0].Address;
+                update.NewValue3 = clerical?.NewApplicantPhone;
                 break;
             case "FileClass":
                 update.OldValue = clerical?.OldFileClass;
-                update.NewValue = file.TrademarkClass.ToString();
+                update.NewValue = clerical?.NewFileClass;
                 update.OldValue2 = clerical?.OldClassDescription;
-                update.NewValue2 = file.TrademarkClassDescription;
+                update.NewValue2 = clerical?.NewClassDescription;
                 break;
             case "Correspondence":
                 update.OldValue = clerical?.OldCorrespondenceName;
-                update.NewValue = file.Correspondence?.name;
+                update.NewValue = clerical?.NewCorrespondenceName;
                 update.OldValue2 = clerical?.OldCorrespondenceAddress;
-                update.NewValue2 = file.Correspondence?.address;
+                update.NewValue2 = clerical?.NewCorrespondenceAddress;
                 update.OldValue3 = clerical?.OldCorrespondenceEmail;
-                update.NewValue3 = file.Correspondence?.email;
+                update.NewValue3 = clerical?.NewCorrespondenceEmail;
                 update.OldValue4 = clerical?.OldCorrespondencePhone;
-                update.NewValue4 = file.Correspondence?.phone;
+                update.NewValue4 = clerical?.NewCorrespondencePhone;
                 update.OldPowerOfAttorneyUrl = clerical?.OldPowerOfAttorneyUrl;
-                update.NewPowerOfAttorneyUrl = file.Attachments?.FirstOrDefault(a => a.name == "poa")?.url.FirstOrDefault();
+                update.NewPowerOfAttorneyUrl = clerical?.NewPowerOfAttorneyUrl;
                 break;
             case "FileTitle":
                 update.OldValue = clerical?.OldFileTitle;
-                switch (file.Type)
-                {
-                    case FileTypes.TradeMark:
-                        update.NewValue = file.TitleOfTradeMark;
-                        break;
-                    case FileTypes.Design:
-                        update.NewValue = file.TitleOfDesign;
-                        break;
-                    default:
-                        update.NewValue = file.TitleOfInvention;
-                        break;
-                }
-
+                update.NewValue = clerical?.NewFileTitle;
+                
                 update.OldValue2 = clerical?.OldTrademarkLogo;
+                update.NewValue2 = clerical?.NewTrademarkLogo;
                 update.OldRepresentation = clerical?.OldRepresentationUrl;
                 if (update.OldRepresentation != null)
                 { 
-                    update.NewRepresentation = file.Attachments?.FirstOrDefault(a=>a.name == "representation")?.url.FirstOrDefault();
+                    update.NewRepresentation = clerical?.NewRepresentationUrl;
                 }
                 break;
         }
@@ -5993,20 +6092,14 @@ public class FileServices
             {
                 //Id = filling.Id,
                 FileId = filling.FileId,
-                LastRequestDate = filling.LastRequestDate,
-                CreatorAccount = filling.CreatorAccount,
-                FileStatus = filling.FileStatus,
                 FileOrigin = filling.FileOrigin,
                 FilingCountry = filling.FilingCountry,
-                //DateCreated = filling.DateCreated,
                 Type = filling.Type,
                 TitleOfInvention = filling.TitleOfInvention,
                 PatentAbstract = filling.PatentAbstract,
                 Correspondence = filling.Correspondence,
-                LastRequest = filling.LastRequest,
                 applicants = filling.applicants,
                 PatentApplicationType = filling.PatentApplicationType,
-                Revisions = filling.Revisions,
                 PatentType = filling.PatentType,
                 Inventors = filling.Inventors,
                 PriorityInfo = filling.PriorityInfo,
@@ -6016,7 +6109,6 @@ public class FileServices
                 StatementOfNovelty = filling.StatementOfNovelty,
                 DesignCreators = filling.DesignCreators,
                 Attachments = filling.Attachments,
-                FieldStatus = filling.FieldStatus,
                 TitleOfTradeMark = filling.TitleOfTradeMark,
                 TrademarkClass = filling.TrademarkClass,
                 TrademarkClassDescription = filling.TrademarkClassDescription,
@@ -6025,12 +6117,6 @@ public class FileServices
                 TrademarkDisclaimer = filling.TrademarkDisclaimer,
                 RtmNumber = filling.RtmNumber,
                 Comment = filling.Comment,
-                Registered_Users = filling.Registered_Users,
-                RegisteredUsers = filling.RegisteredUsers,
-                Assignees = filling.Assignees,
-                PostRegApplications = filling.PostRegApplications,
-                ClericalUpdates = filling.ClericalUpdates,
-                MigratedPCTNo = filling.MigratedPCTNo
             };
 
             return dto;
@@ -6119,23 +6205,17 @@ public class FileServices
             return (404, "Filing record not found");
 
         // Scalar fields
-        if (!string.IsNullOrWhiteSpace(request.CreatorAccount)) existing.CreatorAccount = request.CreatorAccount;
         if (!string.IsNullOrWhiteSpace(request.TitleOfInvention)) existing.TitleOfInvention = request.TitleOfInvention;
         if (!string.IsNullOrWhiteSpace(request.PatentAbstract)) existing.PatentAbstract = request.PatentAbstract;
         if (!string.IsNullOrWhiteSpace(request.TitleOfDesign)) existing.TitleOfDesign = request.TitleOfDesign;
         if (!string.IsNullOrWhiteSpace(request.StatementOfNovelty)) existing.StatementOfNovelty = request.StatementOfNovelty;
         if (!string.IsNullOrWhiteSpace(request.TitleOfTradeMark)) existing.TitleOfTradeMark = request.TitleOfTradeMark;
-        if (!string.IsNullOrWhiteSpace(request.TrademarkClassDescription)) existing.TrademarkClassDescription = request.TrademarkClassDescription;
         if (!string.IsNullOrWhiteSpace(request.TrademarkDisclaimer)) existing.TrademarkDisclaimer = request.TrademarkDisclaimer;
         if (!string.IsNullOrWhiteSpace(request.RtmNumber)) existing.RtmNumber = request.RtmNumber;
         if (!string.IsNullOrWhiteSpace(request.Comment)) existing.Comment = request.Comment;
-        if (!string.IsNullOrWhiteSpace(request.MigratedPCTNo)) existing.MigratedPCTNo = request.MigratedPCTNo;
+        if (!string.IsNullOrEmpty(request.FilingCountry)) existing.FilingCountry = request.FilingCountry;
 
         // Nullable types
-        if (request.LastRequestDate != null) existing.LastRequestDate = request.LastRequestDate.Value;
-        if (request.LastRequest != null) existing.LastRequest = request.LastRequest.Value;
-        if (request.FileStatus != null) existing.FileStatus = request.FileStatus.Value;
-        if (request.Type != null) existing.Type = request.Type.Value;
         if (request.PatentApplicationType != null) existing.PatentApplicationType = request.PatentApplicationType.Value;
         if (request.PatentType != null) existing.PatentType = request.PatentType.Value;
         if (request.DesignType != null) existing.DesignType = request.DesignType.Value;
@@ -6164,9 +6244,6 @@ public class FileServices
                 existing.Correspondence.state = request.Correspondence.state;
         }
 
-        if (request.FieldStatus != null && request.FieldStatus.Any())
-            existing.FieldStatus = request.FieldStatus;
-
         void MergeList<T>(List<T> existingList, List<T> incomingList, Func<T, string> getId, Action<T, T> mergeItem)
         {
             foreach (var item in incomingList)
@@ -6183,171 +6260,96 @@ public class FileServices
             }
         }
 
-        if (request.applicants?.Any() == true)
-            MergeList(existing.applicants, request.applicants, x => x.id, (e, u) => { if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name; if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country; if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city; if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone; if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email; if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address; });
+        // === FULL REPLACEMENT for these 4 fields ===
+        if (request.applicants != null)
+            existing.applicants = request.applicants;
 
-        if (request.Inventors?.Any() == true)
-            MergeList(existing.Inventors, request.Inventors, x => x.id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country;
-                if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-            });
+        if (request.Inventors != null)
+            existing.Inventors = request.Inventors;
 
-        if (request.DesignCreators?.Any() == true)
-            MergeList(existing.DesignCreators, request.DesignCreators, x => x.id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country;
-                if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-            });
+        if (request.PriorityInfo != null)
+            existing.PriorityInfo = request.PriorityInfo;
 
-        if (request.Revisions?.Any() == true)
-            MergeList(existing.Revisions, request.Revisions, x => x.TransactionId, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.AssociatedTrade)) e.AssociatedTrade = u.AssociatedTrade;
-                if (u.OldValue != null) e.OldValue = u.OldValue;
-                if (u.NewValue != null) e.NewValue = u.NewValue;
-                if (!string.IsNullOrWhiteSpace(u.Property)) e.Property = u.Property;
-                if (!string.IsNullOrWhiteSpace(u.AmountPaid)) e.AmountPaid = u.AmountPaid;
-                if (!string.IsNullOrWhiteSpace(u.TransactionId)) e.TransactionId = u.TransactionId;
-                if (u.DateTime != default) e.DateTime = u.DateTime;
-                if (!string.IsNullOrWhiteSpace(u.userName)) e.userName = u.userName;
-                if (!string.IsNullOrWhiteSpace(u.userId)) e.userId = u.userId;
-                if (u.currentStatus.HasValue) e.currentStatus = u.currentStatus;
-            });
+        if (request.FirstPriorityInfo != null)
+            existing.FirstPriorityInfo = request.FirstPriorityInfo;
 
-        if (request.PriorityInfo?.Any() == true)
-            MergeList(existing.PriorityInfo, request.PriorityInfo, x => x.id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.number)) e.number = u.number;
-                if (!string.IsNullOrWhiteSpace(u.Country)) e.Country = u.Country;
-                if (!string.IsNullOrWhiteSpace(u.Date)) e.Date = u.Date;
-            });
+        if (request.DesignCreators != null)
+            existing.DesignCreators = request.DesignCreators;
 
-        if (request.Attachments?.Any() == true)
-            MergeList(existing.Attachments, request.Attachments, x => x.name, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.name)) e.name = u.name;
-                if (u.url != null && u.url.Any()) e.url = u.url;
-            });
+        if (request.UpdatedAttachments != null)
+        {
+            var newAttachments = new List<AttachmentType>();
 
-        //if (request.ApplicationHistory?.Any() == true)
-        //    MergeList(existing.ApplicationHistory, request.ApplicationHistory, x => x.id, (e, u) => {
-        //        e.ApplicationType = u.ApplicationType;
-        //        e.CurrentStatus = u.CurrentStatus;
-        //        if (u.ExpiryDate != null) e.ExpiryDate = u.ExpiryDate;
-        //        if (!string.IsNullOrWhiteSpace(u.PaymentId)) e.PaymentId = u.PaymentId;
-        //        if (!string.IsNullOrWhiteSpace(u.CertificatePaymentId)) e.CertificatePaymentId = u.CertificatePaymentId;
-        //        if (u.ApplicationDate != default) e.ApplicationDate = u.ApplicationDate;
-        //        if (!string.IsNullOrWhiteSpace(u.LicenseType)) e.LicenseType = u.LicenseType;
-        //        if (!string.IsNullOrWhiteSpace(u.OldValue)) e.OldValue = u.OldValue;
-        //        if (!string.IsNullOrWhiteSpace(u.NewValue)) e.NewValue = u.NewValue;
-        //        if (!string.IsNullOrWhiteSpace(u.FieldToChange)) e.FieldToChange = u.FieldToChange;
-        //        if (u.Letters != null && u.Letters.Any()) e.Letters = u.Letters;
-        //        if (u.StatusHistory?.Any() == true) e.StatusHistory = u.StatusHistory;
-        //        if (u.ApplicationLetters?.Any() == true) e.ApplicationLetters = u.ApplicationLetters;
-        //        if (u.Assignment != null) e.Assignment = u.Assignment;
-        //        if (!string.IsNullOrWhiteSpace(u.RegisteredUser)) e.RegisteredUser = u.RegisteredUser;
-        //    });
-
-        if (request.Registered_Users?.Any() == true)
-            MergeList(existing.Registered_Users, request.Registered_Users, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.FileId)) e.FileId = u.FileId;
-                if (u.isApproved.HasValue) e.isApproved = u.isApproved;
-            });
-
-        if (request.RegisteredUsers?.Any() == true)
-            MergeList(existing.RegisteredUsers, request.RegisteredUsers, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.FileId)) e.FileId = u.FileId;
-                if (u.isApproved.HasValue) e.isApproved = u.isApproved;
-            });
-
-        if (request.Assignees?.Any() == true)
-            MergeList(existing.Assignees, request.Assignees, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.FileId)) e.FileId = u.FileId;
-                if (!string.IsNullOrWhiteSpace(u.rrr)) e.rrr = u.rrr;
-                if (!string.IsNullOrWhiteSpace(u.AuthorizationLetterUrl)) e.AuthorizationLetterUrl = u.AuthorizationLetterUrl;
-                if (!string.IsNullOrWhiteSpace(u.AssignmentDeedUrl)) e.AssignmentDeedUrl = u.AssignmentDeedUrl;
-                if (u.isApproved.HasValue) e.isApproved = u.isApproved;
-            });
-
-        if (request.PostRegApplications?.Any() == true)
-            MergeList(existing.PostRegApplications, request.PostRegApplications, x => x.Id, (e, u) => {
-                if (!string.IsNullOrWhiteSpace(u.RecordalType)) e.RecordalType = u.RecordalType;
-                if (!string.IsNullOrWhiteSpace(u.FileNumber)) e.FileNumber = u.FileNumber;
-                if (!string.IsNullOrWhiteSpace(u.FilingDate)) e.FilingDate = u.FilingDate;
-                if (!string.IsNullOrWhiteSpace(u.DateTreated)) e.DateTreated = u.DateTreated;
-                if (!string.IsNullOrWhiteSpace(u.Reason)) e.Reason = u.Reason;
-                if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
-                if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
-                if (!string.IsNullOrWhiteSpace(u.dateOfRecordal)) e.dateOfRecordal = u.dateOfRecordal;
-                if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
-                if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
-                if (!string.IsNullOrWhiteSpace(u.Nationality)) e.Nationality = u.Nationality;
-                if (!string.IsNullOrWhiteSpace(u.documentUrl)) e.documentUrl = u.documentUrl;
-                if (!string.IsNullOrWhiteSpace(u.document2Url)) e.document2Url = u.document2Url;
-                if (!string.IsNullOrWhiteSpace(u.receiptUrl)) e.receiptUrl = u.receiptUrl;
-                if (!string.IsNullOrWhiteSpace(u.certificateUrl)) e.certificateUrl = u.certificateUrl;
-                if (!string.IsNullOrWhiteSpace(u.rejectionUrl)) e.rejectionUrl = u.rejectionUrl;
-                if (!string.IsNullOrWhiteSpace(u.acknowledgementUrl)) e.acknowledgementUrl = u.acknowledgementUrl;
-                if (!string.IsNullOrWhiteSpace(u.message)) e.message = u.message;
-                if (!string.IsNullOrWhiteSpace(u.rrr)) e.rrr = u.rrr;
-            });
-
-        if (request.ClericalUpdates?.Any() == true)
-            MergeList(existing.ClericalUpdates, request.ClericalUpdates, x => x.Id, (e, u) =>
+            // 1. Add existing attachments
+            foreach (var att in request.UpdatedAttachments.ExistingAttachments)
             {
-                if (!string.IsNullOrWhiteSpace(u.UpdateType)) e.UpdateType = u.UpdateType;
-                if (u.FilingDate != default) e.FilingDate = u.FilingDate;
-                if (!string.IsNullOrWhiteSpace(u.PaymentRRR)) e.PaymentRRR = u.PaymentRRR;
-                if (!string.IsNullOrWhiteSpace(u.OldTrademarkLogo)) e.OldTrademarkLogo = u.OldTrademarkLogo;
-                if (!string.IsNullOrWhiteSpace(u.NewTrademarkLogo)) e.NewTrademarkLogo = u.NewTrademarkLogo;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantName)) e.OldApplicantName = u.OldApplicantName;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantName)) e.NewApplicantName = u.NewApplicantName;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantAddress)) e.OldApplicantAddress = u.OldApplicantAddress;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantAddress)) e.NewApplicantAddress = u.NewApplicantAddress;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantNationality)) e.OldApplicantNationality = u.OldApplicantNationality;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantNationality)) e.NewApplicantNationality = u.NewApplicantNationality;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantEmail)) e.OldApplicantEmail = u.OldApplicantEmail;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantEmail)) e.NewApplicantEmail = u.NewApplicantEmail;
-                if (!string.IsNullOrWhiteSpace(u.OldApplicantPhone)) e.OldApplicantPhone = u.OldApplicantPhone;
-                if (!string.IsNullOrWhiteSpace(u.NewApplicantPhone)) e.NewApplicantPhone = u.NewApplicantPhone;
-                if (!string.IsNullOrWhiteSpace(u.OldFileClass)) e.OldFileClass = u.OldFileClass;
-                if (!string.IsNullOrWhiteSpace(u.NewFileClass)) e.NewFileClass = u.NewFileClass;
-                if (!string.IsNullOrWhiteSpace(u.OldClassDescription)) e.OldClassDescription = u.OldClassDescription;
-                if (!string.IsNullOrWhiteSpace(u.NewClassDescription)) e.NewClassDescription = u.NewClassDescription;
-                if (!string.IsNullOrWhiteSpace(u.OldFileTitle)) e.OldFileTitle = u.OldFileTitle;
-                if (!string.IsNullOrWhiteSpace(u.NewFileTitle)) e.NewFileTitle = u.NewFileTitle;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondenceName)) e.OldCorrespondenceName = u.OldCorrespondenceName;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondenceName)) e.NewCorrespondenceName = u.NewCorrespondenceName;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondenceAddress)) e.OldCorrespondenceAddress = u.OldCorrespondenceAddress;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondenceAddress)) e.NewCorrespondenceAddress = u.NewCorrespondenceAddress;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondenceEmail)) e.OldCorrespondenceEmail = u.OldCorrespondenceEmail;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondenceEmail)) e.NewCorrespondenceEmail = u.NewCorrespondenceEmail;
-                if (!string.IsNullOrWhiteSpace(u.OldCorrespondencePhone)) e.OldCorrespondencePhone = u.OldCorrespondencePhone;
-                if (!string.IsNullOrWhiteSpace(u.NewCorrespondencePhone)) e.NewCorrespondencePhone = u.NewCorrespondencePhone;
-                if (!string.IsNullOrWhiteSpace(u.OldRepresentationUrl)) e.OldRepresentationUrl = u.OldRepresentationUrl;
-                if (!string.IsNullOrWhiteSpace(u.NewRepresentationUrl)) e.NewRepresentationUrl = u.NewRepresentationUrl;
-                if (!string.IsNullOrWhiteSpace(u.OldPowerOfAttorneyUrl)) e.OldPowerOfAttorneyUrl = u.OldPowerOfAttorneyUrl;
-                if (!string.IsNullOrWhiteSpace(u.NewPowerOfAttorneyUrl)) e.NewPowerOfAttorneyUrl = u.NewPowerOfAttorneyUrl;
-            });
+                newAttachments.Add(new AttachmentType
+                {
+                    name = att.name,
+                    url = att.url
+                });
+            }
+
+            // 2. Add new attachments, merging if name exists
+            var groupedNewFiles = request.UpdatedAttachments.NewAttachments.GroupBy(f => f.Name);
+            foreach (var group in groupedNewFiles)
+            {
+                var uploadedUrls = await UploadAttachment(group.ToList());
+                var existingAttachment = newAttachments.FirstOrDefault(a => a.name == group.Key);
+                if (existingAttachment != null)
+                {
+                    // Append new URLs to existing attachment
+                    existingAttachment.url.AddRange(uploadedUrls);
+                }
+                else
+                {
+                    // Create new attachment entry
+                    newAttachments.Add(new AttachmentType
+                    {
+                        name = group.Key,
+                        url = uploadedUrls
+                    });
+                }
+            }
+
+            existing.Attachments = newAttachments;
+        }
+
+        //if (request.UpdatedAttachments != null)
+        //{
+        //    var newAttachments = new List<AttachmentType>();
+
+        //    // 1. Process existing attachments (URLs)
+        //    foreach (var att in request.UpdatedAttachments.ExistingAttachments)
+        //    {
+        //        newAttachments.Add(new AttachmentType
+        //        {
+        //            name = att.name,
+        //            url = att.url
+        //        });
+        //    }
+
+        //    // 2. Process new attachments (files to upload)
+        //    var groupedNewFiles = request.UpdatedAttachments.NewAttachments.GroupBy(f => f.Name);
+        //    foreach (var group in groupedNewFiles)
+        //    {
+        //        var uploadedUrls = await UploadAttachment(group.ToList());
+        //        newAttachments.Add(new AttachmentType
+        //        {
+        //            name = group.Key,
+        //            url = uploadedUrls
+        //        });
+        //    }
+
+        //    // 3. Replace the attachments list with the new one
+        //    existing.Attachments = newAttachments;
+        //}
+
+        //if (request.Attachments?.Any() == true)
+        //    MergeList(existing.Attachments, request.Attachments, x => x.name, (e, u) => {
+        //        if (!string.IsNullOrWhiteSpace(u.name)) e.name = u.name;
+        //        if (u.url != null && u.url.Any()) e.url = u.url;
+        //    });
 
         await _fillingCollection.ReplaceOneAsync(
             x => x.FileId == request.FileId, existing
@@ -6364,7 +6366,6 @@ public class FileServices
             "File Info",
             request.UpdatedBy ?? "Unknown User"
         );
-
 
         return (200, "Filing record updated successfully.");
     }
@@ -6648,60 +6649,505 @@ public class FileServices
         return true;
     }
 
-    //public async Task<bool> UpdateAttachmentsAsync(string filingFileId, List<AttachmentType> newAttachments)
+
+    //public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
     //{
-    //    var filter = Builders<Filling>.Filter.Eq(f => f.FileId, filingFileId);
-    //    var filing = await _fillingCollection.Find(filter).FirstOrDefaultAsync();
-
-    //    if (filing == null)
-    //        return false;
-
-    //    filing.Attachments ??= new List<AttachmentType>();
-
-    //    foreach (var newAttachment in newAttachments)
+    //    // Fetch the file
+    //    var file = await _fillingCollection.Find(f => f.FileId == dto.fileId).FirstOrDefaultAsync();
+    //    if (file == null)
     //    {
-    //        var existing = filing.Attachments.FirstOrDefault(a => a.name == newAttachment.name);
-    //        if (existing != null)
-    //        {
-    //            foreach (var url in newAttachment.url)
-    //            {
-    //                if (!existing.url.Contains(url))
-    //                {
-    //                    existing.url.Add(url);
-    //                }
-    //            }
-    //        }
-    //        else
-    //        {
-    //            filing.Attachments.Add(newAttachment);
-    //        }
+    //        Console.WriteLine($" File {dto.fileId} not found.");
+    //        return false;
     //    }
 
-    //    var update = Builders<Filling>.Update.Set(f => f.Attachments, filing.Attachments);
-    //    await _fillingCollection.UpdateOneAsync(filter, update);
+    //    // Find the clerical update flagged as an amendment
+    //    var clerical = file.ClericalUpdates?
+    //        .FirstOrDefault(c => c.Id == dto.appId && c.IsAmendment == true);
+    //    if (clerical == null)
+    //    {
+    //        Console.WriteLine($"Clerical amendment {dto.appId} not found or not marked as amendment.");
+    //        return false;
+    //    }
+    //    var app = file.ApplicationHistory.FirstOrDefault(c => c.id == dto.appId);
+    //    if (app == null)
+    //    {
+    //        Console.WriteLine($" Application history {dto.appId} not found.");
+    //        return false;
+    //    }
+    //    app.CurrentStatus = ApplicationStatuses.Approved;
+    //    clerical.IsApproved = true;
+    //    clerical.DateTreated = DateTime.Now;
+    //    clerical.Reason = dto.reason;
 
+    //    Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
+
+    //    //Determine which field to update based on UpdateType
+    //    var updates = new List<UpdateDefinition<Filling>>();
+
+    //    switch (clerical.UpdateType)
+    //    {
+    //        case "ApplicantName":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantName))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Name", clerical.NewApplicantName));
+    //            break;
+
+    //        case "ApplicantAddress":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantAddress))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Address", clerical.NewApplicantAddress));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantEmail))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Email", clerical.NewApplicantEmail));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantPhone))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Phone", clerical.NewApplicantPhone));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantNationality))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Country", clerical.NewApplicantNationality));
+    //            break;
+
+    //        case "FileClass":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileClass))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
+    //            if (!string.IsNullOrEmpty(clerical.NewClassDescription))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
+    //            if (!string.IsNullOrEmpty(clerical.NewDisclaimer))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
+    //            break;
+
+    //        case "Correspondence":
+    //            var corr = new CorrespondenceType();
+    //            bool hasCorrespondence = false;
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.name, clerical.NewCorrespondenceName));
+    //                hasCorrespondence = true;
+    //            }
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.phone, clerical.NewCorrespondencePhone));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.address, clerical.NewCorrespondenceAddress));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.email, clerical.NewCorrespondenceEmail));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceNationality))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.Nationality, clerical.NewCorrespondenceNationality));
+    //                hasCorrespondence = true;
+    //            }
+
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceState))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.state, clerical.NewCorrespondenceState));
+    //                hasCorrespondence = true;
+    //            }
+    //            // Handle POA and Attachments
+    //            if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
+    //            {
+    //                var poaIndex = file.Attachments.FindIndex(a => a.name == "poa");
+    //                if (poaIndex >= 0)
+    //                {
+    //                   updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "poa",
+    //                        url = new List<string> { clerical.NewPowerOfAttorneyUrl }
+    //                    }));
+    //                }
+    //            }
+
+    //            if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                {
+    //                    name = "other",
+    //                    url = new List<string> { clerical.NewAttachmentUrl }
+    //                }));
+    //            }
+    //            break;
+
+    //        case "FileTitle":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileTitle)) {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+    //            }
+    //            if (!string.IsNullOrEmpty(clerical.NewTrademarkLogo))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo)));
+    //            }
+    //            if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
+    //            {
+    //                var index = file.Attachments.FindIndex(a => a.name == "representation");
+    //                if (index >= 0)
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Set($"Attachments.{index}.url", new List<string> { clerical.NewRepresentationUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "representation",
+    //                        url = new List<string> { clerical.NewRepresentationUrl }
+    //                    }));
+    //                }
+    //            }
+    //            break;
+            
+    //    }
+
+
+    //    if (updates.Count == 0)
+    //    {
+    //        Console.WriteLine($" No field updates for {clerical.UpdateType}");
+    //        return false;
+    //    }
+
+    //    var fieldUpdate = Builders<Filling>.Update.Combine(updates);
+
+    //    var arrayFilters = new List<ArrayFilterDefinition>
+    //    {
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'app.id': '" + dto.appId + "' }"),
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'c.Id': '" + dto.appId + "' }")
+    //    };
+
+    //    var combinedUpdate = Builders<Filling>.Update.Combine(
+    //        fieldUpdate,
+    //        Builders<Filling>.Update.Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.Approved),
+    //        Builders<Filling>.Update.Set("ClericalUpdates.$[c].IsApproved", true),
+    //        Builders<Filling>.Update.Set("ClericalUpdates.$[c].DateTreated", clerical.DateTreated),
+    //        Builders<Filling>.Update.Set("ClericalUpdates.$[c].Reason", clerical.Reason)
+    //    );
+
+    //    var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId);
+
+    //    var updateOptions = new UpdateOptions
+    //    {
+    //        ArrayFilters = arrayFilters
+    //    };
+
+    //    await _fillingCollection.UpdateOneAsync(filter, combinedUpdate, updateOptions);
+
+    //    Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}");
     //    return true;
     //}
-    public async Task<bool> ApproveAmendment(string fileId, string appId)
-    {
-        try
-        {
-            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
-            if (file == null) throw new Exception("File not found");
-            var app = file.ApplicationHistory.FirstOrDefault(a => a.id == appId);
-            if (app == null) throw new Exception("Application not found");
 
-            app.CurrentStatus = ApplicationStatuses.Approved;
-            await _fillingCollection.UpdateOneAsync(
-                Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
-                Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory)
-            );
-            return true;
-        }
-        catch (Exception e)
+    //public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
+    //{
+    //    // Fetch the file
+    //    var file = await _fillingCollection.Find(f => f.FileId == dto.fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //    {
+    //        Console.WriteLine($" File {dto.fileId} not found.");
+    //        return false;
+    //    }
+
+    //    // Find the clerical update flagged as an amendment
+    //    var clerical = file.ClericalUpdates?
+    //        .FirstOrDefault(c => c.Id == dto.appId && c.IsAmendment == true);
+    //    if (clerical == null)
+    //    {
+    //        Console.WriteLine($"Clerical amendment {dto.appId} not found or not marked as amendment.");
+    //        return false;
+    //    }
+    //    var app = file.ApplicationHistory.FirstOrDefault(c => c.id == dto.appId);
+    //    if (app == null)
+    //    {
+    //        Console.WriteLine($" Application history {dto.appId} not found.");
+    //        return false;
+    //    }
+
+    //    // Update in-memory state for audit
+    //    app.CurrentStatus = ApplicationStatuses.Approved;
+    //    clerical.IsApproved = true;
+    //    clerical.DateTreated = DateTime.Now;
+    //    clerical.Reason = dto.reason;
+
+    //    Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
+
+    //    // Determine which field-specific updates to apply
+    //    var updates = new List<UpdateDefinition<Filling>>();
+
+    //    switch (clerical.UpdateType)
+    //    {
+    //        case "ApplicantName":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantName))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Name", clerical.NewApplicantName));
+    //            break;
+
+    //        case "ApplicantAddress":
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantAddress))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Address", clerical.NewApplicantAddress));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantEmail))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Email", clerical.NewApplicantEmail));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantPhone))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Phone", clerical.NewApplicantPhone));
+    //            if (!string.IsNullOrEmpty(clerical.NewApplicantNationality))
+    //                updates.Add(Builders<Filling>.Update.Set("applicants.0.Country", clerical.NewApplicantNationality));
+    //            break;
+
+    //        case "FileClass":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileClass))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
+    //            if (!string.IsNullOrEmpty(clerical.NewClassDescription))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
+    //            if (!string.IsNullOrEmpty(clerical.NewDisclaimer))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
+    //            break;
+
+    //        case "Correspondence":
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.name, clerical.NewCorrespondenceName));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.phone, clerical.NewCorrespondencePhone));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.address, clerical.NewCorrespondenceAddress));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.email, clerical.NewCorrespondenceEmail));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceNationality))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.Nationality, clerical.NewCorrespondenceNationality));
+    //            if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceState))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.state, clerical.NewCorrespondenceState));
+
+    //            if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
+    //            {
+    //                var poaIndex = file.Attachments?.FindIndex(a => a.name == "poa") ?? -1;
+    //                if (poaIndex >= 0)
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "poa",
+    //                        url = new List<string> { clerical.NewPowerOfAttorneyUrl }
+    //                    }));
+    //                }
+    //            }
+
+    //            if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
+    //            {
+    //                updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                {
+    //                    name = "other",
+    //                    url = new List<string> { clerical.NewAttachmentUrl }
+    //                }));
+    //            }
+    //            break;
+
+    //        case "FileTitle":
+    //            if (!string.IsNullOrEmpty(clerical.NewFileTitle))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+    //            if (!string.IsNullOrEmpty(clerical.NewTrademarkLogo))
+    //                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo)));
+    //            if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
+    //            {
+    //                var index = file.Attachments?.FindIndex(a => a.name == "representation") ?? -1;
+    //                if (index >= 0)
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Set($"Attachments.{index}.url", new List<string> { clerical.NewRepresentationUrl }));
+    //                }
+    //                else
+    //                {
+    //                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+    //                    {
+    //                        name = "representation",
+    //                        url = new List<string> { clerical.NewRepresentationUrl }
+    //                    }));
+    //                }
+    //            }
+    //            break;
+    //    }
+
+    //    // Always set application status & clerical approval metadata (do this even if there are no field updates)
+    //    // Use array filters to target the correct application history element and clerical update element
+    //    var arrayFilters = new List<ArrayFilterDefinition>
+    //    {
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'app.id': '" + dto.appId + "' }"),
+    //        new JsonArrayFilterDefinition<BsonDocument>("{ 'c.Id': '" + dto.appId + "' }")
+    //    };
+
+    //    // Build the final combined update definitions
+    //    var updatesList = new List<UpdateDefinition<Filling>>();
+    //    if (updates.Any())
+    //        updatesList.AddRange(updates);
+
+    //    // Mandatory updates: set application status and clerical approved metadata
+    //    updatesList.Add(Builders<Filling>.Update.Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.Approved));
+    //    updatesList.Add(Builders<Filling>.Update.Set("ClericalUpdates.$[c].IsApproved", true));
+    //    updatesList.Add(Builders<Filling>.Update.Set("ClericalUpdates.$[c].DateTreated", clerical.DateTreated));
+    //    updatesList.Add(Builders<Filling>.Update.Set("ClericalUpdates.$[c].Reason", clerical.Reason));
+
+    //    var combinedUpdate = Builders<Filling>.Update.Combine(updatesList);
+
+    //    var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId);
+
+    //    var updateOptions = new UpdateOptions
+    //    {
+    //        ArrayFilters = arrayFilters
+    //    };
+
+    //    var result = await _fillingCollection.UpdateOneAsync(filter, combinedUpdate, updateOptions);
+
+    //    Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}. ModifiedCount: {result.ModifiedCount}");
+
+    //    return result.ModifiedCount > 0;
+    //}
+   
+    public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
+    {
+        // Fetch the file
+        var file = await _fillingCollection.Find(f => f.FileId == dto.fileId).FirstOrDefaultAsync();
+        if (file == null)
         {
-            Console.WriteLine(e);
-            throw;
+            Console.WriteLine($" File {dto.fileId} not found.");
+            return false;
         }
+
+        // Find the clerical update flagged as an amendment
+        var clerical = file.ClericalUpdates?
+            .FirstOrDefault(c => c.Id == dto.appId && c.IsAmendment == true);
+        if (clerical == null)
+        {
+            Console.WriteLine($"Clerical amendment {dto.appId} not found or not marked as amendment.");
+            return false;
+        }
+
+        var app = file.ApplicationHistory.FirstOrDefault(c => c.id == dto.appId);
+        if (app == null)
+        {
+            Console.WriteLine($" Application history {dto.appId} not found.");
+            return false;
+        }
+
+        // Update in-memory state for audit
+        app.CurrentStatus = ApplicationStatuses.Approved;
+        clerical.IsApproved = true;
+        clerical.DateTreated = DateTime.Now;
+        clerical.Reason = dto.reason;
+
+        Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
+
+        // Determine which field-specific updates to apply
+        var updates = new List<UpdateDefinition<Filling>>();
+
+        switch (clerical.UpdateType)
+        {
+            case "ApplicantName":
+                if (!string.IsNullOrEmpty(clerical.NewApplicantName))
+                    updates.Add(Builders<Filling>.Update.Set("applicants.0.Name", clerical.NewApplicantName));
+                break;
+
+            case "ApplicantAddress":
+                if (!string.IsNullOrEmpty(clerical.NewApplicantAddress))
+                    updates.Add(Builders<Filling>.Update.Set("applicants.0.Address", clerical.NewApplicantAddress));
+                if (!string.IsNullOrEmpty(clerical.NewApplicantEmail))
+                    updates.Add(Builders<Filling>.Update.Set("applicants.0.Email", clerical.NewApplicantEmail));
+                if (!string.IsNullOrEmpty(clerical.NewApplicantPhone))
+                    updates.Add(Builders<Filling>.Update.Set("applicants.0.Phone", clerical.NewApplicantPhone));
+                if (!string.IsNullOrEmpty(clerical.NewApplicantNationality))
+                    updates.Add(Builders<Filling>.Update.Set("applicants.0.country", clerical.NewApplicantNationality));
+                break;
+
+            case "FileClass":
+                if (!string.IsNullOrEmpty(clerical.NewFileClass))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
+                if (!string.IsNullOrEmpty(clerical.NewClassDescription))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
+                if (!string.IsNullOrEmpty(clerical.NewDisclaimer))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
+                break;
+
+            case "Correspondence":
+                if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.name, clerical.NewCorrespondenceName));
+                if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.phone, clerical.NewCorrespondencePhone));
+                if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.address, clerical.NewCorrespondenceAddress));
+                if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.email, clerical.NewCorrespondenceEmail));
+                if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceNationality))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.Nationality, clerical.NewCorrespondenceNationality));
+                if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceState))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence.state, clerical.NewCorrespondenceState));
+
+                if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
+                {
+                    var poaIndex = file.Attachments?.FindIndex(a => a.name == "poa") ?? -1;
+                    if (poaIndex >= 0)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set($"Attachments.{poaIndex}.url", new List<string> { clerical.NewPowerOfAttorneyUrl }));
+                    }
+                    else
+                    {
+                        updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+                        {
+                            name = "poa",
+                            url = new List<string> { clerical.NewPowerOfAttorneyUrl }
+                        }));
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
+                {
+                    updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+                    {
+                        name = "other",
+                        url = new List<string> { clerical.NewAttachmentUrl }
+                    }));
+                }
+                break;
+
+            case "FileTitle":
+                if (!string.IsNullOrEmpty(clerical.NewFileTitle))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+                if (!string.IsNullOrEmpty(clerical.NewTrademarkLogo))
+                    updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo)));
+                if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
+                {
+                    var index = file.Attachments?.FindIndex(a => a.name == "representation") ?? -1;
+                    if (index >= 0)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set($"Attachments.{index}.url", new List<string> { clerical.NewRepresentationUrl }));
+                    }
+                    else
+                    {
+                        updates.Add(Builders<Filling>.Update.Push(f => f.Attachments, new AttachmentType
+                        {
+                            name = "representation",
+                            url = new List<string> { clerical.NewRepresentationUrl }
+                        }));
+                    }
+                }
+                break;
+        }
+
+        // Persist changes: include field updates (if any) AND overwrite the arrays to ensure IsApproved/DateTreated/etc persist.
+        var finalUpdates = new List<UpdateDefinition<Filling>>();
+        if (updates.Any()) finalUpdates.AddRange(updates);
+
+        // Ensure the approved status and clerical metadata are saved into arrays (we updated them in-memory already)
+        finalUpdates.Add(Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory));
+        finalUpdates.Add(Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates));
+
+        var combinedUpdate = Builders<Filling>.Update.Combine(finalUpdates);
+
+        var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId);
+
+        var result = await _fillingCollection.UpdateOneAsync(filter, combinedUpdate);
+
+        Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}. ModifiedCount: {result.ModifiedCount}");
+
+        return result.ModifiedCount > 0;
     }
 }

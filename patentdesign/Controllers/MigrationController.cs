@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using patentdesign.Dtos.Response;
@@ -9,6 +10,7 @@ namespace patentdesign.Controllers;
 [Route("api/migration")]
 public class MigrationController(MigrationService migrationService) : ControllerBase
 {
+    //[Authorize]
     [HttpGet("GetMarkInfo")]
     public async Task<IActionResult> GetMarkInfo(string regNumber)
     {
@@ -22,6 +24,7 @@ public class MigrationController(MigrationService migrationService) : Controller
             return BadRequest(new { message = ex.Message });
         }
     }
+    //[Authorize]
     [HttpGet("GetPaymentInfo")]
     public async Task<IActionResult> GetPaymentInfo(string paymentId)
     {
@@ -35,6 +38,7 @@ public class MigrationController(MigrationService migrationService) : Controller
             return BadRequest(new{message = e.Message});
         }
     }
+    //[Authorize]
     [HttpPost("ClaimRequest")]
     public async Task<IActionResult> ClaimRequest([FromForm] List<IFormFile> attachments, [FromForm] string markInfo)
     {
@@ -48,18 +52,22 @@ public class MigrationController(MigrationService migrationService) : Controller
         await migrationService.NewClaimRequest(dto);
         return Ok(new { message = "Claim submitted successfully" });
     }
+    
+    //[Authorize]
     [HttpGet("GetAllClaimRequests")]
     public async Task<IActionResult> GetAllClaimRequests()
     {
         var res = await migrationService.GetAllClaimRequests();
         return Ok(res);
     }
+    //[Authorize]
     [HttpGet("GetClaimRequest")]
     public async Task<IActionResult> GetClaimRequest([FromQuery]string fileId)
     {
         var res = await migrationService.GetClaimRequest(fileId);
         return Ok(res);
     }
+    //[Authorize]
     [HttpPost("AdminUploadAttach")]
     public async Task<IActionResult> AdminUploadAttach(AdminUploadAttachmentDto req)
     {
@@ -73,7 +81,7 @@ public class MigrationController(MigrationService migrationService) : Controller
             return BadRequest(new { message = ex.Message });
         }
     }
-
+    //[Authorize]
     [HttpPost("migrate")]
     public async Task<IActionResult> MigrateFile([FromQuery] string fileId)
     {
