@@ -118,6 +118,8 @@ app.UseRouting();
 
 app.UseCors(corsPolicy); 
 
+// ✅ Make sure authentication runs before authorization
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
