@@ -251,15 +251,6 @@ public record ClericalUpdate
     public string? NewCorrespondenceEmail { get; set; }
     public string? OldCorrespondencePhone { get; set; }
     public string? NewCorrespondencePhone { get; set; }
-    public string? OldCorrespondenceNationality { get; set; }
-    public string? NewCorrespondenceNationality { get; set; }
-    public string? OldCorrespondenceState { get; set; }
-    public string? NewCorrespondenceState { get; set; }
-    public string? OldPatentAbstract { get; set; }
-    public string? NewPatentAbstract { get; set; }
-
-    public PatentApplicationTypes OldPatentApplicationType { get; set; }
-    public PatentApplicationTypes NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
     public string? NewRepresentationUrl { get; set; }
     public string? OldPowerOfAttorneyUrl { get; set; }
