@@ -120,12 +120,24 @@ namespace patentdesign.Services
                 var validPassword = BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash);
                 if (!validPassword)
                     return null;
-
+                LoggedInUserDto dto = new LoggedInUserDto
+                {
+                    Id = user.Id,
+                    Email = user.Email,
+                    UserRoles = user.UserRoles,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    PhoneNumber = user.PhoneNumber,
+                    AccountType = user.AccountType,
+                    CreatedAt = user.CreatedAt,
+                    CreatorId = user.CreatorId
+                    
+                };
                 var token = GenerateJwtToken(user);
                 AuthUserDto authUser = new AuthUserDto
                 {
                     Token = token,
-                    User = user
+                    User = dto
                 };
                 Console.WriteLine("Token: " + token);
                 return authUser;
@@ -265,15 +277,15 @@ namespace patentdesign.Services
             {
                 Console.WriteLine("Creator id:" + dto._id);
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.password);
-                var filings = await _fillingCollection.Find(f => f.CreatorAccount == dto._id).ToListAsync();
-                var files = new List<string>();
-                if (filings != null && filings.Count > 0)
-                {
-                    files = filings
-                        .Select(f => f.FileId)
-                        .Where(id => !string.IsNullOrWhiteSpace(id))
-                        .ToList();
-                }
+                // var filings = await _fillingCollection.Find(f => f.CreatorAccount == dto._id).ToListAsync();
+                // var files = new List<string>();
+                // if (filings != null && filings.Count > 0)
+                // {
+                //     files = filings
+                //         .Select(f => f.FileId)
+                //         .Where(id => !string.IsNullOrWhiteSpace(id))
+                //         .ToList();
+                // }
                 var corr = dto.DefaultCorrespondence;
                 var state = MapToNigerianState(corr?.state);
                 var roles = MapToRole(dto.UserRoles);
@@ -296,7 +308,7 @@ namespace patentdesign.Services
                     State = state,
                     Signature = dto.Signature,
                     VerificationDocs = new List<string>(),
-                    Files = files,
+                    Files = new List<string>(),
                 };
                 await _users.InsertOneAsync(newUser);
                 return true;

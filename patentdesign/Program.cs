@@ -28,6 +28,8 @@ builder.Services.AddCors(options =>
     {
         policy
             .WithOrigins("https://portal.iponigeria.com") // your frontend domain
+            .WithOrigins("http://localhost:5173")
+            .WithOrigins("https://link.einaotest.com")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
