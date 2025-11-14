@@ -67,6 +67,8 @@ namespace patentdesign.Dtos.Request
         public List<string>? NewInventorStates { get; set; }
         public List<string>? OldInventorCities { get; set; }
         public List<string>? NewInventorCities { get; set; }
+        public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+        public List<PriorityInfo>? PriorityInfo { get; set; }
     }
 
     public class ClericalUpdateDetailsDto

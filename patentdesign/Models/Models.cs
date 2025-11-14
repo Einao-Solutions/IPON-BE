@@ -245,7 +245,10 @@ public record ClericalUpdate
     public string? NewFileTitle { get; set; }
     public string? OldCorrespondenceName {get; set; }
     public string? NewCorrespondenceName { get; set; }
+    public string? NewCorrespondenceNationality { get; set; } 
+    public string? NewCorrespondenceState { get; set; }
     public string? OldCorrespondenceAddress { get; set; }
+
     public string? NewCorrespondenceAddress { get; set; }
     public string? OldCorrespondenceEmail { get; set; }
     public string? NewCorrespondenceEmail { get; set; }
