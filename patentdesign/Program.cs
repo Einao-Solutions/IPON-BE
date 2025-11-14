@@ -17,24 +17,24 @@ using QuestPDF.Infrastructure;
 using System.Security.Authentication;
 using System.Text;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
 // ------------------ CORS ------------------
-const string corsPolicy = "AllowAll";
+const string corsPolicy = "AllowPortal";
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: corsPolicy, policy =>
     {
         policy
-            .AllowAnyOrigin()    
+            .WithOrigins("https://portal.iponigeria.com") // your frontend domain
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
-// ------------------JWT-------------------------
+// ------------------ JWT Authentication ------------------
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -57,17 +57,19 @@ QuestPDF.Settings.License = LicenseType.Community;
 using var fontStream = File.OpenRead("assets/Certificate.otf");
 FontManager.RegisterFont(fontStream);
 
-
 // ------------------ MongoDB ------------------
-string digitalOceanConnectionString = @"mongodb+srv://readmin:W9415L6d27tcB3gv@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin";
+string digitalOceanConnectionString =
+    @"mongodb+srv://readmin:W9415L6d27tcB3gv@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin";
 
 var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(digitalOceanConnectionString));
 mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
 var mongoClient = new MongoClient(mongoSettings);
 
+// ------------------ Configurations ------------------
 builder.Services.Configure<PatentDesignDBSettings>(builder.Configuration.GetSection("PatentDesignDatabase"));
 builder.Services.Configure<PaymentInfo>(builder.Configuration.GetSection("PaymentInfo"));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+
 // ------------------ Mongo Enum Serializers ------------------
 BsonSerializer.RegisterSerializer(typeof(ApplicationStatuses), new EnumSerializer<ApplicationStatuses>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(FileTypes), new EnumSerializer<FileTypes>(BsonType.String));
@@ -100,9 +102,10 @@ builder.Services.AddSingleton<MigrationService>();
 builder.Services.AddSingleton<EmailServices>();
 builder.Services.AddSingleton<AuthServices>();
 
-// ------------------ Build & Configure App ------------------
+// ------------------ Build the App ------------------
 var app = builder.Build();
 
+// ------------------ Configure Pipeline ------------------
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
@@ -116,8 +119,11 @@ app.UseHttpsRedirection();
 
 app.UseRouting();
 
-app.UseCors(corsPolicy); 
+// ✅ CORS should come before authentication/authorization
+app.UseCors(corsPolicy);
 
+// ✅ Make sure authentication runs before authorization
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
