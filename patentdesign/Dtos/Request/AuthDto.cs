@@ -1,4 +1,5 @@
 ﻿using MongoDB.Bson.Serialization.Attributes;
+using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request
@@ -20,7 +21,21 @@ namespace patentdesign.Dtos.Request
     public class AuthUserDto
     {
         public string Token { get; set; }
-        public AppUser User { get; set; }
+        public LoggedInUserDto User { get; set; }
 
+    }
+
+    public class LoggedInUserDto
+    {
+        [BsonId]
+        public string? Id { get; set; }
+        public string? CreatorId { get; set; }
+        public string? FirstName { get; set; } 
+        public string? LastName { get; set; } 
+        public string? Email { get; set; } 
+        public string? PhoneNumber { get; set; }
+        public List<Roles>? UserRoles { get; set; }
+        public AccountType? AccountType { get; set; }
+        public DateTime CreatedAt { get; set; } 
     }
 }
