@@ -139,6 +139,7 @@ public record FileSummary
     }
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
+    public int? TrademarkClass { get; set; }
 }
 
 public record FileApplicationSummary
@@ -245,6 +246,8 @@ public record ClericalUpdate
     public string? NewFileTitle { get; set; }
     public string? OldCorrespondenceName {get; set; }
     public string? NewCorrespondenceName { get; set; }
+    public string? NewCorrespondenceNationality { get; set; } 
+    public string? NewCorrespondenceState { get; set; }
     public string? OldCorrespondenceAddress { get; set; }
     public string? NewCorrespondenceAddress { get; set; }
     public string? OldCorrespondenceEmail { get; set; }
@@ -252,12 +255,9 @@ public record ClericalUpdate
     public string? OldCorrespondencePhone { get; set; }
     public string? NewCorrespondencePhone { get; set; }
     public string? OldCorrespondenceNationality { get; set; }
-    public string? NewCorrespondenceNationality { get; set; }
     public string? OldCorrespondenceState { get; set; }
-    public string? NewCorrespondenceState { get; set; }
     public string? OldPatentAbstract { get; set; }
     public string? NewPatentAbstract { get; set; }
-
     public PatentApplicationTypes OldPatentApplicationType { get; set; }
     public PatentApplicationTypes NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }

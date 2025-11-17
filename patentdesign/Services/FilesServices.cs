@@ -1010,6 +1010,7 @@ public class FileServices
             }).ToList(),
             id = x.Id.ToString(),
             Type = x.Type,
+            TrademarkClass = x.TrademarkClass
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
