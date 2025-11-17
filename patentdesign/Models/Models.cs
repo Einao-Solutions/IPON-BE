@@ -139,6 +139,7 @@ public record FileSummary
     }
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
+    public int? TrademarkClass { get; set; }
 }
 
 public record FileApplicationSummary
