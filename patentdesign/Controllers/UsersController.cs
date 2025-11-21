@@ -42,12 +42,12 @@ public class UsersController(UsersService usersService) :ControllerBase
     //    return Ok(value);
     //}
 
-    //[HttpGet("SearchNameId")]
-    //public async Task<IActionResult> SearchNameId([FromQuery] string nameId)
-    //{
-    //    var value = await usersService.SearchUsersByNameId(nameId);
-    //    return Ok(value);
-    //}
+    [HttpGet("SearchNameId")]
+    public async Task<IActionResult> SearchNameId([FromQuery] string nameId)
+    {
+        var value = await usersService.SearchUsersByNameId(nameId);
+        return Ok(value);
+    }
 
     //[HttpGet("verify")]
     //public async Task<IActionResult> VerifyUser([FromQuery] string userId)
@@ -73,7 +73,7 @@ public class UsersController(UsersService usersService) :ControllerBase
     //    var value = await usersService.GetUserById(userId);
     //    return Ok(value);
     //}
-    
+
     //[HttpGet("fetchall")]
     //public async Task<IActionResult> fetchall()
     //{
