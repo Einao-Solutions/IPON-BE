@@ -995,6 +995,8 @@ public class FileServices
 
     public async Task<PaginatedResponse> GetPaginatedSummaryAsync(int startingIndex, int quantity, SummaryRequestObj filter)
     {
+        Console.WriteLine("index: " + startingIndex + " quantity: " + quantity);
+        Console.WriteLine("filter: " + JsonSerializer.Serialize(filter));
         var filters = getFilter(filter);
         var fillBuilder = Builders<Filling>.Projection;
         var projection = fillBuilder.Expression(x => new FileSummary()

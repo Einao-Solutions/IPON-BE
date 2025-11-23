@@ -38,241 +38,251 @@ public class UsersService
         _mongoClient = new MongoClient(settings);
         // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
         var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _userCollection = pdDb.GetCollection<AppUser>(patentDesignDbSettings.Value.UsersCollectionName);
+        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
         _attachmentCollection =
             pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
         _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
         _performanceCollection = pdDb.GetCollection<PerformanceMarker>("performance");
     }
 
-//    public async Task<CorrespondenceType?> LoadDefaultCorrespondence(UserCreateType user)
-//    {
-//        var corr = _userCollection.Find(x => x.id == user.id)
-//            .Project(y => y.DefaultCorrespondence).FirstOrDefault();
-//        if (corr == null)
-//        {
-//            corr = _fillingCollection
-//                .Find(x => x.CreatorAccount == user.id && x.Correspondence != null && x.Correspondence.name != "-")
-//                .Project(x => x.Correspondence).FirstOrDefault();
-//            // if user doesnt exist, create and save
-//            if (corr != null)
-//            {
-//                var userFound = _userCollection.Find(x => x.id == user.id).FirstOrDefault();
-//                if (userFound != null)
-//                {
-//                    await _userCollection.FindOneAndUpdateAsync(
-//                        Builders<UserCreateType>.Filter.Eq(x => x.id, user.id),
-//                        Builders<UserCreateType>.Update.Set(y => y.DefaultCorrespondence, corr),
-//                        new FindOneAndUpdateOptions<UserCreateType>()
-//                        {
-//                            ReturnDocument = ReturnDocument.After
-//                        }
-//                    );
-//                }
+    //    public async Task<CorrespondenceType?> LoadDefaultCorrespondence(UserCreateType user)
+    //    {
+    //        var corr = _userCollection.Find(x => x.id == user.id)
+    //            .Project(y => y.DefaultCorrespondence).FirstOrDefault();
+    //        if (corr == null)
+    //        {
+    //            corr = _fillingCollection
+    //                .Find(x => x.CreatorAccount == user.id && x.Correspondence != null && x.Correspondence.name != "-")
+    //                .Project(x => x.Correspondence).FirstOrDefault();
+    //            // if user doesnt exist, create and save
+    //            if (corr != null)
+    //            {
+    //                var userFound = _userCollection.Find(x => x.id == user.id).FirstOrDefault();
+    //                if (userFound != null)
+    //                {
+    //                    await _userCollection.FindOneAndUpdateAsync(
+    //                        Builders<UserCreateType>.Filter.Eq(x => x.id, user.id),
+    //                        Builders<UserCreateType>.Update.Set(y => y.DefaultCorrespondence, corr),
+    //                        new FindOneAndUpdateOptions<UserCreateType>()
+    //                        {
+    //                            ReturnDocument = ReturnDocument.After
+    //                        }
+    //                    );
+    //                }
 
-//                else
-//                {
-//                    _ = SaveNewCorrespondence(corr, user);
-//                }
+    //                else
+    //                {
+    //                    _ = SaveNewCorrespondence(corr, user);
+    //                }
 
-//            }
+    //            }
 
-//            return corr;
-//        }
-//        else
-//        {
-//            return corr;
-//        }
-//    }
+    //            return corr;
+    //        }
+    //        else
+    //        {
+    //            return corr;
+    //        }
+    //    }
 
-//    public async Task<CorrespondenceType?> SaveNewCorrespondence(CorrespondenceType? newCorr, UserCreateType? userInfo)
-//    {
-//        var updated=await _userCollection.FindOneAndUpdateAsync(
-//            Builders<UserCreateType>.Filter.Eq(x=>x.id, userInfo.id),
-//            Builders<UserCreateType>.Update.Set(x => x.DefaultCorrespondence, newCorr), new FindOneAndUpdateOptions<UserCreateType>()
-//            {
-//                ReturnDocument = ReturnDocument.After
-//            } 
-//            );
-//        if (updated == null)
-//        {
-//            userInfo.DefaultCorrespondence = newCorr;
-//            await _userCollection.InsertOneAsync(userInfo);
-//            return newCorr;
-//        }
-//        return updated.DefaultCorrespondence;
-//    }
+    //    public async Task<CorrespondenceType?> SaveNewCorrespondence(CorrespondenceType? newCorr, UserCreateType? userInfo)
+    //    {
+    //        var updated=await _userCollection.FindOneAndUpdateAsync(
+    //            Builders<UserCreateType>.Filter.Eq(x=>x.id, userInfo.id),
+    //            Builders<UserCreateType>.Update.Set(x => x.DefaultCorrespondence, newCorr), new FindOneAndUpdateOptions<UserCreateType>()
+    //            {
+    //                ReturnDocument = ReturnDocument.After
+    //            } 
+    //            );
+    //        if (updated == null)
+    //        {
+    //            userInfo.DefaultCorrespondence = newCorr;
+    //            await _userCollection.InsertOneAsync(userInfo);
+    //            return newCorr;
+    //        }
+    //        return updated.DefaultCorrespondence;
+    //    }
 
-//    public async Task<string> UpdateUserSig(UpdateSigReq sigInfo)
-//    {
-//        var url = await UploadSignature(sigInfo);
-//        if (_userCollection.Find(x => x.id == sigInfo.UserId).FirstOrDefault()!=null)
-//        {
-//            var response = await _userCollection.FindOneAndUpdateAsync(
-//                Builders<UserCreateType>.Filter.Eq(x => x.id, sigInfo.UserId),
-//                Builders<UserCreateType>.Update.Set(x => x.Signature, url),
-//                new FindOneAndUpdateOptions<UserCreateType, UserCreateType>()
-//                {
-//                    ReturnDocument = ReturnDocument.After
-//                });
-//            return url;
-//        }
-//        else
-//        {
-//            await _userCollection.InsertOneAsync(new UserCreateType()
-//            {
-//                id = sigInfo.UserId,
-//                Signature = url
-//            });
-//            return url;
-//        }
-//    }
+    //    public async Task<string> UpdateUserSig(UpdateSigReq sigInfo)
+    //    {
+    //        var url = await UploadSignature(sigInfo);
+    //        if (_userCollection.Find(x => x.id == sigInfo.UserId).FirstOrDefault()!=null)
+    //        {
+    //            var response = await _userCollection.FindOneAndUpdateAsync(
+    //                Builders<UserCreateType>.Filter.Eq(x => x.id, sigInfo.UserId),
+    //                Builders<UserCreateType>.Update.Set(x => x.Signature, url),
+    //                new FindOneAndUpdateOptions<UserCreateType, UserCreateType>()
+    //                {
+    //                    ReturnDocument = ReturnDocument.After
+    //                });
+    //            return url;
+    //        }
+    //        else
+    //        {
+    //            await _userCollection.InsertOneAsync(new UserCreateType()
+    //            {
+    //                id = sigInfo.UserId,
+    //                Signature = url
+    //            });
+    //            return url;
+    //        }
+    //    }
 
 
 
-//    private async Task<string> UploadSignature(UpdateSigReq item)
-//    {
-//        if (item.data == null) return "";
-//        var extention = item.fileName.Split(".").Last();
-//        var trustedFileName = Path.GetRandomFileName();
-//        trustedFileName = trustedFileName.Split(".")[0] + $".{extention}";
+    //    private async Task<string> UploadSignature(UpdateSigReq item)
+    //    {
+    //        if (item.data == null) return "";
+    //        var extention = item.fileName.Split(".").Last();
+    //        var trustedFileName = Path.GetRandomFileName();
+    //        trustedFileName = trustedFileName.Split(".")[0] + $".{extention}";
 
-//        await _attachmentCollection.InsertOneAsync(new AttachmentInfo
-//        {
-//            Id = trustedFileName,
-//            ContentType = item.contentType,
-//            Data = item.data
-//        });
-//        var uri =
-//            $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
-//        return uri;
-//    }
+    //        await _attachmentCollection.InsertOneAsync(new AttachmentInfo
+    //        {
+    //            Id = trustedFileName,
+    //            ContentType = item.contentType,
+    //            Data = item.data
+    //        });
+    //        var uri =
+    //            $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
+    //        return uri;
+    //    }
 
-//    public string? GetSignature(string userId)
-//    {
-//        return _userCollection.Find(x => x.id == userId).FirstOrDefault().Signature??"-";
-//    }
+    //    public string? GetSignature(string userId)
+    //    {
+    //        return _userCollection.Find(x => x.id == userId).FirstOrDefault().Signature??"-";
+    //    }
 
-//    public async Task<List<UserCreateType>> SearchUsersByNameId(string text)
-//    {
-//        var roles = Enum.GetValues<UserRoles>().Where(x => x.ToString().ToLower().Contains(text.ToLower()));
-//        return await _userCollection.Find(
-//            Builders<UserCreateType>.Filter.Or([
-//                Builders<UserCreateType>.Filter.Regex(f => f.name, new BsonRegularExpression(text, "i")),
-//                Builders<UserCreateType>.Filter.Regex(f => f.id, new BsonRegularExpression(text, "i")),
-//                Builders<UserCreateType>.Filter.AnyIn(f => f.Roles, roles)
-//            ])
-//        ).ToListAsync();
-//    }
 
-//    public async Task<dynamic> GetPerformances(FinanceQueryType data)
-//    {
-//        var applicationsCount = _performanceCollection.AsQueryable()
-//            .Where(x => x.Date >= data.startDate && x.Date <= data.endDate && x.Type == PerformanceType.Application)
-//            .GroupBy(x => new { x.ApplicationType, x.fileType })
-//            .Select(t => new { applicationType = t.Key.ApplicationType, fileType = t.Key.fileType, amount = t.Count() })
-//            .OrderByDescending(x => x.amount)
-//            .ToList();
-        
-//        var treatedCount = _performanceCollection.AsQueryable()
-//            .Where(x => x.Date >= data.startDate && x.Date <= data.endDate && x.Type == PerformanceType.Staff)
-//            .GroupBy(x => new { x.fileType, x.beforeStatus, x.afterStatus, x.user })
-//            .Select(t => new
-//            {
-//                fileType = t.Key.fileType, before = t.Key.beforeStatus, t.Key.user, after = t.Key.afterStatus,
-//                amount = t.Count()
-//            })
-//            .OrderByDescending(x => x.amount)
-//            .ToList();
-//        return new
-//        {
-//            applicationsCount, treatedCount
-//        };
-//    }
+    public async Task<List<AppUser>> SearchUsersByNameId(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new List<AppUser>();
 
-//    public async Task<UserCreateType?> VerifyUser(string userId)
-//    {
-//        try
-//        {
-//            var result=await _userCollection.FindOneAndUpdateAsync(Builders<UserCreateType>.Filter.Eq(x=>x.id, userId),
-//                Builders<UserCreateType>.Update.Set(x => x.verified, true), new FindOneAndUpdateOptions<UserCreateType, UserCreateType>()
-//                {
-//                    ReturnDocument = ReturnDocument.After
-//                });
-//            return result;
-//        }
-//        catch
-//        {
-//            return null;
-//        }
+        // Escape user input so special regex chars don't break matching
+        var escaped = Regex.Escape(text);
 
-//    }
-//    public async Task<UserCreateType?> GetUser(string uuId, UsersController.UserLogin user)
-//    {
-//        try
-//        {
-//            var result = _userCollection.Find(Builders<UserCreateType>.Filter.Eq(x => x.uuid, uuId))
-//                .FirstOrDefault();
-//            Console.WriteLine(uuId);
-//            if (result != null)
-//            {
-//                await _userCollection.FindOneAndUpdateAsync(x => x.uuid == uuId,
-//                    Builders<UserCreateType>.Update.Set(x => x.password, user.password));
-//            }
-//            return result;
-//        }
-//        catch
-//        {
-//            return null;
-//        }
+        var filter = Builders<AppUser>.Filter.Or(
+            Builders<AppUser>.Filter.Regex(f => f.FirstName, new BsonRegularExpression(escaped, "i")),
+            Builders<AppUser>.Filter.Regex(f => f.LastName, new BsonRegularExpression(escaped, "i")),
+            Builders<AppUser>.Filter.Regex(f => f.CreatorId, new BsonRegularExpression(escaped, "i")),
+            Builders<AppUser>.Filter.Regex(f => f.Id, new BsonRegularExpression(escaped, "i"))
+        );
 
-//    }
-//public async Task<UserCreateType?> GetUserById(string id)
-//    {
-//        try
-//        {
-//            var result = _userCollection.Find(Builders<UserCreateType>.Filter.Eq(x => x.id, id))
-//                .FirstOrDefault();
-//            return result;
-//        }
-//        catch
-//        {
-//            return null;
-//        }
+        Console.WriteLine("Search filter: " + filter.ToJson());
+        var result = await _userCollection.Find(filter).ToListAsync();
+        Console.WriteLine("Search result count: " + result.Count);
+        return result;
+    }
 
-//    }
+    //    public async Task<dynamic> GetPerformances(FinanceQueryType data)
+    //    {
+    //        var applicationsCount = _performanceCollection.AsQueryable()
+    //            .Where(x => x.Date >= data.startDate && x.Date <= data.endDate && x.Type == PerformanceType.Application)
+    //            .GroupBy(x => new { x.ApplicationType, x.fileType })
+    //            .Select(t => new { applicationType = t.Key.ApplicationType, fileType = t.Key.fileType, amount = t.Count() })
+    //            .OrderByDescending(x => x.amount)
+    //            .ToList();
 
-//    public async Task<List<UserCreateType>?> FetchAll()
-//    {
-//        var allUsers=await _userCollection.Find(x => x.id != "").ToListAsync();
-//        return allUsers;
-//    }
+    //        var treatedCount = _performanceCollection.AsQueryable()
+    //            .Where(x => x.Date >= data.startDate && x.Date <= data.endDate && x.Type == PerformanceType.Staff)
+    //            .GroupBy(x => new { x.fileType, x.beforeStatus, x.afterStatus, x.user })
+    //            .Select(t => new
+    //            {
+    //                fileType = t.Key.fileType, before = t.Key.beforeStatus, t.Key.user, after = t.Key.afterStatus,
+    //                amount = t.Count()
+    //            })
+    //            .OrderByDescending(x => x.amount)
+    //            .ToList();
+    //        return new
+    //        {
+    //            applicationsCount, treatedCount
+    //        };
+    //    }
 
-//    public async Task AddIds(List<UsersController.AddIDS> ids)
-//    {
-//        foreach (var user in ids)
-//        {
-//            await _userCollection.FindOneAndUpdateAsync(x => x.id == user.id, Builders<UserCreateType>.Update.Set(x=>x.uuid, user.uuid));
-//        }
+    //    public async Task<UserCreateType?> VerifyUser(string userId)
+    //    {
+    //        try
+    //        {
+    //            var result=await _userCollection.FindOneAndUpdateAsync(Builders<UserCreateType>.Filter.Eq(x=>x.id, userId),
+    //                Builders<UserCreateType>.Update.Set(x => x.verified, true), new FindOneAndUpdateOptions<UserCreateType, UserCreateType>()
+    //                {
+    //                    ReturnDocument = ReturnDocument.After
+    //                });
+    //            return result;
+    //        }
+    //        catch
+    //        {
+    //            return null;
+    //        }
 
-//        Console.WriteLine("DONE");
-        
+    //    }
+    //    public async Task<UserCreateType?> GetUser(string uuId, UsersController.UserLogin user)
+    //    {
+    //        try
+    //        {
+    //            var result = _userCollection.Find(Builders<UserCreateType>.Filter.Eq(x => x.uuid, uuId))
+    //                .FirstOrDefault();
+    //            Console.WriteLine(uuId);
+    //            if (result != null)
+    //            {
+    //                await _userCollection.FindOneAndUpdateAsync(x => x.uuid == uuId,
+    //                    Builders<UserCreateType>.Update.Set(x => x.password, user.password));
+    //            }
+    //            return result;
+    //        }
+    //        catch
+    //        {
+    //            return null;
+    //        }
 
-//    }
+    //    }
+    //public async Task<UserCreateType?> GetUserById(string id)
+    //    {
+    //        try
+    //        {
+    //            var result = _userCollection.Find(Builders<UserCreateType>.Filter.Eq(x => x.id, id))
+    //                .FirstOrDefault();
+    //            return result;
+    //        }
+    //        catch
+    //        {
+    //            return null;
+    //        }
 
-//    public async Task<bool?> CreateUser(UserCreateType user)
-//    {
-//        try
-//        {
-//            await _userCollection.InsertOneAsync(user);
-//            return true;
-//        }
-//        catch
-//        {
-//            return false;
-//        }
-//    }
-    
+    //    }
+
+    //    public async Task<List<UserCreateType>?> FetchAll()
+    //    {
+    //        var allUsers=await _userCollection.Find(x => x.id != "").ToListAsync();
+    //        return allUsers;
+    //    }
+
+    //    public async Task AddIds(List<UsersController.AddIDS> ids)
+    //    {
+    //        foreach (var user in ids)
+    //        {
+    //            await _userCollection.FindOneAndUpdateAsync(x => x.id == user.id, Builders<UserCreateType>.Update.Set(x=>x.uuid, user.uuid));
+    //        }
+
+    //        Console.WriteLine("DONE");
+
+
+    //    }
+
+    //    public async Task<bool?> CreateUser(UserCreateType user)
+    //    {
+    //        try
+    //        {
+    //            await _userCollection.InsertOneAsync(user);
+    //            return true;
+    //        }
+    //        catch
+    //        {
+    //            return false;
+    //        }
+    //    }
+
     public async Task<dynamic?> LoadUsers(GetUsersRequest user)
     {
         try

@@ -131,12 +131,7 @@ public record FileSummary
     public string id { get; set; }
     public string? title { get; set; }
     public ApplicationStatuses fileStatus { get; set; }
-    
-
-    public string FileId {
-        get;
-        set;
-    }
+    public string FileId { get; set; }
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
     public int? TrademarkClass { get; set; }
