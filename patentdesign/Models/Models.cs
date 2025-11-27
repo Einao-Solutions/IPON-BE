@@ -705,7 +705,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification
 }
 public enum ApplicationLetters
 {

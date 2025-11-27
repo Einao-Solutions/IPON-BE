@@ -5934,69 +5934,54 @@ public class FileServices
         }
     }
     public async Task<bool> UpdateCertificatePaymentStatus(string fileId, string rrr)
-{
-    try
     {
-        var remita = await _remitaPaymentUtils.GetDetailsByRRR(rrr);
-        if (remita == null || remita.status != "00")
+        try
         {
-            Console.WriteLine($"Payment not successful or not found. RRR: {rrr}");
-            return false;
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+                Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
+                    a => a.CertificatePaymentId == rrr)
+            );
+
+            var newStatusHistory = new ApplicationHistory
+            {
+                Date = DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingCertification,
+                afterStatus = ApplicationStatuses.AwaitingCertificateConfirmation,
+                Message = "Payment Successful moving to Awaiting Certificate Confirmation",
+            };
+
+            var update = Builders<Filling>.Update
+                .Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
+                .Set("FileStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
+                .Push("ApplicationHistory.$[app].StatusHistory", newStatusHistory);
+
+            var arrayFilters = new List<ArrayFilterDefinition>
+            {
+                new JsonArrayFilterDefinition<BsonDocument>("{'app.CertificatePaymentId': '" + rrr + "'}")
+            };
+
+            var updateOptions = new UpdateOptions { ArrayFilters = arrayFilters };
+
+            var result = await _fillingCollection.UpdateOneAsync(filter, update, updateOptions);
+
+            if (result.ModifiedCount > 0)
+            {
+                Console.WriteLine("Successfully updated certificate payment status for FileId");
+                return true;
+            }
+            else
+            {
+                Console.WriteLine("No document updated. Either already updated or document not found. FileId");
+                return false;
+            }
         }
-        var payment = new PaymentRecord
+        catch (Exception ex)
         {
-            PaymentType = "Certificate",
-            Date = DateTime.Now,
-            FileId = fileId,
-            RemitaResponse = remita
-        };
-        await _paymentService.AddPaymentRecord(payment);
-        var filter = Builders<Filling>.Filter.And(
-            Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
-            Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
-                a => a.CertificatePaymentId == rrr &&
-                     a.CurrentStatus == ApplicationStatuses.AwaitingCertification)
-        );
-
-        var newStatusHistory = new ApplicationHistory
-        {
-            Date = DateTime.Now,
-            beforeStatus = ApplicationStatuses.AwaitingCertification,
-            afterStatus = ApplicationStatuses.AwaitingCertificateConfirmation,
-            Message = "Payment Successful moving to Awaiting Certificate Confirmation",
-        };
-
-        var update = Builders<Filling>.Update
-            .Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
-            .Set("FileStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
-            .Push("ApplicationHistory.$[app].StatusHistory", newStatusHistory);
-
-        var arrayFilters = new List<ArrayFilterDefinition>
-        {
-            new JsonArrayFilterDefinition<BsonDocument>("{'app.CertificatePaymentId': '" + rrr + "'}")
-        };
-
-        var updateOptions = new UpdateOptions { ArrayFilters = arrayFilters };
-
-        var result = await _fillingCollection.UpdateOneAsync(filter, update, updateOptions);
-
-        if (result.ModifiedCount > 0)
-        {
-            Console.WriteLine("Successfully updated certificate payment status for FileId");
-            return true;
-        }
-        else
-        {
-            Console.WriteLine("No document updated. Either already updated or document not found. FileId");
-            return false;
+            Console.WriteLine("Error while updating certificate payment status for FileId");
+            throw ex;
         }
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine("Error while updating certificate payment status for FileId");
-        throw ex;
-    }
-}
 
     public async Task<FileApplicationsDto> GetApplicationsByFile(string fileId)
     {
@@ -6018,12 +6003,22 @@ public class FileServices
         {
             fileTitle = file.TitleOfDesign;
         }
-
         var apps = file.ApplicationHistory.ToList();
+
+            CertificateAppDto cert = new CertificateAppDto
+            {
+                CurrentStatus = apps[0].CurrentStatus,
+                PaymentId = apps[0].CertificatePaymentId,
+                id = apps[0].id,
+                ApplicationType = FormApplicationTypes.Certification,
+                ApplicationDate = apps[0].ApplicationDate
+            };
+
         var result = new FileApplicationsDto
         {
             FileTitle = fileTitle?? "",
-            Applications = apps
+            Applications = apps,
+            CertificateApp = cert
         };
         return result;
     }
@@ -6042,22 +6037,30 @@ public class FileServices
                 Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == dto.ApplicationId)
             );
 
-            var update = Builders<Filling>.Update
-                .Set("ApplicationHistory.$.PaymentId", dto.NewPaymentId);
+            UpdateDefinition<Filling> update;
+
+            if (dto.Type == FormApplicationTypes.Certification)
+            {
+                update = Builders<Filling>.Update
+                    .Set("ApplicationHistory.$.CertificatePaymentId", dto.NewPaymentId);
+            }
+            else
+            {
+                update = Builders<Filling>.Update
+                    .Set("ApplicationHistory.$.PaymentId", dto.NewPaymentId);
+            }
 
             var result = await _fillingCollection.UpdateOneAsync(filter, update);
 
-            // return result.ModifiedCount > 0;
             if (result.ModifiedCount > 0)
             {
-                // ? Fetch File Info to complete the log
                 var file = await _fillingCollection.Find(f => f.FileId == dto.FileId).FirstOrDefaultAsync();
                 if (file != null)
                 {
                     await LogFileUpdateAsync(
                         dto.FileId!,
                         file.TitleOfInvention ?? file.TitleOfDesign ?? file.TitleOfTradeMark ?? "(No Title)",
-                        file.Type, // Assuming this maps to your FileTypes enum
+                        file.Type,
                         "Payment ID",
                         dto.User!
                     );
@@ -6073,6 +6076,7 @@ public class FileServices
             return false;
         }
     }
+
 
     public async Task<FileUpdateDto?> GetAllFileDetails(string fileNumber)
     {

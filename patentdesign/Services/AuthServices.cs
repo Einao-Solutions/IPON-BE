@@ -62,6 +62,7 @@ namespace patentdesign.Services
                 var user = new AppUser
                 {
                     Id = Guid.NewGuid().ToString(),
+                    CreatorId = Guid.NewGuid().ToString(),
                     Email = emailNormalized,
                     FirstName = req.FirstName?.Trim() ?? string.Empty,
                     LastName = req.LastName?.Trim() ?? string.Empty,
