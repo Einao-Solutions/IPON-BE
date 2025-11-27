@@ -108,88 +108,128 @@ public class FileServices
     // atomically create file
     public async Task CreateFileAsync(Filling newFile)
     {
-        // var session=await _mongoClient.StartSessionAsync();
-        // session.StartTransaction();
-        // var document=await _countersCollection.Find(Builders<Counters>.Filter.Eq("_id", newFile.Type)).FirstOrDefaultAsync();
-        // newFile.FileId = string.Join("/", [newFile.FileId, document.currentNumber.ToString()]);
         newFile.FileId = string.Join("/", [newFile.FileId, Guid.NewGuid().ToString().Split("-")[0]]);
-        // var filter = Builders<Counters>.Filter.Eq("_id", newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
-        // _countersCollection.FindOneAndUpdate(filter, Builders<Counters>.Update.Inc(f=>f.currentNumber, 1));
-        // await session.CommitTransactionAsync();
     }
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
     {
         var file = _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
-        var application = file.ApplicationHistory.FirstOrDefault(d => d.id == applicationId);
-        var paymentInfo = await _remitaPaymentUtils.GetDetailsByRRR(application.PaymentId);
+        if (file == null) throw new Exception("File not found.");
+
+        var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId);
+        if (application == null) throw new Exception("Application not found.");
+
+        // Certificate-only path: validate and exit early
         if (isCertificate == true)
         {
-            var data = await ValidateCertificatePayment(fileId, file.ApplicationHistory[0].CertificatePaymentId, userName, userId);
-            return data.data;
+            var certRrr = application.CertificatePaymentId
+                          ?? file.ApplicationHistory.FirstOrDefault()?.CertificatePaymentId;
+            if (string.IsNullOrWhiteSpace(certRrr))
+                throw new Exception("Certificate payment reference not found.");
+
+            var certRes = await ValidateCertificatePayment(file.Id, certRrr, userName, userId);
+            return certRes.data;
         }
-        else
+
+        if (string.IsNullOrWhiteSpace(application.PaymentId))
+            throw new Exception("Payment reference not found for the application.");
+
+        var paymentInfo = await _remitaPaymentUtils.GetDetailsByRRR(application.PaymentId);
+        if (paymentInfo == null || paymentInfo.status != "00")
+            throw new Exception($"Payment Not Found or Invalid RRR, {application.PaymentId}");
+
+        var paymentType = application.ApplicationType switch
         {
-            application.StatusHistory.Add(new ApplicationHistory()
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AwaitingSearch,
-                Date = DateTime.Parse(paymentInfo.paymentDate),
-                Message = "Payment Successful, awaiting search",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
-        }
+            FormApplicationTypes.NewApplication => "New Application",
+            FormApplicationTypes.LicenseRenewal => "License Renewal",
+            FormApplicationTypes.DataUpdate => "Data Update",
+            FormApplicationTypes.Assignment => "Assignment",
+            _ => "Application"
+        };
+
+       
+
+        application.StatusHistory ??= new List<ApplicationHistory>();
+        application.StatusHistory.Add(new ApplicationHistory
+        {
+            beforeStatus = ApplicationStatuses.AwaitingPayment,
+            afterStatus = ApplicationStatuses.AwaitingSearch,
+            Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+            Message = "Payment Successful, awaiting search",
+            User = userName,
+            UserId = userId
+        });
+        application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
+
         switch (application.ApplicationType)
         {
             case FormApplicationTypes.NewApplication:
-                file.FileStatus = ApplicationStatuses.AwaitingSearch;
-                var strings = file.FileId.Split("/");
-                var max = strings.Length - 1;
-                var document = await _countersCollection.Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                    .FirstOrDefaultAsync();
-                var newId = string.Join("/", strings.Take(max).Concat(new[] { document.currentNumber.ToString() }));
-                var counterfilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-                _countersCollection.FindOneAndUpdate(counterfilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
-                file.FileId = newId;
-                application.ApplicationLetters =
-                [
-                    ApplicationLetters.NewApplicationCertificateReceipt,
-                    ApplicationLetters.NewApplicationAcknowledgement
-                ];
-                break;
+                {
+                    file.FileStatus = ApplicationStatuses.AwaitingSearch;
+
+                    var segments = (file.FileId ?? string.Empty).Split('/');
+                    var max = Math.Max(segments.Length - 1, 0);
+                    var counter = await _countersCollection
+                        .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
+                        .FirstOrDefaultAsync();
+                    if (counter == null) throw new Exception("Counter not found for file type.");
+
+                    var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
+                    var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
+                    _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+
+                    file.FileId = newId;
+                    application.ApplicationLetters =
+                    [
+                        ApplicationLetters.NewApplicationReceipt,
+                ApplicationLetters.NewApplicationAcknowledgement
+                    ];
+                    break;
+                }
+            case FormApplicationTypes.LicenseRenewal:
+                {
+                    file.FileStatus = ApplicationStatuses.AwaitingSearch;
+                    application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
+                    break;
+                }
             case FormApplicationTypes.DataUpdate:
                 application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
                 break;
             case FormApplicationTypes.Assignment:
-                application.ApplicationLetters =
-                    [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
+                application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
                 break;
-            case FormApplicationTypes.LicenseRenewal:
-                application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
+            default:
                 break;
-            default: break;
         }
+        await _paymentService.AddPaymentRecord(new PaymentRecord
+        {
+            PaymentType = paymentType,
+            Date = DateTime.Now,
+            FileId = file.FileId,
+            RemitaResponse = paymentInfo
+        });
+        var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
+        if (idx >= 0) file.ApplicationHistory[idx] = application;
 
-        var index = file.ApplicationHistory.FindIndex(f => f.id == application.id);
-        file.ApplicationHistory[index] = application;
         await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
-        var response = await CheckStatusViaOrderId(application.PaymentId);
-        var reason = application.ApplicationType == FormApplicationTypes.NewApplication
-            ? $"New {file.Type} Application"
-            : application.ApplicationType == FormApplicationTypes.LicenseRenewal
-                ? $"{file.Type} Renewal Application"
-                : application.ApplicationType == FormApplicationTypes.DataUpdate
-                    ? "Data Update Application"
-                    : application.ApplicationType == FormApplicationTypes.Assignment
-                        ? $"{file.Type} Assignment Application"
-                        : "";
-        saveFinance(response.Item2, reason, applicationId, file.Id, file.applicants[0].country, file.Type,
+
+        var reason = application.ApplicationType switch
+        {
+            FormApplicationTypes.NewApplication => $"New {file.Type} Application",
+            FormApplicationTypes.LicenseRenewal => $"{file.Type} Renewal Application",
+            FormApplicationTypes.DataUpdate => "Data Update Application",
+            FormApplicationTypes.Assignment => $"{file.Type} Assignment Application",
+            _ => "Application"
+        };
+
+        var country = file.applicants != null && file.applicants.Count > 0 ? file.applicants[0].country : null;
+        saveFinance(paymentInfo, reason, applicationId, file.Id, country, file.Type,
             file.DesignType, file.PatentType, file.TrademarkType, file.TrademarkClass);
+
         savePerformance(PerformanceType.Application, application.ApplicationType,
             null, null, DateTime.Now, userName, file.Id, file.Type, file.PatentType, file.DesignType, file.TrademarkType);
+
         return file;
     }
 
