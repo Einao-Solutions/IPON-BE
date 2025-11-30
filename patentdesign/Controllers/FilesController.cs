@@ -55,9 +55,9 @@ public class FilesController(FileServices fileService) : ControllerBase
 
 
     [HttpGet("CertificatePayment")]
-    public async Task<ActionResult> LoadCertificatePaymentDetails([FromQuery] string id)
+    public async Task<ActionResult> LoadCertificatePaymentDetails([FromQuery] string id, [FromQuery] string userId)
     {
-        var result = await fileService.GetCertificatePaymentCost(id);
+        var result = await fileService.GetCertificatePaymentCost(id, userId);
         return Ok(result);
     }
 
@@ -279,23 +279,23 @@ public class FilesController(FileServices fileService) : ControllerBase
         return BadRequest("BURST ");
     }
 
-    [HttpPost("UpdateCorThis")]
-    public async Task<IActionResult> UpdateCorThis([FromQuery] string id, [FromQuery] string userId)
-    {
-        var stats = await fileService.UpdateCorThis(id, userId);
-        if (stats != null)
-            return Ok(stats);
-        else return BadRequest();
-    }
+    //[HttpPost("UpdateCorThis")]
+    //public async Task<IActionResult> UpdateCorThis([FromQuery] string id, [FromQuery] string userId)
+    //{
+    //    var stats = await fileService.UpdateCorThis(id, userId);
+    //    if (stats != null)
+    //        return Ok(stats);
+    //    else return BadRequest();
+    //}
 
-    [HttpPost("UpdateCorAll")]
-    public async Task<IActionResult> UpdateCorAll([FromQuery] string id, [FromQuery] string userId, [FromQuery] string creatorAccount)
-    {
-        var stats = await fileService.UpdateCorAll(id, userId, creatorAccount);
-        if (stats != null)
-            return Ok(stats);
-        else return BadRequest();
-    }
+    //[HttpPost("UpdateCorAll")]
+    //public async Task<IActionResult> UpdateCorAll([FromQuery] string id, [FromQuery] string userId, [FromQuery] string creatorAccount)
+    //{
+    //    var stats = await fileService.UpdateCorAll(id, userId, creatorAccount);
+    //    if (stats != null)
+    //        return Ok(stats);
+    //    else return BadRequest();
+    //}
 
     [HttpPost("DownloadAllPayments")]
     public async Task DownloadAllPayments()

@@ -43,7 +43,7 @@ public class FileServices
     private static IMongoCollection<AttachmentInfo> _attachmentCollection;
     private static IMongoCollection<TicketInfo> _ticketsCollection;
     private static IMongoCollection<StatusRequests> _statusCollection;
-    private static IMongoCollection<UserCreateType> _userCollection;
+    private static IMongoCollection<AppUser> _userCollection;
     private static IMongoCollection<FinanceHistory> _financeCollection;
     private static IMongoCollection<PerformanceMarker> _performanceCollection;
     private static IMongoCollection<OppositionType> _oppositionCollection;
@@ -82,7 +82,7 @@ public class FileServices
         _statusCollection = pdDb.GetCollection<StatusRequests>("statusrequests");
         _oppositionCollection = pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
         _ticketsCollection = pdDb.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
-        _userCollection = pdDb.GetCollection<UserCreateType>(patentDesignDbSettings.Value.UsersCollectionName);
+        _userCollection = pdDb.GetCollection<AppUser>(patentDesignDbSettings.Value.UsersCollectionName);
         _attachmentCollection =
             pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
         _remitaPaymentUtils = remitaPaymentUtils;
@@ -116,7 +116,7 @@ public class FileServices
     {
         var file = _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
         if (file == null) throw new Exception("File not found.");
-
+        file.FilingDate = DateTime.Now;
         var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId);
         if (application == null) throw new Exception("Application not found.");
 
@@ -1062,7 +1062,7 @@ public class FileServices
         };
     }
 
-    public async Task<dynamic> GetCertificatePaymentCost(string fileId)
+    public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
     {
         var file = await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.FileId, fileId)).FirstOrDefaultAsync();
         if (file == null)
@@ -1070,34 +1070,70 @@ public class FileServices
             throw new Exception("File not found");
         }
 
-        // var initPayment = file.ApplicationHistory[0].PaymentId;
-        // if (string.IsNullOrEmpty(initPayment))
-        // {
-        //     throw new Exception("Initial payment not found");
-        // }
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq("_id", userId)).FirstOrDefaultAsync();
+        if (user == null)
+        {
+            throw new Exception("User not found");
+        }
+
         var applicant = file.applicants.FirstOrDefault();
         if (applicant == null)
         {
             throw new Exception("Applicant not found");
         }
-        
+
+        var username = $"{user.FirstName} {user.LastName}";
         var data = _remitaPaymentUtils.GetCost(PaymentTypes.TrademarkCertificate, FileTypes.TradeMark, "");
-        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(data.Item1, data.Item3, data.Item2,
-            "Application for issuance of  trademark certificate", applicant.Name, applicant.Email, applicant.Phone);
-        Console.WriteLine("cert cost: " + data.Item1);
-        Console.WriteLine("service fee:" + data.Item3);
-        Console.WriteLine("RRR: " + rrr);
-        if (rrr != null)
+        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+            data.Item1, data.Item3, data.Item2,
+            "Application for Certificate",
+            username, user.Email, user.PhoneNumber);
+
+        if (string.IsNullOrWhiteSpace(rrr))
         {
-            _fillingCollection.FindOneAndUpdate(x => x.FileId == fileId,
-                Builders<Filling>.Update.Set(t => t.ApplicationHistory[0].CertificatePaymentId, rrr));
+            throw new Exception("Unable to generate payment reference");
         }
+
+        var certApp = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationDate = DateTime.Now,
+            CurrentStatus = ApplicationStatuses.AwaitingCertification,
+            ApplicationType = FormApplicationTypes.Certification,
+            PaymentId = rrr,
+            CertificatePaymentId = rrr,
+            StatusHistory =
+            [
+                new ApplicationHistory
+                {
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingCertification,
+                    Date = DateTime.Now,
+                    Message = "Certificate application initiated, awaiting payment",
+                    User = username,
+                    UserId = user.Id
+                }
+            ]
+        };
+
+        // Persist certificate application:
+        // - Store CertificatePaymentId also on the first (original) application for backward compatibility
+        // - Push new certification application entry
+        var update = Builders<Filling>.Update.Combine(
+            Builders<Filling>.Update.Set(f => f.ApplicationHistory[0].CertificatePaymentId, rrr),
+            Builders<Filling>.Update.Push(f => f.ApplicationHistory, certApp),
+            Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification)
+        );
+
+        _ = await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+            update);
 
         return new
         {
             rrr,
             total = data.Item1,
-            applicant.Name,
+            applicant = applicant.Name,
             fileId
         };
     }
@@ -3105,50 +3141,50 @@ public class FileServices
         };
     }
 
-    public async Task<Filling?> UpdateCorThis(string id, string userId)
-    {
-        var corr = await _userCollection.Find(d => d.id == userId).Project(x => x.DefaultCorrespondence).FirstOrDefaultAsync();
-        var updated = await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, id),
-            Builders<Filling>.Update.Set(d => d.Correspondence, corr), new FindOneAndUpdateOptions<Filling>()
-            {
-                ReturnDocument = ReturnDocument.After
-            });
-        return updated;
-    }
+    //public async Task<Filling?> UpdateCorThis(string id, string userId)
+    //{
+    //    var corr = await _userCollection.Find(d => d.Id == userId).Project(x => x.DefaultCorrespondence).FirstOrDefaultAsync();
+    //    var updated = await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, id),
+    //        Builders<Filling>.Update.Set(d => d.Correspondence, corr), new FindOneAndUpdateOptions<Filling>()
+    //        {
+    //            ReturnDocument = ReturnDocument.After
+    //        });
+    //    return updated;
+    //}
 
-    public async Task<Filling?> UpdateCorAll(string id, string userId, string creatorAccount)
-    {
-        var filter = Builders<Filling>.Filter;
-        var defaultdata = await _userCollection.Find(d => d.id == userId).Project(x => x.DefaultCorrespondence).FirstOrDefaultAsync();
-        await _fillingCollection.UpdateManyAsync(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x => x.CreatorAccount, creatorAccount),
-             Builders<Filling>.Filter.Or([
-                  filter.Eq(r=> r.Correspondence, null),
-                  filter.Eq(r=>r.Correspondence.name, "null"),
-                  filter.Eq(r=>r.Correspondence.address, "null"),
-                  filter.Eq(r=>r.Correspondence.email, "null"),
-                  filter.Eq(r=>r.Correspondence.phone, "null"),
-                  filter.Eq(r=>r.Correspondence.state, "null"),
-                  filter.Eq(r=>r.Correspondence.name, "NULL"),
-                  filter.Eq(r=>r.Correspondence.address, "NULL"),
-                  filter.Eq(r=>r.Correspondence.email, "NULL"),
-                  filter.Eq(r=>r.Correspondence.phone, "NULL"),
-                  filter.Eq(r=>r.Correspondence.state, "NULL"),
-                  filter.Eq(r=>r.Correspondence.name, "-"),
-                  filter.Eq(r=>r.Correspondence.address, "-" ),
-                  filter.Eq(r=>r.Correspondence.email,"-"),
-                  filter.Eq(r=>r.Correspondence.phone, "-"),
-                  filter.Eq(r=> r.Correspondence.state,"-"),
-                  filter.Eq(r=>r.Correspondence.name, null ),
-                  filter.Eq(r=>r.Correspondence.address,null),
-                  filter.Eq(r=>r.Correspondence.email, null),
-                  filter.Eq(r=>r.Correspondence.phone, null),
-                  filter.Eq(r=>r.Correspondence.state , null),
-             ])
-        ]), Builders<Filling>.Update.Set(d => d.Correspondence, defaultdata));
-        var current = await _fillingCollection.Find(d => d.Id == id).FirstOrDefaultAsync();
-        return current;
-    }
+    //public async Task<Filling?> UpdateCorAll(string id, string userId, string creatorAccount)
+    //{
+    //    var filter = Builders<Filling>.Filter;
+    //    var defaultdata = await _userCollection.Find(d => d.id == userId).Project(x => x.DefaultCorrespondence).FirstOrDefaultAsync();
+    //    await _fillingCollection.UpdateManyAsync(Builders<Filling>.Filter.And([
+    //        Builders<Filling>.Filter.Eq(x => x.CreatorAccount, creatorAccount),
+    //         Builders<Filling>.Filter.Or([
+    //              filter.Eq(r=> r.Correspondence, null),
+    //              filter.Eq(r=>r.Correspondence.name, "null"),
+    //              filter.Eq(r=>r.Correspondence.address, "null"),
+    //              filter.Eq(r=>r.Correspondence.email, "null"),
+    //              filter.Eq(r=>r.Correspondence.phone, "null"),
+    //              filter.Eq(r=>r.Correspondence.state, "null"),
+    //              filter.Eq(r=>r.Correspondence.name, "NULL"),
+    //              filter.Eq(r=>r.Correspondence.address, "NULL"),
+    //              filter.Eq(r=>r.Correspondence.email, "NULL"),
+    //              filter.Eq(r=>r.Correspondence.phone, "NULL"),
+    //              filter.Eq(r=>r.Correspondence.state, "NULL"),
+    //              filter.Eq(r=>r.Correspondence.name, "-"),
+    //              filter.Eq(r=>r.Correspondence.address, "-" ),
+    //              filter.Eq(r=>r.Correspondence.email,"-"),
+    //              filter.Eq(r=>r.Correspondence.phone, "-"),
+    //              filter.Eq(r=> r.Correspondence.state,"-"),
+    //              filter.Eq(r=>r.Correspondence.name, null ),
+    //              filter.Eq(r=>r.Correspondence.address,null),
+    //              filter.Eq(r=>r.Correspondence.email, null),
+    //              filter.Eq(r=>r.Correspondence.phone, null),
+    //              filter.Eq(r=>r.Correspondence.state , null),
+    //         ])
+    //    ]), Builders<Filling>.Update.Set(d => d.Correspondence, defaultdata));
+    //    var current = await _fillingCollection.Find(d => d.Id == id).FirstOrDefaultAsync();
+    //    return current;
+    //}
 
     public async Task<List<StatusRequests>?> GetUserStatusRequests(string? userId, int count = 10, int skip = 0)
     {
