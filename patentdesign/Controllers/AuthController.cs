@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
@@ -35,6 +36,27 @@ namespace patentdesign.Controllers
                 return BadRequest("Transfer failed");
             }
             return Ok(new { message = "Transfer successful" });
+        }
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto req)
+        {
+            var result = await authServices.ResetPassword(req);
+            if (!result)
+            {
+                return BadRequest("Password reset failed");
+            }
+            return Ok(new { message = "Password reset successful" });
+        }
+        [Authorize]
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto req)
+        {
+            var result = await authServices.ChangePassword(req);
+            if (!result)
+            {
+                return BadRequest("Password change failed");
+            }
+            return Ok(new { message = "Password changed successfully" });
         }
     }
 }

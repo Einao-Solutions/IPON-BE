@@ -319,5 +319,44 @@ namespace patentdesign.Services
                 return false;
             }
         }
+        public async Task<bool> ChangePassword(ChangePasswordDto dto)
+        {
+            try
+            {
+                var user = await _users.Find(u => u.Email == dto.Email).FirstOrDefaultAsync();
+                if (user == null)
+                    return false;
+                var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+                var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, hashedPassword);
+                var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+                return result.ModifiedCount > 0;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+        public async Task<bool> ResetPassword(ResetPasswordDto dto)
+        {
+            try
+            {
+                var user = await _users.Find(u => u.Email == dto.Email).FirstOrDefaultAsync();
+                if (user == null)
+                    return false;
+                // Here you would typically generate a reset token and send it via email.
+                if (user == null)
+                    return false;
+                var hashedPassword = BCrypt.Net.BCrypt.HashPassword("Ipo@1234");
+                var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, hashedPassword);
+                var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+                return result.ModifiedCount > 0;
+                return true;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
     }
 }
