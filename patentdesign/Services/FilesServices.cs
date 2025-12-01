@@ -82,7 +82,7 @@ public class FileServices
         _statusCollection = pdDb.GetCollection<StatusRequests>("statusrequests");
         _oppositionCollection = pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
         _ticketsCollection = pdDb.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
-        _userCollection = pdDb.GetCollection<AppUser>(patentDesignDbSettings.Value.UsersCollectionName);
+        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
         _attachmentCollection =
             pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
         _remitaPaymentUtils = remitaPaymentUtils;
@@ -1064,12 +1064,14 @@ public class FileServices
 
     public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
     {
+        Console.WriteLine($"User id: {userId}");
+        Console.WriteLine($"File id: {fileId}");
+
         var file = await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.FileId, fileId)).FirstOrDefaultAsync();
         if (file == null)
         {
             throw new Exception("File not found");
         }
-
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq("_id", userId)).FirstOrDefaultAsync();
         if (user == null)
         {
@@ -1105,29 +1107,34 @@ public class FileServices
             StatusHistory =
             [
                 new ApplicationHistory
-                {
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingCertification,
-                    Date = DateTime.Now,
-                    Message = "Certificate application initiated, awaiting payment",
-                    User = username,
-                    UserId = user.Id
-                }
+            {
+                beforeStatus = ApplicationStatuses.None,
+                afterStatus = ApplicationStatuses.AwaitingCertification,
+                Date = DateTime.Now,
+                Message = "Certificate application initiated, awaiting payment",
+                User = username,
+                UserId = user.Id
+            }
             ]
         };
 
-        // Persist certificate application:
-        // - Store CertificatePaymentId also on the first (original) application for backward compatibility
-        // - Push new certification application entry
-        var update = Builders<Filling>.Update.Combine(
-            Builders<Filling>.Update.Set(f => f.ApplicationHistory[0].CertificatePaymentId, rrr),
-            Builders<Filling>.Update.Push(f => f.ApplicationHistory, certApp),
-            Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification)
+        var filter = Builders<Filling>.Filter.Eq(f => f.FileId, fileId);
+
+        // update certificate id + file status
+        await _fillingCollection.UpdateOneAsync(
+            filter,
+            Builders<Filling>.Update.Combine(
+                Builders<Filling>.Update.Set("ApplicationHistory.0.CertificatePaymentId", rrr),
+                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification)
+            )
         );
 
-        _ = await _fillingCollection.UpdateOneAsync(
-            Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
-            update);
+        // push the new certificate application entry
+        await _fillingCollection.UpdateOneAsync(
+            filter,
+            Builders<Filling>.Update.Push(f => f.ApplicationHistory, certApp) // <-- correct array
+        );
+
 
         return new
         {
