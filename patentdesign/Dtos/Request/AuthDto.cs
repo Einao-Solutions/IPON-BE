@@ -1,6 +1,7 @@
 ﻿using MongoDB.Bson.Serialization.Attributes;
 using patentdesign.Enums;
 using patentdesign.Models;
+using System.ComponentModel.DataAnnotations;
 
 namespace patentdesign.Dtos.Request
 {
@@ -37,5 +38,17 @@ namespace patentdesign.Dtos.Request
         public List<Roles>? UserRoles { get; set; }
         public AccountType? AccountType { get; set; }
         public DateTime CreatedAt { get; set; } 
+    }
+    public class ChangePasswordDto
+    {
+        public string Email { get; set; }
+        public string NewPassword { get; set; }
+        [Compare("NewPassword")]
+        public string ConfirmPassword { get; set; }
+    }
+
+    public class ResetPasswordDto
+    {
+        public string Email { get; set; }
     }
 }
