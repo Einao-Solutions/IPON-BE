@@ -501,6 +501,10 @@ public class LettersServices
                             ApplicationLetters.NewApplicationCertificate,
                             ApplicationLetters.NewApplicationCertificateReceipt
                         });
+                        if (file.Type == FileTypes.Patent)
+                        {
+                            documents.Remove(ApplicationLetters.NewApplicationCertificate);
+                        }
                     }
                     break;
 
