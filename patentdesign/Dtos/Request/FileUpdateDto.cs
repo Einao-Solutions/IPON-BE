@@ -1,4 +1,5 @@
-﻿using patentdesign.Enums;
+﻿using Amazon.Util.Internal.PlatformServices;
+using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request
@@ -8,6 +9,7 @@ namespace patentdesign.Dtos.Request
         public string FileId { get; set; } = null!;
         public string? UpdatedBy { get; set; } 
         public ApplicationStatuses? FileStatus { get; set; }
+        public List<Models.ApplicationInfo> ApplicationHistory { get; set; }
         public FileTypes? Type { get; set; }
         public string? FileOrigin {  get; set; }
         public string? FilingCountry { get; set; }
