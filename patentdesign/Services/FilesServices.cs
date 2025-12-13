@@ -6175,7 +6175,7 @@ public class FileServices
             );
 
             var filling = await _fillingCollection.Find(filter).FirstOrDefaultAsync();
-
+            
             if (filling == null) return null;
 
             var dto = new FileUpdateDto
@@ -6184,6 +6184,7 @@ public class FileServices
                 FileId = filling.FileId,
                 FileOrigin = filling.FileOrigin,
                 FilingCountry = filling.FilingCountry,
+                ApplicationHistory = filling.ApplicationHistory,
                 Type = filling.Type,
                 TitleOfInvention = filling.TitleOfInvention,
                 PatentAbstract = filling.PatentAbstract,
@@ -6312,6 +6313,7 @@ public class FileServices
         if (request.TrademarkClass != null) existing.TrademarkClass = request.TrademarkClass.Value;
         if (request.TrademarkLogo != null) existing.TrademarkLogo = request.TrademarkLogo.Value;
         if (request.TrademarkType != null) existing.TrademarkType = request.TrademarkType.Value;
+        if (request.FileStatus != null) existing.FileStatus = request.FileStatus.Value;
 
         // Correspondence merging
         if (request.Correspondence != null)
@@ -6351,6 +6353,9 @@ public class FileServices
         }
 
         // === FULL REPLACEMENT for these 4 fields ===
+        if (request.FileStatus != null)
+            existing.FileStatus = (ApplicationStatuses)request.FileStatus;
+
         if (request.applicants != null)
             existing.applicants = request.applicants;
 

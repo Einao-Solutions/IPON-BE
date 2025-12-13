@@ -1470,3 +1470,16 @@ public record Opposition
     public DateTime? ResolvedDate { get; set; }
     public bool? Paid { get; set; } = false;
 }
+
+public class StatusChangeLog
+{
+    public string id { get; set; } = Guid.NewGuid().ToString();
+    public string FileId { get; set; }
+    public ApplicationStatuses PreviousStatus { get; set; }
+    public ApplicationStatuses NewStatus { get; set; }
+    public string Reason { get; set; }
+    public string ChangedBy { get; set; }
+    public string ChangedById { get; set; }
+    public DateTime DateChanged { get; set; } = DateTime.Now;
+    public bool IsSuccessful { get; set; } = false;
+}

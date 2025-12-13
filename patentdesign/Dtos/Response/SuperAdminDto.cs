@@ -19,3 +19,21 @@ public class CertificateAppDto
     public string? PaymentId { get; set; }
     public DateTime ApplicationDate { get; set; }
 }
+
+public class StatusChangeDto
+{
+    public ApplicationStatuses NewStatus { get; set; } 
+    public string? UserId { get; set; }
+    public string? FileId { get; set; }
+    public string? Reason { get; set; }
+}
+public class ApplicationHistoryDto
+{
+    public DateTime ApplicationDate { get; set; }
+    public FormApplicationTypes ApplicationType { get; set; }
+    public ApplicationStatuses CurrentStatus { get; set; }
+    public string? UserId { get; set; }
+    public string? PaymentId { get; set; }
+    public string? CertificatePaymentId { get; set; }
+    public string FileNumber { get; set; }
+}
