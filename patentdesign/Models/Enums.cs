@@ -73,4 +73,21 @@
         Zamfara,
         FederalCapitalTerritory
     }
+    public enum ClericalUpdateTypes
+    {
+        ApplicantInformation,
+        CorrespondenceInformation,
+        DesignInformation,
+        CreatorInformation,
+        DesignAttachments,
+        ApplicantName,
+        ApplicantAddress,
+        FileClass,
+        FileTitle,
+        AddApplicant,
+        RemoveApplicant,
+        AddAndRemoveApplicant,
+        EditInventors,
+        PriorityInfo
+    }
 }
