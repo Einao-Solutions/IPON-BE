@@ -5240,7 +5240,7 @@ public class FileServices
                     };
                     break;
                 case FileTypes.Design:
-                    var designs = fileInfo.Attachments.Where(d => d.name == "designs").ToList();
+                    var designs = fileInfo.Attachments.FirstOrDefault(d => d.name == "designs");
                     
                     updateCost = new ClericalUpdateDto
                     {
@@ -5267,7 +5267,8 @@ public class FileServices
                         TitleOfDesign = fileInfo.TitleOfDesign,
                         NoveltyStatement = fileInfo.StatementOfNovelty,
                         DesignType = fileInfo.DesignType,
-                        DesignCreators = fileInfo.DesignCreators
+                        DesignCreators = fileInfo.DesignCreators,
+                        ExistingDesignAttachments = designs?.url
                     };
                     break;
                 default:
