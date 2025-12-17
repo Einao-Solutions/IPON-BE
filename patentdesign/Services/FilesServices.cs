@@ -6185,6 +6185,7 @@ public class FileServices
                 FileOrigin = filling.FileOrigin,
                 FilingCountry = filling.FilingCountry,
                 ApplicationHistory = filling.ApplicationHistory,
+                FileStatus = filling.FileStatus,
                 Type = filling.Type,
                 TitleOfInvention = filling.TitleOfInvention,
                 PatentAbstract = filling.PatentAbstract,
