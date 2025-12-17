@@ -5240,14 +5240,15 @@ public class FileServices
                     };
                     break;
                 case FileTypes.Design:
-
+                    var designs = fileInfo.Attachments.Where(d => d.name == "designs").ToList();
+                    
                     updateCost = new ClericalUpdateDto
                     {
                         Cost = search ? "0" : data.Item1,
                         PaymentRRR = paymentId,
                         FileStatus = fileInfo.FileStatus,
                         FileId = dto.FileNumber,
-                        FileTitle = fileInfo.TitleOfTradeMark ?? "",
+                        FileTitle = fileInfo.TitleOfDesign ?? "",
                         FileType = fileInfo.Type,
                         ApplicantName = applicant.Name,
                         UpdateType = dto.UpdateType,
@@ -5267,7 +5268,6 @@ public class FileServices
                         NoveltyStatement = fileInfo.StatementOfNovelty,
                         DesignType = fileInfo.DesignType,
                         DesignCreators = fileInfo.DesignCreators
-
                     };
                     break;
                 default:
@@ -6218,6 +6218,8 @@ public class FileServices
             return false;
         }
     }
+
+    //Get existing clerical update application
     public async Task<ClericalUpdateDetailsDto> GetClericalUpdateApp(string fileId, string appId)
     {   
         var file = await _fillingCollection

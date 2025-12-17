@@ -87,6 +87,7 @@ namespace patentdesign.Dtos.Request
         public string? NoveltyStatement { get; set; }
         public ApplicantInfo? OldApplicantInfo { get; set; }
         public ApplicantInfo? NewApplicantInfo { get; set; }
+        public List<string>? ExistingDesignAttachments { get; set; }
         public List<IFormFile>? DesignAttachments { get; set; }
         public bool ReplaceDesignAttachments { get; set; }
         public List<string>? RemoveDesignAttachmentUrls { get; set; }
