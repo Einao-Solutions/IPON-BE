@@ -68,13 +68,13 @@ namespace patentdesign.Services
         {
             try
             {
-                var file = await _fillingCollection.Find(f => f.Id == dto.FileId).FirstOrDefaultAsync();
+                var file = await _fillingCollection.Find(f => f.FileId == dto.FileId).FirstOrDefaultAsync();
                 if (file == null)
                 {
                     throw new Exception("File not found");
                 }
                 //log status change
-                StatusChangeLog log = new StatusChangeLog
+                var log = new StatusChangeLog
                 {
                     FileId = dto.FileId,
                     PreviousStatus = file.FileStatus,
@@ -82,12 +82,20 @@ namespace patentdesign.Services
                     ChangedById = dto.UserId,
                     Reason = dto.Reason,
                 };
-                var update = Builders<Filling>.Update.Set(f => f.FileStatus, dto.NewStatus);
-                await _fillingCollection.UpdateOneAsync(f => f.Id == dto.FileId, update);
+                var update = Builders<Filling>.Update.Combine(
+                    Builders<Filling>.Update.Set(f => f.FileStatus, dto.NewStatus), 
+                    Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", dto.NewStatus)
+                    );
+                var result = await _fillingCollection.UpdateOneAsync(
+                    f => f.FileId == dto.FileId,
+                    update
+                );
 
-                log.IsSuccessful = true;
+                log.IsSuccessful = result.ModifiedCount > 0;
                 log.DateChanged = DateTime.UtcNow;
+
                 await _statusLogs.InsertOneAsync(log);
+
                 return log;
             }
             catch (Exception ex)
@@ -144,6 +152,8 @@ namespace patentdesign.Services
                 return false;
             }
         }
+
+        
 
     }
 }

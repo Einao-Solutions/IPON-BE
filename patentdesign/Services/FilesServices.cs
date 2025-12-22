@@ -1052,6 +1052,7 @@ public class FileServices
             }).ToList(),
             id = x.Id.ToString(),
             Type = x.Type,
+            TrademarkClass = x.TrademarkClass
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
@@ -6479,6 +6480,7 @@ public class FileServices
                 FileOrigin = filling.FileOrigin,
                 FilingCountry = filling.FilingCountry,
                 ApplicationHistory = filling.ApplicationHistory,
+                FileStatus = filling.FileStatus,
                 Type = filling.Type,
                 TitleOfInvention = filling.TitleOfInvention,
                 PatentAbstract = filling.PatentAbstract,

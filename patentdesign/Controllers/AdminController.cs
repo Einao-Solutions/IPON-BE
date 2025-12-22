@@ -15,7 +15,7 @@ namespace patentdesign.Controllers
         public async Task<IActionResult> ChangeApplicationStatus([FromBody] StatusChangeDto statusChangeDto)
         {
             var result = await adminServices.ChangeFileStatus(statusChangeDto);
-            if (result == null)
+            if (result != null)
             {
                 return Ok(result);
             }
