@@ -75,7 +75,6 @@
     }
     public enum ClericalUpdateTypes
     {
-        ApplicantInformation,
         CorrespondenceInformation,
         DesignInformation,
         CreatorInformation,
@@ -90,4 +89,5 @@
         EditInventors,
         PriorityInfo
     }
+
 }

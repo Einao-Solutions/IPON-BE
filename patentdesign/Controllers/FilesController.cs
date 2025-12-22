@@ -819,6 +819,16 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+    [HttpPost("ConfirmClericalUpdate")]
+    public async Task<IActionResult> ConfirmClericalUpdate([FromQuery] string fileId, [FromQuery] string clericalId)
+    {
+        var res = await fileService.ApplyClericalUpdateToFile(fileId, clericalId);
+        if (res == false)
+        {
+            return BadRequest(new { message = "Failed to Confirm Clerical Update" });
+        }
+        return Ok(new { message = "Clerical update confirmed"});
+    }
     [HttpPost("UpdateRecordalStatus")]
     public async Task<IActionResult> UpdateRecordalStatus([FromQuery] string fileId, [FromQuery] string rrr)
     {

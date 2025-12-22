@@ -5304,36 +5304,7 @@ public class FileServices
             var applicant = file.applicants?.FirstOrDefault();
             Console.WriteLine("File Status: " + file.FileStatus);
 
-            if (file.FileStatus != ApplicationStatuses.AwaitingSearch)
-            {
-                if (!string.IsNullOrWhiteSpace(updateData.PaymentRRR))
-                {
-                    var payDetails = await _remitaPaymentUtils.GetDetailsByRRR(updateData.PaymentRRR);
-                    if (payDetails == null || payDetails.status != "00")
-                    {
-                        throw new Exception($"Payment Not Found or Invalid RRR, {updateData.PaymentRRR}");
-                    }
-
-                    Console.WriteLine(payDetails);
-
-                    var payment = new PaymentRecord
-                    {
-                        PaymentType = "Clerical Update",
-                        Date = DateTime.Now,
-                        FileId = file.FileId,
-                        RemitaResponse = payDetails
-                    };
-
-                    Console.WriteLine(payment);
-                    await _paymentService.AddPaymentRecord(payment);
-                }
-                else
-                {
-                    throw new Exception("No Payment Id found");
-                }
-            }
-
-            Console.WriteLine("Updating app history...");
+            Console.WriteLine("Creating application history...");
 
             var appHistory = new ApplicationInfo
             {
@@ -5354,281 +5325,610 @@ public class FileServices
                 ]
             };
 
-            if (file.FileStatus == ApplicationStatuses.AwaitingCertification ||
-                file.FileStatus == ApplicationStatuses.Publication)
+            var isAmendment = file.FileStatus == ApplicationStatuses.Publication
+                              || file.FileStatus == ApplicationStatuses.AwaitingCertification;
+
+            if (isAmendment)
             {
                 appHistory.ApplicationType = FormApplicationTypes.Amendment;
-                appHistory.CurrentStatus = ApplicationStatuses.AwaitingApproval;
-                appHistory.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingApproval;
+                appHistory.CurrentStatus = ApplicationStatuses.AwaitingPayment;
+                appHistory.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingPayment;
             }
             else
             {
                 appHistory.ApplicationType = FormApplicationTypes.ClericalUpdate;
-                appHistory.CurrentStatus = ApplicationStatuses.Re_conduct;
-                appHistory.StatusHistory[0].afterStatus = ApplicationStatuses.Re_conduct;
+                appHistory.CurrentStatus = ApplicationStatuses.AwaitingPayment;
+                appHistory.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingPayment;
             }
 
-            // archive record
-            var clerical = new ClericalUpdate
+            // Create clerical update record WITHOUT applying changes
+            var clerical = await CreateClericalUpdateRecord(file, updateData, appHistory.id);
+            clerical.IsAmendment = isAmendment;
+
+            Console.WriteLine("Saving clerical update record to DB...");
+
+            // ONLY save the record - DO NOT apply any changes
+            var recordUpdate = Builders<Filling>.Update.Combine(
+                Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
+                Builders<Filling>.Update.Push(f => f.ClericalUpdates, clerical)
+            );
+
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
+                recordUpdate);
+
+            Console.WriteLine($"Clerical update record saved. IsAmendment: {isAmendment}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+            _log.LogError(ex, "Error at clerical update");
+            return false;
+        }
+    }
+
+    private async Task<ClericalUpdate> CreateClericalUpdateRecord(
+        Filling file,
+        ClericalUpdateDto updateData,
+        string appHistoryId)
+    {
+        var clerical = new ClericalUpdate
+        {
+            Id = appHistoryId,
+            UpdateType = updateData.UpdateType.ToString(),
+            FilingDate = DateTime.Now,
+            PaymentRRR = updateData.PaymentRRR
+        };
+
+        // Handle file uploads
+        string? docUrl = null;
+        string? poaUrl = null;
+        string? otherAttUrl = null;
+
+        if (updateData.Representation != null)
+        {
+            Console.WriteLine("Uploading representation file...");
+            using (var ms = new MemoryStream())
             {
-                Id = appHistory.id,
-                UpdateType = updateData.UpdateType.ToString(),
-                FilingDate = DateTime.Now,
-                PaymentRRR = updateData.PaymentRRR
-            };
+                await updateData.Representation.CopyToAsync(ms);
+                var userDoc = ms.ToArray();
+                var links = await UploadAttachment(
+                    new List<TT>
+                    {
+                    new TT
+                    {
+                        contentType = updateData.Representation.ContentType,
+                        data = userDoc,
+                        fileName = Path.GetFileName(updateData.Representation.FileName),
+                        Name = "representation"
+                    }
+                    });
+                docUrl = links[0];
+            }
+        }
+
+        if (updateData.PowerOfAttorney != null)
+        {
+            using (var ms = new MemoryStream())
+            {
+                await updateData.PowerOfAttorney.CopyToAsync(ms);
+                var poa = ms.ToArray();
+                var url = await UploadAttachment(
+                    new List<TT>
+                    {
+                    new TT
+                    {
+                        contentType = updateData.PowerOfAttorney.ContentType,
+                        data = poa,
+                        fileName = Path.GetFileName(updateData.PowerOfAttorney.FileName),
+                        Name = "poa"
+                    }
+                    });
+                poaUrl = url[0];
+            }
+        }
+
+        if (updateData.OtherAttachment != null)
+        {
+            using (var ms = new MemoryStream())
+            {
+                await updateData.OtherAttachment.CopyToAsync(ms);
+                var otherAtt = ms.ToArray();
+                var url = await UploadAttachment(
+                    new List<TT>
+                    {
+                    new TT
+                    {
+                        contentType = updateData.OtherAttachment.ContentType,
+                        data = otherAtt,
+                        fileName = Path.GetFileName(updateData.OtherAttachment.FileName),
+                        Name = "others"
+                    }
+                    });
+                otherAttUrl = url[0];
+            }
+        }
+
+        // Handle multiple design attachments
+        if (updateData.DesignAttachments != null && updateData.DesignAttachments.Count > 0)
+        {
+            var designUrls = new List<string>();
+            for (var i = 0; i < updateData.DesignAttachments.Count; i++)
+            {
+                var designFile = updateData.DesignAttachments[i];
+                using var ms = new MemoryStream();
+                await designFile.CopyToAsync(ms);
+                var fileBytes = ms.ToArray();
+                var url = await UploadAttachment(
+                    new List<TT>
+                    {
+                    new TT
+                    {
+                        contentType = designFile.ContentType,
+                        data = fileBytes,
+                        fileName = Path.GetFileName(designFile.FileName),
+                        Name = $"design{i + 1}"
+                    }
+                    });
+
+                designUrls.Add(url[0]);
+                Console.WriteLine($"design url {i + 1}: {url[0]}");
+            }
+            otherAttUrl = designUrls.LastOrDefault();
+        }
+
+        // Capture old and new values based on update type (NO DATABASE CHANGES)
+        switch (updateData.UpdateType)
+        {
+            case ClericalUpdateTypes.ApplicantName:
+                if (updateData.FileType == FileTypes.Patent)
+                {
+                    if (updateData.ApplicantNames != null && updateData.ApplicantNames.Count > 0)
+                    {
+                        clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
+                        clerical.NewApplicantNames = updateData.ApplicantNames;
+                    }
+                }
+                else
+                {
+                    if (!string.IsNullOrWhiteSpace(updateData.ApplicantName))
+                    {
+                        clerical.OldApplicantName = file.applicants?[0]?.Name;
+                        clerical.NewApplicantName = updateData.ApplicantName;
+                    }
+                }
+                break;
+
+            case ClericalUpdateTypes.ApplicantAddress:
+                if (updateData.FileType == FileTypes.Patent)
+                {
+                    if (updateData.ApplicantAddresses != null && updateData.ApplicantAddresses.Count > 0)
+                    {
+                        clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
+                        clerical.NewApplicantAddresses = updateData.ApplicantAddresses;
+                    }
+                    if (updateData.ApplicantEmails != null && updateData.ApplicantEmails.Count > 0)
+                    {
+                        clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
+                        clerical.NewApplicantEmails = updateData.ApplicantEmails;
+                    }
+                    if (updateData.ApplicantPhones != null && updateData.ApplicantPhones.Count > 0)
+                    {
+                        clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
+                        clerical.NewApplicantPhones = updateData.ApplicantPhones;
+                    }
+                    if (updateData.ApplicantNationalities != null && updateData.ApplicantNationalities.Count > 0)
+                    {
+                        clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
+                        clerical.NewApplicantNationalities = updateData.ApplicantNationalities;
+                    }
+                    if (updateData.ApplicantStates != null && updateData.ApplicantStates.Count > 0)
+                    {
+                        clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
+                        clerical.NewApplicantStates = updateData.ApplicantStates;
+                    }
+                    if (updateData.ApplicantCities != null && updateData.ApplicantCities.Count > 0)
+                    {
+                        clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
+                        clerical.NewApplicantCities = updateData.ApplicantCities;
+                    }
+                }
+                else
+                {
+                    if (!string.IsNullOrWhiteSpace(updateData.ApplicantAddress))
+                    {
+                        clerical.OldApplicantAddress = file.applicants?[0]?.Address;
+                        clerical.NewApplicantAddress = updateData.ApplicantAddress;
+                    }
+                    if (!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
+                    {
+                        clerical.OldApplicantEmail = file.applicants?[0]?.Email;
+                        clerical.NewApplicantEmail = updateData.ApplicantEmail;
+                    }
+                    if (!string.IsNullOrWhiteSpace(updateData.ApplicantPhone))
+                    {
+                        clerical.OldApplicantPhone = file.applicants?[0]?.Phone;
+                        clerical.NewApplicantPhone = updateData.ApplicantPhone;
+                    }
+                    if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
+                    {
+                        clerical.OldApplicantNationality = file.applicants?[0]?.country;
+                        clerical.NewApplicantNationality = updateData.ApplicantNationality;
+                    }
+                }
+                break;
+
+            case ClericalUpdateTypes.FileClass:
+                if (updateData.FileClass.HasValue)
+                {
+                    clerical.OldFileClass = file.TrademarkClass?.ToString();
+                    clerical.NewFileClass = updateData.FileClass.ToString();
+                }
+                if (!string.IsNullOrWhiteSpace(updateData.ClassDescription))
+                {
+                    clerical.OldClassDescription = file.TrademarkClassDescription;
+                    clerical.NewClassDescription = updateData.ClassDescription;
+                }
+                if (!string.IsNullOrWhiteSpace(updateData.Disclaimer))
+                {
+                    clerical.OldDisclaimer = file.TrademarkDisclaimer;
+                    clerical.NewDisclaimer = updateData.Disclaimer;
+                }
+                break;
+
+            case ClericalUpdateTypes.CorrespondenceInformation:
+                if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceName))
+                {
+                    clerical.OldCorrespondenceName = file.Correspondence?.name;
+                    clerical.NewCorrespondenceName = updateData.CorrespondenceName;
+                }
+                if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceAddress))
+                {
+                    clerical.OldCorrespondenceAddress = file.Correspondence?.address;
+                    clerical.NewCorrespondenceAddress = updateData.CorrespondenceAddress;
+                }
+                if (!string.IsNullOrWhiteSpace(updateData.CorrespondencePhone))
+                {
+                    clerical.OldCorrespondencePhone = file.Correspondence?.phone;
+                    clerical.NewCorrespondencePhone = updateData.CorrespondencePhone;
+                }
+                if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceEmail))
+                {
+                    clerical.OldCorrespondenceEmail = file.Correspondence?.email;
+                    clerical.NewCorrespondenceEmail = updateData.CorrespondenceEmail;
+                }
+                if (!string.IsNullOrEmpty(poaUrl))
+                {
+                    var existingPoa = file.Attachments?.FirstOrDefault(a => a.name == "poa");
+                    clerical.OldPowerOfAttorneyUrl = existingPoa?.url.FirstOrDefault();
+                    clerical.NewPowerOfAttorneyUrl = poaUrl;
+                }
+                if (!string.IsNullOrEmpty(otherAttUrl))
+                {
+                    clerical.OldAttachmentUrl = null;
+                    clerical.NewAttachmentUrl = otherAttUrl;
+                }
+                break;
+
+            case ClericalUpdateTypes.FileTitle:
+                if (!string.IsNullOrWhiteSpace(updateData.FileTitle))
+                {
+                    switch (updateData.FileType)
+                    {
+                        case FileTypes.Design:
+                            clerical.OldFileTitle = file.TitleOfDesign;
+                            clerical.NewFileTitle = updateData.FileTitle;
+                            break;
+                        case FileTypes.Patent:
+                            clerical.OldFileTitle = file.TitleOfInvention;
+                            clerical.NewFileTitle = updateData.FileTitle;
+                            break;
+                        default:
+                            clerical.OldFileTitle = file.TitleOfTradeMark;
+                            clerical.NewFileTitle = updateData.FileTitle;
+                            break;
+                    }
+                }
+                if (updateData.TrademarkLogo != null)
+                {
+                    clerical.OldTrademarkLogo = file.TrademarkLogo?.ToString();
+                    clerical.NewTrademarkLogo = updateData.TrademarkLogo.ToString();
+                }
+                if (!string.IsNullOrEmpty(docUrl))
+                {
+                    var existingRep = file.Attachments?.FirstOrDefault(a => a.name == "representation");
+                    clerical.OldRepresentationUrl = existingRep?.url.FirstOrDefault();
+                    clerical.NewRepresentationUrl = docUrl;
+                }
+                break;
+
+            case ClericalUpdateTypes.AddApplicant:
+                clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
+                clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
+                clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
+                clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
+                clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
+                clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
+                clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
+
+                if (updateData.NewApplicants != null && updateData.NewApplicants.Count > 0)
+                {
+                    var tempApplicants = file.applicants.ToList();
+                    foreach (var app in updateData.NewApplicants)
+                    {
+                        tempApplicants.Add(app);
+                    }
+                    clerical.NewApplicantNames = tempApplicants.Select(a => a.Name).ToList();
+                    clerical.NewApplicantAddresses = tempApplicants.Select(a => a.Address).ToList();
+                    clerical.NewApplicantEmails = tempApplicants.Select(a => a.Email).ToList();
+                    clerical.NewApplicantPhones = tempApplicants.Select(a => a.Phone).ToList();
+                    clerical.NewApplicantNationalities = tempApplicants.Select(a => a.country).ToList();
+                    clerical.NewApplicantStates = tempApplicants.Select(a => a.State).ToList();
+                    clerical.NewApplicantCities = tempApplicants.Select(a => a.city).ToList();
+                }
+                break;
+
+            case ClericalUpdateTypes.RemoveApplicant:
+                clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
+                clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
+                clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
+                clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
+                clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
+                clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
+                clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
+
+                if (updateData.RemoveApplicantIds != null && updateData.RemoveApplicantIds.Count > 0)
+                {
+                    var tempApplicants = file.applicants.Where(a => !updateData.RemoveApplicantIds.Contains(a.id)).ToList();
+                    clerical.NewApplicantNames = tempApplicants.Select(a => a.Name).ToList();
+                    clerical.NewApplicantAddresses = tempApplicants.Select(a => a.Address).ToList();
+                    clerical.NewApplicantEmails = tempApplicants.Select(a => a.Email).ToList();
+                    clerical.NewApplicantPhones = tempApplicants.Select(a => a.Phone).ToList();
+                    clerical.NewApplicantNationalities = tempApplicants.Select(a => a.country).ToList();
+                    clerical.NewApplicantStates = tempApplicants.Select(a => a.State).ToList();
+                    clerical.NewApplicantCities = tempApplicants.Select(a => a.city).ToList();
+                }
+                break;
+
+            case ClericalUpdateTypes.AddAndRemoveApplicant:
+                clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
+                clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
+                clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
+                clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
+                clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
+                clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
+                clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
+
+                var modifiedApplicants = file.applicants.ToList();
+                if (updateData.RemoveApplicantIds != null && updateData.RemoveApplicantIds.Count > 0)
+                {
+                    modifiedApplicants.RemoveAll(a => updateData.RemoveApplicantIds.Contains(a.id));
+                }
+                if (updateData.NewApplicants != null && updateData.NewApplicants.Count > 0)
+                {
+                    modifiedApplicants.AddRange(updateData.NewApplicants);
+                }
+
+                clerical.NewApplicantNames = modifiedApplicants.Select(a => a.Name).ToList();
+                clerical.NewApplicantAddresses = modifiedApplicants.Select(a => a.Address).ToList();
+                clerical.NewApplicantEmails = modifiedApplicants.Select(a => a.Email).ToList();
+                clerical.NewApplicantPhones = modifiedApplicants.Select(a => a.Phone).ToList();
+                clerical.NewApplicantNationalities = modifiedApplicants.Select(a => a.country).ToList();
+                clerical.NewApplicantStates = modifiedApplicants.Select(a => a.State).ToList();
+                clerical.NewApplicantCities = modifiedApplicants.Select(a => a.city).ToList();
+                break;
+
+            case ClericalUpdateTypes.EditInventors:
+                clerical.OldInventorNames = file.Inventors?.Select(i => i.Name).ToList();
+                clerical.OldInventorAddresses = file.Inventors?.Select(i => i.Address).ToList();
+                clerical.OldInventorEmails = file.Inventors?.Select(i => i.Email).ToList();
+                clerical.OldInventorPhones = file.Inventors?.Select(i => i.Phone).ToList();
+                clerical.OldInventorNationalities = file.Inventors?.Select(i => i.country).ToList();
+                clerical.OldInventorStates = file.Inventors?.Select(i => i.State).ToList();
+                clerical.OldInventorCities = file.Inventors?.Select(i => i.city).ToList();
+
+                if (updateData.NewInventors != null)
+                {
+                    clerical.NewInventorNames = updateData.NewInventors.Select(i => i.Name).ToList();
+                    clerical.NewInventorAddresses = updateData.NewInventors.Select(i => i.Address).ToList();
+                    clerical.NewInventorEmails = updateData.NewInventors.Select(i => i.Email).ToList();
+                    clerical.NewInventorPhones = updateData.NewInventors.Select(i => i.Phone).ToList();
+                    clerical.NewInventorNationalities = updateData.NewInventors.Select(i => i.country).ToList();
+                    clerical.NewInventorStates = updateData.NewInventors.Select(i => i.State).ToList();
+                    clerical.NewInventorCities = updateData.NewInventors.Select(i => i.city).ToList();
+                }
+                break;
+
+            case ClericalUpdateTypes.PriorityInfo:
+                clerical.OldFirstPriorityInfo = file.FirstPriorityInfo?.Select(
+                    p => new PriorityInfo
+                    {
+                        id = p.id,
+                        number = p.number,
+                        Country = p.Country,
+                        Date = p.Date
+                    }).ToList();
+
+                clerical.OldPriorityInfo = file.PriorityInfo?.Select(
+                    p => new PriorityInfo
+                    {
+                        id = p.id,
+                        number = p.number,
+                        Country = p.Country,
+                        Date = p.Date
+                    }).ToList();
+
+                clerical.NewFirstPriorityInfo = updateData.FirstPriorityInfo;
+                clerical.NewPriorityInfo = updateData.PriorityInfo;
+                break;
+
+            case ClericalUpdateTypes.DesignInformation:
+                if (!string.IsNullOrWhiteSpace(updateData.NoveltyStatement))
+                {
+                    clerical.OldNoveltyStatement = file.StatementOfNovelty;
+                    clerical.NewNoveltyStatement = updateData.NoveltyStatement;
+                }
+                if (updateData.DesignType != null)
+                {
+                    clerical.OldDesignType = file.DesignType;
+                    clerical.NewDesignType = updateData.DesignType;
+                }
+                if (!string.IsNullOrWhiteSpace(updateData.TitleOfDesign))
+                {
+                    clerical.OldFileTitle = file.TitleOfDesign;
+                    clerical.NewFileTitle = updateData.TitleOfDesign;
+                }
+                break;
+
+            case ClericalUpdateTypes.CreatorInformation:
+                if (!string.IsNullOrWhiteSpace(updateData.NoveltyStatement))
+                {
+                    clerical.OldNoveltyStatement = file.StatementOfNovelty;
+                    clerical.NewNoveltyStatement = updateData.NoveltyStatement;
+                }
+
+                if (updateData.DesignCreators != null && updateData.DesignCreators.Count > 0)
+                {
+                    var existingCreators = file.DesignCreators?.ToList() ?? new List<ApplicantInfo>();
+
+                    clerical.OldDesignCreatorNames = existingCreators.Select(c => c.Name ?? string.Empty).ToList();
+                    clerical.OldDesignCreatorAddresses = existingCreators.Select(c => c.Address ?? string.Empty).ToList();
+                    clerical.OldDesignCreatorNationalities = existingCreators.Select(c => c.country ?? string.Empty).ToList();
+                    clerical.OldDesignCreatorEmails = existingCreators.Select(c => c.Email ?? string.Empty).ToList();
+                    clerical.OldDesignCreatorPhones = existingCreators.Select(c => c.Phone ?? string.Empty).ToList();
+                    clerical.OldDesignCreatorStates = existingCreators.Select(c => c.State ?? string.Empty).ToList();
+                    clerical.OldDesignCreatorCities = existingCreators.Select(c => c.city ?? string.Empty).ToList();
+
+                    clerical.NewDesignCreatorNames = updateData.DesignCreators.Select(c => c.Name ?? string.Empty).ToList();
+                    clerical.NewDesignCreatorAddresses = updateData.DesignCreators.Select(c => c.Address ?? string.Empty).ToList();
+                    clerical.NewDesignCreatorNationalities = updateData.DesignCreators.Select(c => c.country ?? string.Empty).ToList();
+                    clerical.NewDesignCreatorEmails = updateData.DesignCreators.Select(c => c.Email ?? string.Empty).ToList();
+                    clerical.NewDesignCreatorPhones = updateData.DesignCreators.Select(c => c.Phone ?? string.Empty).ToList();
+                    clerical.NewDesignCreatorStates = updateData.DesignCreators.Select(c => c.State ?? string.Empty).ToList();
+                    clerical.NewDesignCreatorCities = updateData.DesignCreators.Select(c => c.city ?? string.Empty).ToList();
+                }
+                break;
+
+            case ClericalUpdateTypes.DesignAttachments:
+                if (!string.IsNullOrEmpty(otherAttUrl))
+                {
+                    clerical.OldAttachmentUrl = null;
+                    clerical.NewAttachmentUrl = otherAttUrl;
+                }
+                break;
+        }
+
+        return clerical;
+    }
+
+    public async Task<bool> ApplyClericalUpdateToFile(string fileId, string clericalUpdateId)
+    {
+        try
+        {
+            Console.WriteLine($"Applying clerical update {clericalUpdateId} to file {fileId}");
+
+            var file = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (file == null)
+            {
+                throw new Exception("File not found");
+            }
+
+            var clerical = file.ClericalUpdates?.FirstOrDefault(c => c.Id == clericalUpdateId);
+            if (clerical == null)
+            {
+                throw new Exception("Clerical update record not found");
+            }
+            var paid = await _paymentService.CheckPayment(clerical.PaymentRRR);
+            if(paid.status != "00")
+            {
+                throw new Exception("Payment not completed for this clerical update");
+            }
+
+            var app = file.ApplicationHistory?.FirstOrDefault(a => a.id == clericalUpdateId);
+            if (app == null)
+            {
+                throw new Exception("Application history not found");
+            }
 
             var updateDef = Builders<Filling>.Update.Combine();
             var attachments = file.Attachments ?? new List<AttachmentType>();
-            var attOther = new AttachmentType();
-            string? docUrl = null;
-            string? poaUrl = null;
-            string? otherAttUrl = null;
 
-            // representation
-            if (updateData.Representation != null)
+            // Apply changes based on the clerical update record
+            switch (clerical.UpdateType)
             {
-                Console.WriteLine("Found a representation file...");
-                using (var ms = new MemoryStream())
-                {
-                    await updateData.Representation.CopyToAsync(ms);
-                    var userDoc = ms.ToArray();
-                    var links = await UploadAttachment(
-                        new List<TT>
-                        {
-                            new TT
-                            {
-                                contentType = updateData.Representation.ContentType,
-                                data = userDoc,
-                                fileName = Path.GetFileName(updateData.Representation.FileName),
-                                Name = "representation"
-                            }
-                        });
-                    docUrl = links[0];
-                }
-            }
-
-            // POA
-            if (updateData.PowerOfAttorney != null)
-            {
-                using (var ms = new MemoryStream())
-                {
-                    await updateData.PowerOfAttorney.CopyToAsync(ms);
-                    var poa = ms.ToArray();
-                    var url = await UploadAttachment(
-                        new List<TT>
-                        {
-                            new TT
-                            {
-                                contentType = updateData.PowerOfAttorney.ContentType,
-                                data = poa,
-                                fileName = Path.GetFileName(updateData.PowerOfAttorney.FileName),
-                                Name = "poa"
-                            }
-                        });
-                    poaUrl = url[0];
-                }
-            }
-
-            // single "other" attachment
-            if (updateData.OtherAttachment != null)
-            {
-                Console.WriteLine(updateData.OtherAttachment);
-                using (var ms = new MemoryStream())
-                {
-                    await updateData.OtherAttachment.CopyToAsync(ms);
-                    var otherAtt = ms.ToArray();
-                    var url = await UploadAttachment(
-                        new List<TT>
-                        {
-                            new TT
-                            {
-                                contentType = updateData.OtherAttachment.ContentType,
-                                data = otherAtt,
-                                fileName = Path.GetFileName(updateData.OtherAttachment.FileName),
-                                Name = "others"
-                            }
-                        });
-                    otherAttUrl = url[0];
-                }
-
-                attOther = new AttachmentType
-                {
-                    name = "other",
-                    url = new List<string> { otherAttUrl }
-                };
-                attachments.Add(attOther);
-
-                clerical.OldAttachmentUrl = null;
-                clerical.NewAttachmentUrl = otherAttUrl;
-
-                updateDef = updateDef.Set(f => f.Attachments, attachments);
-                Console.WriteLine("url: " + otherAttUrl);
-            }
-
-            // multiple design attachments
-            if (updateData.DesignAttachments != null && updateData.DesignAttachments.Count > 0)
-            {
-                for (var i = 0; i < updateData.DesignAttachments.Count; i++)
-                {
-                    var designFile = updateData.DesignAttachments[i];
-                    using var ms = new MemoryStream();
-                    await designFile.CopyToAsync(ms);
-                    var fileBytes = ms.ToArray();
-                    var url = await UploadAttachment(
-                        new List<TT>
-                        {
-                            new TT
-                            {
-                                contentType = designFile.ContentType,
-                                data = fileBytes,
-                                fileName = Path.GetFileName(designFile.FileName),
-                                Name = $"design{i + 1}"
-                            }
-                        });
-
-                    var designUrl = url[0];
-                    var designAttachment = new AttachmentType
+                case "ApplicantName":
+                    if (clerical.NewApplicantNames != null && clerical.NewApplicantNames.Count > 0)
                     {
-                        name = $"design{i + 1}",
-                        url = new List<string> { designUrl }
-                    };
-                    attachments.Add(designAttachment);
-                    otherAttUrl = designUrl; // last one will be stored
-                    Console.WriteLine("design url: " + designUrl);
-                }
-
-                clerical.OldAttachmentUrl = null;
-                clerical.NewAttachmentUrl = otherAttUrl;
-
-                updateDef = updateDef.Set(f => f.Attachments, attachments);
-            }
-
-            Console.WriteLine("FileType: " + file.Type);
-
-            switch (updateData.UpdateType)
-            {
-                case ClericalUpdateTypes.ApplicantName:
-                    if (updateData.FileType == FileTypes.Patent)
-                    {
-                        if (updateData.ApplicantNames != null && updateData.ApplicantNames.Count > 0)
+                        for (var i = 0; i < clerical.NewApplicantNames.Count && i < file.applicants.Count; i++)
                         {
-                            clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                            clerical.NewApplicantNames = updateData.ApplicantNames;
-
-                            for (var i = 0; i < updateData.ApplicantNames.Count && i < file.applicants.Count; i++)
+                            if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNames[i]))
                             {
-                                var newName = updateData.ApplicantNames[i];
-                                if (!string.IsNullOrWhiteSpace(newName))
-                                {
-                                    file.applicants[i].Name = newName;
-                                }
+                                file.applicants[i].Name = clerical.NewApplicantNames[i];
                             }
-
-                            updateDef = updateDef.Set(f => f.applicants, file.applicants);
                         }
+                        updateDef = updateDef.Set(f => f.applicants, file.applicants);
                     }
-                    else
+                    else if (!string.IsNullOrWhiteSpace(clerical.NewApplicantName))
                     {
-                        if (!string.IsNullOrWhiteSpace(updateData.ApplicantName))
-                        {
-                            clerical.OldApplicantName = file.applicants?[0]?.Name;
-                            clerical.NewApplicantName = updateData.ApplicantName;
-                            updateDef = updateDef.Set("applicants.0.Name", updateData.ApplicantName);
-                        }
+                        updateDef = updateDef.Set("applicants.0.Name", clerical.NewApplicantName);
                     }
-
                     break;
 
-                case ClericalUpdateTypes.ApplicantAddress:
-                    if (updateData.FileType == FileTypes.Patent)
+                case "ApplicantAddress":
+                    if (clerical.NewApplicantAddresses != null && clerical.NewApplicantAddresses.Count > 0)
                     {
-                        if (updateData.ApplicantAddresses != null && updateData.ApplicantAddresses.Count > 0)
+                        for (var i = 0; i < clerical.NewApplicantAddresses.Count && i < file.applicants.Count; i++)
                         {
-                            clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                            clerical.NewApplicantAddresses = updateData.ApplicantAddresses;
+                            if (!string.IsNullOrWhiteSpace(clerical.NewApplicantAddresses[i]))
+                                file.applicants[i].Address = clerical.NewApplicantAddresses[i];
+                        }
 
-                            for (var i = 0; i < updateData.ApplicantAddresses.Count && i < file.applicants.Count; i++)
+                        if (clerical.NewApplicantEmails != null)
+                        {
+                            for (var i = 0; i < clerical.NewApplicantEmails.Count && i < file.applicants.Count; i++)
                             {
-                                var newAddress = updateData.ApplicantAddresses[i];
-                                if (!string.IsNullOrWhiteSpace(newAddress))
-                                {
-                                    file.applicants[i].Address = newAddress;
-                                }
+                                if (!string.IsNullOrWhiteSpace(clerical.NewApplicantEmails[i]))
+                                    file.applicants[i].Email = clerical.NewApplicantEmails[i];
                             }
                         }
 
-                        if (updateData.ApplicantEmails != null && updateData.ApplicantEmails.Count > 0)
+                        if (clerical.NewApplicantPhones != null)
                         {
-                            clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                            clerical.NewApplicantEmails = updateData.ApplicantEmails;
-
-                            for (var i = 0; i < updateData.ApplicantEmails.Count && i < file.applicants.Count; i++)
+                            for (var i = 0; i < clerical.NewApplicantPhones.Count && i < file.applicants.Count; i++)
                             {
-                                var newEmail = updateData.ApplicantEmails[i];
-                                if (!string.IsNullOrWhiteSpace(newEmail))
-                                {
-                                    file.applicants[i].Email = newEmail;
-                                }
+                                if (!string.IsNullOrWhiteSpace(clerical.NewApplicantPhones[i]))
+                                    file.applicants[i].Phone = clerical.NewApplicantPhones[i];
                             }
                         }
 
-                        if (updateData.ApplicantPhones != null && updateData.ApplicantPhones.Count > 0)
+                        if (clerical.NewApplicantNationalities != null)
                         {
-                            clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                            clerical.NewApplicantPhones = updateData.ApplicantPhones;
-
-                            for (var i = 0; i < updateData.ApplicantPhones.Count && i < file.applicants.Count; i++)
+                            for (var i = 0; i < clerical.NewApplicantNationalities.Count && i < file.applicants.Count; i++)
                             {
-                                var newPhone = updateData.ApplicantPhones[i];
-                                if (!string.IsNullOrWhiteSpace(newPhone))
-                                {
-                                    file.applicants[i].Phone = newPhone;
-                                }
+                                if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
+                                    file.applicants[i].country = clerical.NewApplicantNationalities[i];
                             }
                         }
 
-                        if (updateData.ApplicantNationalities != null && updateData.ApplicantNationalities.Count > 0)
+                        if (clerical.NewApplicantStates != null)
                         {
-                            clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                            clerical.NewApplicantNationalities = updateData.ApplicantNationalities;
-
-                            for (var i = 0; i < updateData.ApplicantNationalities.Count && i < file.applicants.Count; i++)
+                            for (var i = 0; i < clerical.NewApplicantStates.Count && i < file.applicants.Count; i++)
                             {
-                                var newNationality = updateData.ApplicantNationalities[i];
-                                if (!string.IsNullOrWhiteSpace(newNationality))
-                                {
-                                    file.applicants[i].country = newNationality;
-                                }
+                                if (!string.IsNullOrWhiteSpace(clerical.NewApplicantStates[i]))
+                                    file.applicants[i].State = clerical.NewApplicantStates[i];
                             }
                         }
 
-                        if (updateData.ApplicantStates != null && updateData.ApplicantStates.Count > 0)
+                        if (clerical.NewApplicantCities != null)
                         {
-                            clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
-                            clerical.NewApplicantStates = updateData.ApplicantStates;
-
-                            for (var i = 0; i < updateData.ApplicantStates.Count && i < file.applicants.Count; i++)
+                            for (var i = 0; i < clerical.NewApplicantCities.Count && i < file.applicants.Count; i++)
                             {
-                                var newState = updateData.ApplicantStates[i];
-                                if (!string.IsNullOrWhiteSpace(newState))
-                                {
-                                    file.applicants[i].State = newState;
-                                }
-                            }
-                        }
-
-                        if (updateData.ApplicantCities != null && updateData.ApplicantCities.Count > 0)
-                        {
-                            clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
-                            clerical.NewApplicantCities = updateData.ApplicantCities;
-
-                            for (var i = 0; i < updateData.ApplicantCities.Count && i < file.applicants.Count; i++)
-                            {
-                                var newCity = updateData.ApplicantCities[i];
-                                if (!string.IsNullOrWhiteSpace(newCity))
-                                {
-                                    file.applicants[i].city = newCity;
-                                }
+                                if (!string.IsNullOrWhiteSpace(clerical.NewApplicantCities[i]))
+                                    file.applicants[i].city = clerical.NewApplicantCities[i];
                             }
                         }
 
@@ -5636,126 +5936,78 @@ public class FileServices
                     }
                     else
                     {
-                        if (!string.IsNullOrWhiteSpace(updateData.ApplicantAddress))
-                        {
-                            clerical.OldApplicantAddress = file.applicants?[0]?.Address;
-                            clerical.NewApplicantAddress = updateData.ApplicantAddress;
-                            updateDef = updateDef.Set("applicants.0.Address", updateData.ApplicantAddress);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
-                        {
-                            clerical.OldApplicantEmail = file.applicants?[0]?.Email;
-                            clerical.NewApplicantEmail = updateData.ApplicantEmail;
-                            updateDef = updateDef.Set("applicants.0.Email", updateData.ApplicantEmail);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(updateData.ApplicantPhone))
-                        {
-                            clerical.OldApplicantPhone = file.applicants?[0]?.Phone;
-                            clerical.NewApplicantPhone = updateData.ApplicantPhone;
-                            updateDef = updateDef.Set("applicants.0.Phone", updateData.ApplicantPhone);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
-                        {
-                            clerical.OldApplicantNationality = file.applicants?[0]?.country;
-                            clerical.NewApplicantNationality = updateData.ApplicantNationality;
-                            updateDef = updateDef.Set("applicants.0.country", updateData.ApplicantNationality);
-                        }
+                        if (!string.IsNullOrWhiteSpace(clerical.NewApplicantAddress))
+                            updateDef = updateDef.Set("applicants.0.Address", clerical.NewApplicantAddress);
+                        if (!string.IsNullOrWhiteSpace(clerical.NewApplicantEmail))
+                            updateDef = updateDef.Set("applicants.0.Email", clerical.NewApplicantEmail);
+                        if (!string.IsNullOrWhiteSpace(clerical.NewApplicantPhone))
+                            updateDef = updateDef.Set("applicants.0.Phone", clerical.NewApplicantPhone);
+                        if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality))
+                            updateDef = updateDef.Set("applicants.0.country", clerical.NewApplicantNationality);
                     }
-
                     break;
 
-                case ClericalUpdateTypes.FileClass:
-                    if (updateData.FileClass.HasValue)
-                    {
-                        clerical.OldFileClass = file.TrademarkClass?.ToString();
-                        clerical.NewFileClass = updateData.FileClass.ToString();
-                        updateDef = updateDef.Set(f => f.TrademarkClass, updateData.FileClass);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(updateData.ClassDescription))
-                    {
-                        clerical.OldClassDescription = file.TrademarkClassDescription;
-                        clerical.NewClassDescription = updateData.ClassDescription;
-                        updateDef = updateDef.Set(f => f.TrademarkClassDescription, updateData.ClassDescription);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(updateData.Disclaimer))
-                    {
-                        clerical.OldDisclaimer = file.TrademarkDisclaimer;
-                        clerical.NewDisclaimer = updateData.Disclaimer;
-                        updateDef = updateDef.Set(f => f.TrademarkDisclaimer, updateData.Disclaimer);
-                    }
-
+                case "FileClass":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileClass))
+                        updateDef = updateDef.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass));
+                    if (!string.IsNullOrWhiteSpace(clerical.NewClassDescription))
+                        updateDef = updateDef.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription);
+                    if (!string.IsNullOrWhiteSpace(clerical.NewDisclaimer))
+                        updateDef = updateDef.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer);
                     break;
 
-                case ClericalUpdateTypes.CorrespondenceInformation:
+                case "CorrespondenceInformation":
                     var correspondence = new CorrespondenceType();
                     var hasCorrespondence = false;
 
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceName))
+                    if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceName))
                     {
-                        clerical.OldCorrespondenceName = file.Correspondence?.name;
-                        clerical.NewCorrespondenceName = updateData.CorrespondenceName;
-                        correspondence.name = updateData.CorrespondenceName;
+                        correspondence.name = clerical.NewCorrespondenceName;
+                        hasCorrespondence = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceAddress))
+                    {
+                        correspondence.address = clerical.NewCorrespondenceAddress;
+                        hasCorrespondence = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondencePhone))
+                    {
+                        correspondence.phone = clerical.NewCorrespondencePhone;
+                        hasCorrespondence = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(clerical.NewCorrespondenceEmail))
+                    {
+                        correspondence.email = clerical.NewCorrespondenceEmail;
                         hasCorrespondence = true;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceAddress))
-                    {
-                        clerical.OldCorrespondenceAddress = file.Correspondence?.address;
-                        clerical.NewCorrespondenceAddress = updateData.CorrespondenceAddress;
-                        correspondence.address = updateData.CorrespondenceAddress;
-                        hasCorrespondence = true;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondencePhone))
-                    {
-                        clerical.OldCorrespondencePhone = file.Correspondence?.phone;
-                        clerical.NewCorrespondencePhone = updateData.CorrespondencePhone;
-                        correspondence.phone = updateData.CorrespondencePhone;
-                        hasCorrespondence = true;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(updateData.CorrespondenceEmail))
-                    {
-                        clerical.OldCorrespondenceEmail = file.Correspondence?.email;
-                        clerical.NewCorrespondenceEmail = updateData.CorrespondenceEmail;
-                        correspondence.email = updateData.CorrespondenceEmail;
-                        hasCorrespondence = true;
-                    }
-
-                    if (!string.IsNullOrEmpty(poaUrl))
+                    if (!string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
                     {
                         var poaIndex = attachments.FindIndex(a => a.name == "poa");
                         if (poaIndex >= 0)
                         {
-                            clerical.OldPowerOfAttorneyUrl = attachments[poaIndex].url.FirstOrDefault();
-                            attachments[poaIndex].url = new List<string> { poaUrl };
+                            attachments[poaIndex].url = new List<string> { clerical.NewPowerOfAttorneyUrl };
                         }
                         else
                         {
                             attachments.Add(new AttachmentType
                             {
                                 name = "poa",
-                                url = new List<string> { poaUrl }
+                                url = new List<string> { clerical.NewPowerOfAttorneyUrl }
                             });
-                            clerical.OldPowerOfAttorneyUrl = null;
                         }
-
-                        clerical.NewPowerOfAttorneyUrl = poaUrl;
                     }
 
-                    if (!string.IsNullOrEmpty(otherAttUrl))
+                    if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
                     {
-                        attachments.Add(attOther);
-                        clerical.OldAttachmentUrl = null;
-                        clerical.NewAttachmentUrl = otherAttUrl;
+                        attachments.Add(new AttachmentType
+                        {
+                            name = "other",
+                            url = new List<string> { clerical.NewAttachmentUrl }
+                        });
                     }
 
-                    if (!string.IsNullOrEmpty(otherAttUrl) || !string.IsNullOrEmpty(poaUrl))
+                    if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl) || !string.IsNullOrEmpty(clerical.NewPowerOfAttorneyUrl))
                     {
                         updateDef = updateDef.Set(f => f.Attachments, attachments);
                     }
@@ -5764,458 +6016,187 @@ public class FileServices
                     {
                         updateDef = updateDef.Set(f => f.Correspondence, correspondence);
                     }
-
                     break;
 
-                case ClericalUpdateTypes.FileTitle:
-                    if (!string.IsNullOrWhiteSpace(updateData.FileTitle))
+                case "FileTitle":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
                     {
-                        Console.WriteLine(updateData.FileType);
-                        switch (updateData.FileType)
-                        {
-                            case FileTypes.Design:
-                                clerical.OldFileTitle = file.TitleOfDesign;
-                                clerical.NewFileTitle = updateData.FileTitle;
-                                updateDef = updateDef.Set(f => f.TitleOfDesign, updateData.FileTitle);
-                                break;
-                            case FileTypes.Patent:
-                                clerical.OldFileTitle = file.TitleOfInvention;
-                                clerical.NewFileTitle = updateData.FileTitle;
-                                updateDef = updateDef.Set(f => f.TitleOfInvention, updateData.FileTitle);
-                                break;
-                            default:
-                                clerical.OldFileTitle = file.TitleOfTradeMark;
-                                clerical.NewFileTitle = updateData.FileTitle;
-                                updateDef = updateDef.Set(f => f.TitleOfTradeMark, updateData.FileTitle);
-                                break;
-                        }
+                        if (file.Type == FileTypes.Design)
+                            updateDef = updateDef.Set(f => f.TitleOfDesign, clerical.NewFileTitle);
+                        else if (file.Type == FileTypes.Patent)
+                            updateDef = updateDef.Set(f => f.TitleOfInvention, clerical.NewFileTitle);
+                        else
+                            updateDef = updateDef.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle);
                     }
 
-                    if (updateData.TrademarkLogo != null)
+                    if (!string.IsNullOrWhiteSpace(clerical.NewTrademarkLogo))
                     {
-                        clerical.OldTrademarkLogo = file.TrademarkLogo.ToString();
-                        clerical.NewTrademarkLogo = updateData.TrademarkLogo.ToString();
-                        updateDef = updateDef.Set(f => f.TrademarkLogo, updateData.TrademarkLogo);
+                        updateDef = updateDef.Set(f => f.TrademarkLogo, Enum.Parse<TradeMarkLogo>(clerical.NewTrademarkLogo));
                     }
 
-                    if (!string.IsNullOrEmpty(docUrl))
+                    if (!string.IsNullOrEmpty(clerical.NewRepresentationUrl))
                     {
                         var repIndex = attachments.FindIndex(a => a.name == "representation");
                         if (repIndex == -1)
                         {
-                            clerical.OldRepresentationUrl = null;
-                            attachments.Add(
-                                new AttachmentType
-                                {
-                                    name = "representation",
-                                    url = new List<string> { docUrl }
-                                });
+                            attachments.Add(new AttachmentType
+                            {
+                                name = "representation",
+                                url = new List<string> { clerical.NewRepresentationUrl }
+                            });
                         }
                         else
                         {
-                            clerical.OldRepresentationUrl = attachments[repIndex].url.FirstOrDefault();
-                            attachments[repIndex].url = new List<string> { docUrl };
+                            attachments[repIndex].url = new List<string> { clerical.NewRepresentationUrl };
                         }
-
-                        clerical.NewRepresentationUrl = docUrl;
                         updateDef = updateDef.Set(f => f.Attachments, attachments);
                     }
-
                     break;
 
-                case ClericalUpdateTypes.AddApplicant:
-                    clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                    clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                    clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                    clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
-                    clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
-
-                    if (updateData.NewApplicants != null && updateData.NewApplicants.Count > 0)
+                case "AddApplicant":
+                case "RemoveApplicant":
+                case "AddAndRemoveApplicant":
+                    if (clerical.NewApplicantNames != null)
                     {
-                        foreach (var apps in updateData.NewApplicants)
+                        var newApplicants = new List<ApplicantInfo>();
+                        for (int i = 0; i < clerical.NewApplicantNames.Count; i++)
                         {
-                            apps.id ??= Guid.NewGuid().ToString();
-                            file.applicants.Add(apps);
+                            newApplicants.Add(new ApplicantInfo
+                            {
+                                id = i < file.applicants.Count ? file.applicants[i].id : Guid.NewGuid().ToString(),
+                                Name = clerical.NewApplicantNames[i],
+                                Address = i < clerical.NewApplicantAddresses?.Count ? clerical.NewApplicantAddresses[i] : null,
+                                Email = i < clerical.NewApplicantEmails?.Count ? clerical.NewApplicantEmails[i] : null,
+                                Phone = i < clerical.NewApplicantPhones?.Count ? clerical.NewApplicantPhones[i] : null,
+                                country = i < clerical.NewApplicantNationalities?.Count ? clerical.NewApplicantNationalities[i] : null,
+                                State = i < clerical.NewApplicantStates?.Count ? clerical.NewApplicantStates[i] : null,
+                                city = i < clerical.NewApplicantCities?.Count ? clerical.NewApplicantCities[i] : null
+                            });
                         }
+                        updateDef = updateDef.Set(f => f.applicants, newApplicants);
                     }
-
-                    clerical.NewApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                    clerical.NewApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                    clerical.NewApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.NewApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.NewApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                    clerical.NewApplicantStates = file.applicants.Select(a => a.State).ToList();
-                    clerical.NewApplicantCities = file.applicants.Select(a => a.city).ToList();
-
-                    updateDef = updateDef.Set(f => f.applicants, file.applicants);
                     break;
 
-                case ClericalUpdateTypes.RemoveApplicant:
-                    clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                    clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                    clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                    clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
-                    clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
-
-                    if (updateData.RemoveApplicantIds != null && updateData.RemoveApplicantIds.Count > 0)
+                case "EditInventors":
+                    if (clerical.NewInventorNames != null)
                     {
-                        file.applicants.RemoveAll(a => updateData.RemoveApplicantIds.Contains(a.id));
-                    }
-
-                    clerical.NewApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                    clerical.NewApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                    clerical.NewApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.NewApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.NewApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                    clerical.NewApplicantStates = file.applicants.Select(a => a.State).ToList();
-                    clerical.NewApplicantCities = file.applicants.Select(a => a.city).ToList();
-
-                    updateDef = updateDef.Set(f => f.applicants, file.applicants);
-                    break;
-
-                case ClericalUpdateTypes.AddAndRemoveApplicant:
-                    clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                    clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                    clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                    clerical.OldApplicantStates = file.applicants.Select(a => a.State).ToList();
-                    clerical.OldApplicantCities = file.applicants.Select(a => a.city).ToList();
-
-                    if (updateData.RemoveApplicantIds != null && updateData.RemoveApplicantIds.Count > 0)
-                    {
-                        file.applicants.RemoveAll(a => updateData.RemoveApplicantIds.Contains(a.id));
-                    }
-
-                    if (updateData.NewApplicants != null && updateData.NewApplicants.Count > 0)
-                    {
-                        foreach (var apps in updateData.NewApplicants)
+                        var newInventors = new List<ApplicantInfo>();
+                        for (int i = 0; i < clerical.NewInventorNames.Count; i++)
                         {
-                            apps.id ??= Guid.NewGuid().ToString();
-                            file.applicants.Add(apps);
+                            newInventors.Add(new ApplicantInfo
+                            {
+                                id = Guid.NewGuid().ToString(),
+                                Name = clerical.NewInventorNames[i],
+                                Address = i < clerical.NewInventorAddresses?.Count ? clerical.NewInventorAddresses[i] : null,
+                                Email = i < clerical.NewInventorEmails?.Count ? clerical.NewInventorEmails[i] : null,
+                                Phone = i < clerical.NewInventorPhones?.Count ? clerical.NewInventorPhones[i] : null,
+                                country = i < clerical.NewInventorNationalities?.Count ? clerical.NewInventorNationalities[i] : null,
+                                State = i < clerical.NewInventorStates?.Count ? clerical.NewInventorStates[i] : null,
+                                city = i < clerical.NewInventorCities?.Count ? clerical.NewInventorCities[i] : null
+                            });
                         }
+                        updateDef = updateDef.Set(f => f.Inventors, newInventors);
                     }
-
-                    clerical.NewApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                    clerical.NewApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                    clerical.NewApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.NewApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.NewApplicantNationalities = file.applicants.Select(a => a.country).ToList();
-                    clerical.NewApplicantStates = file.applicants.Select(a => a.State).ToList();
-                    clerical.NewApplicantCities = file.applicants.Select(a => a.city).ToList();
-
-                    updateDef = updateDef.Set(f => f.applicants, file.applicants);
                     break;
 
-                case ClericalUpdateTypes.EditInventors:
-                    clerical.OldInventorNames = file.Inventors.Select(i => i.Name).ToList();
-                    clerical.OldInventorAddresses = file.Inventors.Select(i => i.Address).ToList();
-                    clerical.OldInventorEmails = file.Inventors.Select(i => i.Email).ToList();
-                    clerical.OldInventorPhones = file.Inventors.Select(i => i.Phone).ToList();
-                    clerical.OldInventorNationalities = file.Inventors.Select(i => i.country).ToList();
-                    clerical.OldInventorStates = file.Inventors.Select(i => i.State).ToList();
-                    clerical.OldInventorCities = file.Inventors.Select(i => i.city).ToList();
-
-                    if (updateData.NewInventors != null)
+                case "PriorityInfo":
+                    if (clerical.NewFirstPriorityInfo != null)
                     {
-                        foreach (var inv in updateData.NewInventors)
-                        {
-                            inv.id ??= Guid.NewGuid().ToString();
-                        }
-
-                        file.Inventors = updateData.NewInventors;
-                    }
-                    else
-                    {
-                        file.Inventors = new List<ApplicantInfo>();
-                    }
-
-                    clerical.NewInventorNames = file.Inventors.Select(i => i.Name).ToList();
-                    clerical.NewInventorAddresses = file.Inventors.Select(i => i.Address).ToList();
-                    clerical.NewInventorEmails = file.Inventors.Select(i => i.Email).ToList();
-                    clerical.NewInventorPhones = file.Inventors.Select(i => i.Phone).ToList();
-                    clerical.NewInventorNationalities = file.Inventors.Select(i => i.country).ToList();
-                    clerical.NewInventorStates = file.Inventors.Select(i => i.State).ToList();
-                    clerical.NewInventorCities = file.Inventors.Select(i => i.city).ToList();
-
-                    updateDef = updateDef.Set(f => f.Inventors, file.Inventors);
-                    break;
-
-                case ClericalUpdateTypes.PriorityInfo:
-                    clerical.OldFirstPriorityInfo = file.FirstPriorityInfo?.Select(
-                        p => new PriorityInfo
-                        {
-                            id = p.id,
-                            number = p.number,
-                            Country = p.Country,
-                            Date = p.Date
-                        }).ToList();
-
-                    clerical.OldPriorityInfo = file.PriorityInfo?.Select(
-                        p => new PriorityInfo
-                        {
-                            id = p.id,
-                            number = p.number,
-                            Country = p.Country,
-                            Date = p.Date
-                        }).ToList();
-
-                    if (updateData.FirstPriorityInfo != null)
-                    {
-                        foreach (var p in updateData.FirstPriorityInfo)
+                        foreach (var p in clerical.NewFirstPriorityInfo)
                         {
                             p.id ??= Guid.NewGuid().ToString();
                         }
-
-                        file.FirstPriorityInfo = updateData.FirstPriorityInfo;
-                    }
-                    else
-                    {
-                        file.FirstPriorityInfo = new List<PriorityInfo>();
+                        updateDef = updateDef.Set(f => f.FirstPriorityInfo, clerical.NewFirstPriorityInfo);
                     }
 
-                    if (updateData.PriorityInfo != null)
+                    if (clerical.NewPriorityInfo != null)
                     {
-                        foreach (var p in updateData.PriorityInfo)
+                        foreach (var p in clerical.NewPriorityInfo)
                         {
                             p.id ??= Guid.NewGuid().ToString();
                         }
-
-                        file.PriorityInfo = updateData.PriorityInfo;
+                        updateDef = updateDef.Set(f => f.PriorityInfo, clerical.NewPriorityInfo);
                     }
-                    else
-                    {
-                        file.PriorityInfo = new List<PriorityInfo>();
-                    }
-
-                    clerical.NewFirstPriorityInfo = file.FirstPriorityInfo;
-                    clerical.NewPriorityInfo = file.PriorityInfo;
-
-                    updateDef = updateDef
-                        .Set(f => f.FirstPriorityInfo, file.FirstPriorityInfo)
-                        .Set(f => f.PriorityInfo, file.PriorityInfo);
-
                     break;
 
-                case ClericalUpdateTypes.ApplicantInformation:
-                    if (updateData.FileType == FileTypes.Design &&
-                        updateData.OldApplicantInfo != null &&
-                        updateData.NewApplicantInfo != null)
-                    {
-                        var newInfo = updateData.NewApplicantInfo;
-                        var oldInfo = file.applicants?[0];
-
-                        if (!string.IsNullOrWhiteSpace(newInfo.Name))
-                        {
-                            clerical.OldApplicantName = oldInfo?.Name;
-                            clerical.NewApplicantName = newInfo.Name;
-                            updateDef = updateDef.Set("applicants.0.Name", newInfo.Name);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(newInfo.Email))
-                        {
-                            clerical.OldApplicantEmail = oldInfo?.Email;
-                            clerical.NewApplicantEmail = newInfo.Email;
-                            updateDef = updateDef.Set("applicants.0.Email", newInfo.Email);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(newInfo.Phone))
-                        {
-                            clerical.OldApplicantPhone = oldInfo?.Phone;
-                            clerical.NewApplicantPhone = newInfo.Phone;
-                            updateDef = updateDef.Set("applicants.0.Phone", newInfo.Phone);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(newInfo.Address))
-                        {
-                            clerical.OldApplicantAddress = oldInfo?.Address;
-                            clerical.NewApplicantAddress = newInfo.Address;
-                            updateDef = updateDef.Set("applicants.0.Address", newInfo.Address);
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(newInfo.country))
-                        {
-                            clerical.OldApplicantNationality = oldInfo?.country;
-                            clerical.NewApplicantNationality = newInfo.country;
-                            updateDef = updateDef.Set("applicants.0.country", newInfo.country);
-                        }
-                    }
-
+                case "DesignInformation":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewNoveltyStatement))
+                        updateDef = updateDef.Set(f => f.StatementOfNovelty, clerical.NewNoveltyStatement);
+                    if (clerical.NewDesignType != null)
+                        updateDef = updateDef.Set(f => f.DesignType, clerical.NewDesignType);
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
+                        updateDef = updateDef.Set(f => f.TitleOfDesign, clerical.NewFileTitle);
                     break;
 
-                case ClericalUpdateTypes.DesignInformation:
-                    if (!string.IsNullOrWhiteSpace(updateData.NoveltyStatement))
+                case "CreatorInformation":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewNoveltyStatement))
+                        updateDef = updateDef.Set(f => f.StatementOfNovelty, clerical.NewNoveltyStatement);
+
+                    if (clerical.NewDesignCreatorNames != null && clerical.NewDesignCreatorNames.Count > 0)
                     {
-                        clerical.OldNoveltyStatement = file.StatementOfNovelty;
-                        clerical.NewNoveltyStatement = updateData.NoveltyStatement;
-                        updateDef = updateDef.Set(f => f.StatementOfNovelty, updateData.NoveltyStatement);
-                    }
-
-                    if (updateData.DesignType != null)
-                    {
-                        clerical.OldDesignType = file.DesignType;
-                        clerical.NewDesignType = updateData.DesignType;
-                        updateDef = updateDef.Set(f => f.DesignType, updateData.DesignType);
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(updateData.TitleOfDesign))
-                    {
-                        clerical.OldFileTitle = file.TitleOfDesign;
-                        clerical.NewFileTitle = updateData.TitleOfDesign;
-                        updateDef = updateDef.Set(f => f.TitleOfDesign, updateData.TitleOfDesign);
-                    }
-
-                    break;
-
-                case ClericalUpdateTypes.CreatorInformation:
-                    if (!string.IsNullOrWhiteSpace(updateData.NoveltyStatement))
-                    {
-                        clerical.OldNoveltyStatement = file.StatementOfNovelty;
-                        clerical.NewNoveltyStatement = updateData.NoveltyStatement;
-                        updateDef = updateDef.Set(f => f.StatementOfNovelty, updateData.NoveltyStatement);
-                    }
-
-                    if (updateData.DesignCreators != null && updateData.DesignCreators.Count > 0)
-                    {
-                        var existingCreators = file.DesignCreators?.ToList() ?? new List<ApplicantInfo>();
-
-                        clerical.OldDesignCreatorNames =
-                            existingCreators.Select(c => c.Name ?? string.Empty).ToList();
-                        clerical.OldDesignCreatorAddresses =
-                            existingCreators.Select(c => c.Address ?? string.Empty).ToList();
-                        clerical.OldDesignCreatorNationalities =
-                            existingCreators.Select(c => c.country ?? string.Empty).ToList();
-                        clerical.OldDesignCreatorEmails =
-                            existingCreators.Select(c => c.Email ?? string.Empty).ToList();
-                        clerical.OldDesignCreatorPhones =
-                            existingCreators.Select(c => c.Phone ?? string.Empty).ToList();
-                        clerical.OldDesignCreatorStates =
-                            existingCreators.Select(c => c.State ?? string.Empty).ToList();
-                        clerical.OldDesignCreatorCities =
-                            existingCreators.Select(c => c.city ?? string.Empty).ToList();
-
-                        foreach (var creator in updateData.DesignCreators)
+                        var newCreators = new List<ApplicantInfo>();
+                        for (int i = 0; i < clerical.NewDesignCreatorNames.Count; i++)
                         {
-                            if (string.IsNullOrWhiteSpace(creator.id))
+                            newCreators.Add(new ApplicantInfo
                             {
-                                creator.id = Guid.NewGuid().ToString();
-                                existingCreators.Add(creator);
-                                continue;
-                            }
-
-                            var currentCreator = existingCreators.FirstOrDefault(dc => dc.id == creator.id);
-                            if (currentCreator == null)
-                            {
-                                existingCreators.Add(creator);
-                                continue;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.Name))
-                            {
-                                currentCreator.Name = creator.Name;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.Address))
-                            {
-                                currentCreator.Address = creator.Address;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.country))
-                            {
-                                currentCreator.country = creator.country;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.Email))
-                            {
-                                currentCreator.Email = creator.Email;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.Phone))
-                            {
-                                currentCreator.Phone = creator.Phone;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.State))
-                            {
-                                currentCreator.State = creator.State;
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(creator.city))
-                            {
-                                currentCreator.city = creator.city;
-                            }
+                                id = Guid.NewGuid().ToString(),
+                                Name = clerical.NewDesignCreatorNames[i],
+                                Address = i < clerical.NewDesignCreatorAddresses?.Count ? clerical.NewDesignCreatorAddresses[i] : null,
+                                Email = i < clerical.NewDesignCreatorEmails?.Count ? clerical.NewDesignCreatorEmails[i] : null,
+                                Phone = i < clerical.NewDesignCreatorPhones?.Count ? clerical.NewDesignCreatorPhones[i] : null,
+                                country = i < clerical.NewDesignCreatorNationalities?.Count ? clerical.NewDesignCreatorNationalities[i] : null,
+                                State = i < clerical.NewDesignCreatorStates?.Count ? clerical.NewDesignCreatorStates[i] : null,
+                                city = i < clerical.NewDesignCreatorCities?.Count ? clerical.NewDesignCreatorCities[i] : null
+                            });
                         }
-
-                        file.DesignCreators = existingCreators;
-
-                        clerical.NewDesignCreatorNames =
-                            existingCreators.Select(c => c.Name ?? string.Empty).ToList();
-                        clerical.NewDesignCreatorAddresses =
-                            existingCreators.Select(c => c.Address ?? string.Empty).ToList();
-                        clerical.NewDesignCreatorNationalities =
-                            existingCreators.Select(c => c.country ?? string.Empty).ToList();
-                        clerical.NewDesignCreatorEmails =
-                            existingCreators.Select(c => c.Email ?? string.Empty).ToList();
-                        clerical.NewDesignCreatorPhones =
-                            existingCreators.Select(c => c.Phone ?? string.Empty).ToList();
-                        clerical.NewDesignCreatorStates =
-                            existingCreators.Select(c => c.State ?? string.Empty).ToList();
-                        clerical.NewDesignCreatorCities =
-                            existingCreators.Select(c => c.city ?? string.Empty).ToList();
-
-                        updateDef = updateDef.Set(f => f.DesignCreators, existingCreators);
+                        updateDef = updateDef.Set(f => f.DesignCreators, newCreators);
                     }
-
                     break;
 
-                case ClericalUpdateTypes.DesignAttachments:
-                    // currently no-op – attachments are handled earlier
+                case "DesignAttachments":
+                    if (!string.IsNullOrEmpty(clerical.NewAttachmentUrl))
+                    {
+                        attachments.Add(new AttachmentType
+                        {
+                            name = "design",
+                            url = new List<string> { clerical.NewAttachmentUrl }
+                        });
+                        updateDef = updateDef.Set(f => f.Attachments, attachments);
+                    }
                     break;
             }
 
-            var isAmendment = file.FileStatus == ApplicationStatuses.Publication
-                              || file.FileStatus == ApplicationStatuses.AwaitingCertification;
-
-            Console.WriteLine("Committing update to DB...");
-
-            if (isAmendment)
+            // Update application status and file status
+            if(app.ApplicationType != FormApplicationTypes.Amendment)
             {
-                Console.WriteLine("File is under publication or awaiting certification — Amendment.");
-                clerical.IsAmendment = true;
+                app.CurrentStatus = ApplicationStatuses.Approved;
+                clerical.IsApproved = true;
+                clerical.DateTreated = DateTime.Now;
 
-                var pendingUpdate = Builders<Filling>.Update.Combine(
-                    Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
-                    Builders<Filling>.Update.Push(f => f.ClericalUpdates, clerical));
+                var finalUpdate = Builders<Filling>.Update.Combine(
+                    updateDef,
+                    Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory),
+                    Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates),
+                    Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Re_conduct)
+                );
 
                 await _fillingCollection.UpdateOneAsync(
-                    Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
-                    pendingUpdate);
+                    Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+                    finalUpdate);
 
-                Console.WriteLine("Clerical update saved (Amendment).");
-                return true;
+                Console.WriteLine($"Clerical update {clericalUpdateId} applied successfully to file {fileId}");
             }
-
-            var finalUpdate = Builders<Filling>.Update.Combine(
-                updateDef,
-                Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
-                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Re_conduct),
-                Builders<Filling>.Update.Push(f => f.ClericalUpdates, clerical));
-
-            await _fillingCollection.UpdateOneAsync(
-                Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
-                finalUpdate);
-
-            Console.WriteLine("Clerical update completed successfully.");
+            else
+            {
+                app.CurrentStatus = ApplicationStatuses.AwaitingApproval;
+            }
+            
             return true;
         }
         catch (Exception ex)
         {
             Console.WriteLine(ex);
-            _log.LogError(ex, "Error at clerical update");
+            _log.LogError(ex, $"Error applying clerical update {clericalUpdateId} to file {fileId}");
             return false;
         }
     }
