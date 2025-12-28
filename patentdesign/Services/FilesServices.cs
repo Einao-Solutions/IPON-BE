@@ -3408,7 +3408,7 @@ public class FileServices
                 data.Item1, data.Item3, data.Item2, "Status Search",
                 applicant.Name, applicant.Email, applicant.Phone);
 
-            var mergeCost = new RecordalDto
+            var statusSearchCost = new RecordalDto
             {
                 Amount = data.Item1,
                 rrr = paymentId,
@@ -3418,12 +3418,212 @@ public class FileServices
                 TrademarkClass = fileInfo.TrademarkClass
             };
 
-            return mergeCost;
+            return statusSearchCost;
         }
         catch (Exception up)
         {
             //log error
             _log.LogError(up, "Error-at-StatusSearchCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentAssignmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAssignment, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Assignment",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentAssignmentCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentLicenseCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentLicense, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent License",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentLicenseCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentMortgageCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMortgage, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Mortgage",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentMortgageCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentCtcCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentCtc, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentCtcCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentAmendmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAmendment, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Amendment",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentAmendmentCost");
             throw;
         }
     }

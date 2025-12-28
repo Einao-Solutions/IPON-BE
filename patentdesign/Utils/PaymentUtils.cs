@@ -260,6 +260,31 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.WithdrawalServiceID;
                 serviceFee = _paymentInfo.WithdrawalServiceFee;
                 break;
+            case PaymentTypes.PatentAssignment:
+                amount = _paymentInfo.PatentAssignmentCost;
+                serviceId = _paymentInfo.PatentAssignmentServiceID;
+                serviceFee = _paymentInfo.PatentAssignmentServiceFee;
+                break;
+            case PaymentTypes.PatentLicense:
+                amount = _paymentInfo.PatentLicenseCost;
+                serviceId = _paymentInfo.PatentLicenseServiceID;
+                serviceFee = _paymentInfo.PatentLicenseServiceFee;
+                break;
+            case PaymentTypes.PatentMortgage:
+                amount = _paymentInfo.PatentMortgageCost;
+                serviceId = _paymentInfo.PatentMortgageServiceID;
+                serviceFee = _paymentInfo.PatentMortgageServiceFee;
+                break;
+            case PaymentTypes.PatentCtc:
+                amount = _paymentInfo.PatentCtcCost;
+                serviceId = _paymentInfo.PatentCtcServiceID;
+                serviceFee = _paymentInfo.PatentCtcServiceFee;
+                break;
+            case PaymentTypes.PatentAmendment:
+                amount = _paymentInfo.PatentAmendmentCost;
+                serviceId = _paymentInfo.PatentAmendmentServiceID;
+                serviceFee = _paymentInfo.PatentAmendmentServiceFee;
+                break;
         }
 
         return (amount, serviceId, serviceFee);

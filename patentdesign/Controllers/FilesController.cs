@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
@@ -743,6 +744,163 @@ public class FilesController(FileServices fileService) : ControllerBase
             return NoContent();
         }
         return Ok(res);
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent assignment application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentAssignmentCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentAssignmentCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentAssignmentCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent license application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentLicenseCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentLicenseCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentLicenseCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent mortgage application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentMortgageCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentMortgageCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentMortgageCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent CTC (Certified True Copy) application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentCtcCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentCtcCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentCtcCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent amendment application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentAmendmentCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentAmendmentCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentAmendmentCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
     }
 
     [HttpPost("AddStatusSearchHistory")]
