@@ -1208,4 +1208,36 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
 
     }
+
+    /// <summary>
+    /// Submits a new patent assignment application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), assignment deed, supporting documents, and assignment dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent assignment application details, including file ID, RRR, assignment deed, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentAssignmentApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentAssignmentApplication([FromBody] PatentAssignmentDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentAssignmentApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent assignment application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent assignment application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+           // _log.LogError(ex, "Error-at-PatentAssignmentApplication");
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
 }

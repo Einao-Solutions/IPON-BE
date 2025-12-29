@@ -3456,7 +3456,8 @@ public class FileServices
                 rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
-                ApplicantName = applicant.Name
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email
             };
 
             return result;
@@ -7444,5 +7445,91 @@ public class FileServices
         Console.WriteLine($"Amendment ({clerical.UpdateType}) approved and applied for {dto.fileId}. ModifiedCount: {result.ModifiedCount}");
 
         return result.ModifiedCount > 0;
+    }
+
+    public async Task<bool> NewPatentAssignmentApplication(PatentAssignmentDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Upload Assignment Deed
+        string deedUrl = "";
+        if (dto.AssignmentDeed != null && dto.AssignmentDeed.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.AssignmentDeed);
+            deedUrl = deedLinks[0];
+        }
+
+        // Upload Supporting Documents
+        string supportingDocsUrl = "";
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var docLinks = await UploadAttachment(dto.SupportingDocuments);
+            supportingDocsUrl = docLinks[0];
+        }
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+        var status = paymentSuccessful ? ApplicationStatuses.AwaitingRecordalProcess : ApplicationStatuses.AwaitingPayment;
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Assignment application submitted, awaiting payment";
+
+        // Application history
+        var assignmentHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Assignment,
+            CurrentStatus = status,
+            ApplicationDate = dto.AssignmentDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Assignment Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.AssignmentRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                   // UserId = file.CreatorAccount
+                }
+            }
+        };
+
+        // Recordal info (optional, for post-registration tracking)
+        var recordal = new PostRegistrationApp
+        {
+            Id = assignmentHistory.id,
+            RecordalType = "Patent Assignment Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.AssignmentDate ?? DateTime.Now).ToString(),
+            documentUrl = deedUrl,
+            document2Url = supportingDocsUrl,
+            FilingDate = (dto.AssignmentRequestDate ?? DateTime.Now).ToString(),
+            Name = applicant?.Name,
+            Email = applicant?.Email,
+            Phone = applicant?.Phone,
+            Address = applicant?.Address,
+            DateTreated = ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, assignmentHistory);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+        return true;
     }
 }
