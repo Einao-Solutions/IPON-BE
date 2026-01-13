@@ -813,9 +813,9 @@ public class FilesController(FileServices fileService) : ControllerBase
     public async Task<IActionResult> ClericalUpdate([FromForm] ClericalUpdateDto clericalUpdate)
     {
         var res = await fileService.ClericalUpdate(clericalUpdate);
-        if (res == false)
+        if (res == "Failed")
         {
-            return NoContent();
+            return BadRequest(new {message = "Failed to Save Application"});
         }
         return Ok(res);
     }

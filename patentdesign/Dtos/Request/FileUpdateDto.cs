@@ -39,6 +39,7 @@ namespace patentdesign.Dtos.Request
         public string? RtmNumber { get; set; }
         public string? Comment { get; set; }
         public string? MigratedPCTNo { get; set; }
+        public List<string>? DesignAttachments { get; set; }
     }
 
     public class AttachmentUpdateDto

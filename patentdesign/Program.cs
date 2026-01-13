@@ -16,8 +16,49 @@ using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
 using System.Security.Authentication;
 using System.Text;
+using DotNetEnv;
 
+Env.Load();
 var builder = WebApplication.CreateBuilder(args);
+
+// Add environment variables to configuration after loading .env
+var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
+var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "https://portal.iponigeria.com";
+var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "https://portal.iponigeria.com";
+
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
+{
+    throw new InvalidOperationException("JWT_KEY environment variable is missing or invalid. It must be at least 32 characters long.");
+}
+
+if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+{
+    throw new InvalidOperationException("JWT_KEY must produce at least 32 bytes when encoded as UTF-8.");
+}
+
+
+builder.Configuration["Jwt:Key"] = jwtKey;
+builder.Configuration["Jwt:Issuer"] = jwtIssuer;
+builder.Configuration["Jwt:Audience"] = jwtAudience;
+
+var mongoConnectionString = Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING") 
+    ?? builder.Configuration["PatentDesignDatabase:ConnectionStringUp"];
+if (!string.IsNullOrWhiteSpace(mongoConnectionString))
+{
+    builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
+}
+
+// Override SMTP settings
+var smtpServer = Environment.GetEnvironmentVariable("SMTP_SERVER") ?? builder.Configuration["EmailSettings:SmtpServer"];
+var smtpUsername = Environment.GetEnvironmentVariable("SMTP_USERNAME") ?? builder.Configuration["EmailSettings:Username"];
+var smtpPassword = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
+
+if (!string.IsNullOrWhiteSpace(smtpServer))
+    builder.Configuration["EmailSettings:SmtpServer"] = smtpServer;
+if (!string.IsNullOrWhiteSpace(smtpUsername))
+    builder.Configuration["EmailSettings:Username"] = smtpUsername;
+if (!string.IsNullOrWhiteSpace(smtpPassword))
+    builder.Configuration["EmailSettings:Password"] = smtpPassword;
 
 // ------------------ CORS ------------------
 const string corsPolicy = "AllowPortal";
@@ -60,7 +101,7 @@ using var fontStream = File.OpenRead("assets/Certificate.otf");
 FontManager.RegisterFont(fontStream);
 
 // ------------------ MongoDB ------------------
-string digitalOceanConnectionString =
+string digitalOceanConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] ??
     @"mongodb+srv://readmin:W9415L6d27tcB3gv@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin";
 
 var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(digitalOceanConnectionString));
@@ -85,7 +126,10 @@ BsonSerializer.RegisterSerializer(typeof(TradeMarkType), new EnumSerializer<Trad
 BsonSerializer.RegisterSerializer(typeof(TradeMarkLogo), new EnumSerializer<TradeMarkLogo>(BsonType.String));
 
 // ------------------ Services ------------------
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
@@ -122,10 +166,9 @@ app.UseHttpsRedirection();
 
 app.UseRouting();
 
-// ✅ CORS should come before authentication/authorization
+// CORS 
 app.UseCors(corsPolicy);
 
-// ✅ Make sure authentication runs before authorization
 app.UseAuthentication();
 app.UseAuthorization();
 

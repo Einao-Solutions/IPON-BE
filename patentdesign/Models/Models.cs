@@ -314,21 +314,19 @@ public record ClericalUpdate
     public string? NewNoveltyStatement { get; set; }
     public DesignTypes? OldDesignType { get; set; }
     public DesignTypes? NewDesignType { get; set; }
+    public List<ApplicantInfo>? OldDesignCreators { get; set; }
+    public List<ApplicantInfo>? NewDesignCreators { get; set; }
     public List<string>? OldDesignCreatorNames { get; set; }
     public List<string>? NewDesignCreatorNames { get; set; }
-    public List<string>? OldDesignCreatorAddresses { get; set; }
-    public List<string>? NewDesignCreatorAddresses { get; set; }
-    public List<string>? OldDesignCreatorNationalities { get; set; }
-    public List<string>? NewDesignCreatorNationalities { get; set; }
-    public List<string>? OldDesignCreatorEmails { get; set; }
-    public List<string>? NewDesignCreatorEmails { get; set; }
     public List<string>? OldDesignCreatorPhones { get; set; }
     public List<string>? NewDesignCreatorPhones { get; set; }
-    public List<string>? OldDesignCreatorStates { get; set; }
-    public List<string>? NewDesignCreatorStates { get; set; }
-    public List<string>? OldDesignCreatorCities { get; set; }
-    public List<string>? NewDesignCreatorCities { get; set; }
-
+    public List<string>? OldDesignCreatorAddresses { get; set; }
+    public List<string>? NewDesignCreatorAddresses { get; set; }    
+    public List<string>? OldDesignCreatorEmails { get; set; }
+    public List<string>? NewDesignCreatorEmails { get; set; }
+    public List<string>? OldDesignCreatorNationalities { get; set; }
+    public List<string>? NewDesignCreatorNationalities { get; set; }
+ 
 }
 
 public record Appeal
