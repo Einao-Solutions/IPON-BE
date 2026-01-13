@@ -6249,7 +6249,11 @@ public class FileServices
             );
 
             var filling = await _fillingCollection.Find(filter).FirstOrDefaultAsync();
-            var designs = filling.Attachments?.Where(a => a.name == "designs").ToList(); 
+            var designs = filling.Attachments?
+                     .Where(a => a.name == "designs")
+                     .SelectMany(a => a.url)
+                     .ToList();
+
             if (filling == null) return null;
 
             var dto = new FileUpdateDto
