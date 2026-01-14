@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -16,47 +16,58 @@ using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
 using System.Security.Authentication;
 using System.Text;
-using DotNetEnv;
 
-Env.Load();
+// ------------------ Create Builder ------------------
 var builder = WebApplication.CreateBuilder(args);
 
-// Add environment variables to configuration after loading .env
+// ------------------ Load .env ONLY in Development ------------------
+if (builder.Environment.IsDevelopment())
+{
+    DotNetEnv.Env.Load();
+}
+
+// ------------------ JWT Config ------------------
 var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "https://portal.iponigeria.com";
 var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "https://portal.iponigeria.com";
 
-if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
+if (string.IsNullOrWhiteSpace(jwtKey))
 {
-    throw new InvalidOperationException("JWT_KEY environment variable is missing or invalid. It must be at least 32 characters long.");
+    throw new Exception("JWT_KEY environment variable is missing!");
 }
 
 if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
 {
-    throw new InvalidOperationException("JWT_KEY must produce at least 32 bytes when encoded as UTF-8.");
+    throw new Exception("JWT_KEY must be at least 32 bytes!");
 }
-
 
 builder.Configuration["Jwt:Key"] = jwtKey;
 builder.Configuration["Jwt:Issuer"] = jwtIssuer;
 builder.Configuration["Jwt:Audience"] = jwtAudience;
 
-var mongoConnectionString = Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING") 
+// ------------------ MongoDB Config ------------------
+var mongoConnectionString =
+    Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
     ?? builder.Configuration["PatentDesignDatabase:ConnectionStringUp"];
-if (!string.IsNullOrWhiteSpace(mongoConnectionString))
+
+if (string.IsNullOrWhiteSpace(mongoConnectionString))
 {
-    builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
+    throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
 }
 
-// Override SMTP settings
-var smtpServer = Environment.GetEnvironmentVariable("SMTP_SERVER") ?? builder.Configuration["EmailSettings:SmtpServer"];
-var smtpUsername = Environment.GetEnvironmentVariable("SMTP_USERNAME") ?? builder.Configuration["EmailSettings:Username"];
+builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
+
+// ------------------ SMTP Overrides ------------------
+var smtpServer = Environment.GetEnvironmentVariable("SMTP_SERVER");
+var smtpUsername = Environment.GetEnvironmentVariable("SMTP_USERNAME");
 var smtpPassword = Environment.GetEnvironmentVariable("SMTP_PASSWORD");
 
 if (!string.IsNullOrWhiteSpace(smtpServer))
     builder.Configuration["EmailSettings:SmtpServer"] = smtpServer;
+
 if (!string.IsNullOrWhiteSpace(smtpUsername))
     builder.Configuration["EmailSettings:Username"] = smtpUsername;
+
 if (!string.IsNullOrWhiteSpace(smtpPassword))
     builder.Configuration["EmailSettings:Password"] = smtpPassword;
 
@@ -68,9 +79,11 @@ builder.Services.AddCors(options =>
     options.AddPolicy(name: corsPolicy, policy =>
     {
         policy
-            .WithOrigins("https://portal.iponigeria.com") // your frontend domain
-            .WithOrigins("http://localhost:5173")
-            .WithOrigins("https://link.einaotest.com")
+            .WithOrigins(
+                "https://portal.iponigeria.com",
+                "http://localhost:5173",
+                "https://link.einaotest.com"
+            )
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -100,15 +113,12 @@ QuestPDF.Settings.License = LicenseType.Community;
 using var fontStream = File.OpenRead("assets/Certificate.otf");
 FontManager.RegisterFont(fontStream);
 
-// ------------------ MongoDB ------------------
-string digitalOceanConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] ??
-    @"mongodb+srv://readmin:W9415L6d27tcB3gv@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin";
-
-var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(digitalOceanConnectionString));
+// ------------------ Mongo Client ------------------
+var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(mongoConnectionString));
 mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
 var mongoClient = new MongoClient(mongoSettings);
 
-// ------------------ Configurations ------------------
+// ------------------ Config Bindings ------------------
 builder.Services.Configure<PatentDesignDBSettings>(builder.Configuration.GetSection("PatentDesignDatabase"));
 builder.Services.Configure<PaymentInfo>(builder.Configuration.GetSection("PaymentInfo"));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
@@ -125,7 +135,7 @@ BsonSerializer.RegisterSerializer(typeof(FormApplicationTypes), new EnumSerializ
 BsonSerializer.RegisterSerializer(typeof(TradeMarkType), new EnumSerializer<TradeMarkType>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkLogo), new EnumSerializer<TradeMarkLogo>(BsonType.String));
 
-// ------------------ Services ------------------
+// ------------------ Controllers & Swagger ------------------
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
@@ -134,6 +144,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
 
+// ------------------ Services ------------------
 builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddSingleton<OppositionService>();
@@ -149,24 +160,21 @@ builder.Services.AddSingleton<EmailServices>();
 builder.Services.AddSingleton<AuthServices>();
 builder.Services.AddSingleton<AdminServices>();
 
-// ------------------ Build the App ------------------
+// ------------------ Build App ------------------
 var app = builder.Build();
 
-// ------------------ Configure Pipeline ------------------
+// ------------------ Pipeline ------------------
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
     app.UseSwagger();
     app.UseSwaggerUI();
-    app.UseExceptionHandler("/error");
-    app.UseStatusCodePages();
 }
 
 app.UseHttpsRedirection();
 
 app.UseRouting();
 
-// CORS 
 app.UseCors(corsPolicy);
 
 app.UseAuthentication();
