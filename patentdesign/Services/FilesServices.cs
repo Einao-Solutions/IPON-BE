@@ -5465,6 +5465,12 @@ public class FileServices
             case ClericalUpdateTypes.CorrespondenceInformation:
                 clerical.OldCorrespondenceName = file.Correspondence?.name;
                 clerical.NewCorrespondenceName = updateData.CorrespondenceName;
+                clerical.OldCorrespondenceAddress = file.Correspondence?.address;
+                clerical.NewCorrespondenceAddress = updateData.CorrespondenceAddress;
+                clerical.OldCorrespondenceEmail = file.Correspondence?.email;
+                clerical.NewCorrespondenceEmail = updateData.CorrespondenceEmail;
+                clerical.OldCorrespondencePhone = file.Correspondence?.phone;
+                clerical.NewCorrespondencePhone = updateData.CorrespondencePhone;
                 clerical.OldPowerOfAttorneyUrl =
                     file.Attachments?.FirstOrDefault(a => a.name == "poa")?.url?.FirstOrDefault();
                 clerical.NewPowerOfAttorneyUrl = poaUrl;
@@ -5591,7 +5597,28 @@ public class FileServices
                 break;
 
             case ClericalUpdateTypes.DesignAttachments:
-                clerical.NewAttachmentUrl = designUrls.LastOrDefault();
+                clerical.OldDesignAttachmentUrls = file.Attachments?
+                                                    .Where(a => a.name.StartsWith("design"))
+                                                    .SelectMany(a => a.url ?? new List<string>())
+                                                    .ToList();
+                var remainingUrls = clerical.OldDesignAttachmentUrls?.ToList() ?? new List<string>();
+                if (updateData.RemoveDesignAttachmentUrls?.Any() == true)
+                {
+                    remainingUrls.RemoveAll(url => updateData.RemoveDesignAttachmentUrls.Contains(url));
+                }
+
+                // Add newly uploaded design attachments
+                if (designUrls.Any())
+                {
+                    remainingUrls.AddRange(designUrls);
+                }
+
+                // Store the final list
+                clerical.NewDesignAttachmentUrls = remainingUrls;
+
+                // For backwards compatibility with single attachment field
+                clerical.NewAttachmentUrl = remainingUrls.LastOrDefault();
+
                 break;
         }
 
