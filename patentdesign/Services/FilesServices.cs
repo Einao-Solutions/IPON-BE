@@ -3538,7 +3538,8 @@ public class FileServices
                 rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
-                ApplicantName = applicant.Name
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email
             };
 
             return result;
