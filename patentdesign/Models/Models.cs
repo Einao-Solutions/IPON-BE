@@ -308,6 +308,27 @@ public record ClericalUpdate
     public DateTime? DateTreated { get; set; }
     public string? Reason { get; set; }
     public bool? IsApproved { get; set; } = false;
+
+    //design specs
+    public string? OldNoveltyStatement { get; set; }
+    public string? NewNoveltyStatement { get; set; }
+    public DesignTypes? OldDesignType { get; set; }
+    public DesignTypes? NewDesignType { get; set; }
+    public List<ApplicantInfo>? OldDesignCreators { get; set; }
+    public List<ApplicantInfo>? NewDesignCreators { get; set; }
+    public List<string>? OldDesignCreatorNames { get; set; }
+    public List<string>? NewDesignCreatorNames { get; set; }
+    public List<string>? OldDesignCreatorPhones { get; set; }
+    public List<string>? NewDesignCreatorPhones { get; set; }
+    public List<string>? OldDesignCreatorAddresses { get; set; }
+    public List<string>? NewDesignCreatorAddresses { get; set; }    
+    public List<string>? OldDesignCreatorEmails { get; set; }
+    public List<string>? NewDesignCreatorEmails { get; set; }
+    public List<string>? OldDesignCreatorNationalities { get; set; }
+    public List<string>? NewDesignCreatorNationalities { get; set; }
+    public List<string>? OldDesignAttachmentUrls { get; set; }
+    public List<string>? NewDesignAttachmentUrls { get; set; }
+
 }
 
 public record Appeal
@@ -866,7 +887,7 @@ public enum PaymentTypes
 {
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
-    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition,
+    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate,
     PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment,
 }
 
@@ -1158,6 +1179,11 @@ public record PaymentInfo
     public string? ClericalUpdateCost { get; set; }
     public string? ClericalUpdateServiceFee { get; set; }
     public string? ClericalUpdateServiceID { get;set; }
+
+    //design clerical update
+    public string? DesignClericalUpdateCost { get; set; }
+    public string? DesignClericalUpdateServiceFee { get; set; }
+    public string? DesignClericalUpdateServiceID { get; set; }
 
     // Status Search
     public string StatusSearchCost { get; set; } = string.Empty;

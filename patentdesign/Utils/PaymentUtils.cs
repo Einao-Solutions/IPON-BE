@@ -225,6 +225,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.ClericalUpdateServiceID;
                 serviceFee = _paymentInfo.ClericalUpdateServiceFee;
                 break;
+            case PaymentTypes.DesignClericalUpdate:
+                amount = _paymentInfo.DesignClericalUpdateCost;
+                serviceId = _paymentInfo.DesignClericalUpdateServiceID;
+                serviceFee = _paymentInfo.DesignClericalUpdateServiceFee;
+                break;
             case PaymentTypes.StatusSearch:
                 amount = _paymentInfo.StatusSearchCost;
                 serviceId = _paymentInfo.StatusSearchServiceId;
