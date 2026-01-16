@@ -29,7 +29,7 @@ namespace patentdesign.Services
         private PaymentService _paymentService;
 
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
-         //private string attachmentBaseUrl = "http://localhost:5044";
+        //private string attachmentBaseUrl = "http://localhost:5044";
 
         //adding log service
         private ILoggerService _log;
@@ -83,7 +83,7 @@ namespace patentdesign.Services
                     Reason = dto.Reason,
                 };
                 var update = Builders<Filling>.Update.Combine(
-                    Builders<Filling>.Update.Set(f => f.FileStatus, dto.NewStatus), 
+                    Builders<Filling>.Update.Set(f => f.FileStatus, dto.NewStatus),
                     Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", dto.NewStatus)
                     );
                 var result = await _fillingCollection.UpdateOneAsync(
@@ -153,7 +153,38 @@ namespace patentdesign.Services
             }
         }
 
-        
+        public async Task<bool> UpdateApplicationHistory(UpdateApplicationHistoryDto dto)
+        {
+            try
+            {
+                var filter = Builders<Filling>.Filter.And(
+                    Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+                    Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == dto.ApplicationId)
+                );
 
+                var updates = new List<UpdateDefinition<Filling>>();
+
+                if (dto.ApplicationDate.HasValue)
+                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ApplicationDate", dto.ApplicationDate.Value));
+                if (dto.ApplicationType.HasValue)
+                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ApplicationType", dto.ApplicationType.Value));
+                if (dto.CurrentStatus.HasValue)
+                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", dto.CurrentStatus.Value));
+                if (dto.PaymentId != null)
+                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.PaymentId", dto.PaymentId));
+                if (dto.CertificatePaymentId != null)
+                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.CertificatePaymentId", dto.CertificatePaymentId));
+
+                if (!updates.Any()) return false;
+
+                var result = await _fillingCollection.UpdateOneAsync(filter, Builders<Filling>.Update.Combine(updates));
+                return result.ModifiedCount > 0;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Error updating application history");
+                return false;
+            }
+        }
     }
 }
