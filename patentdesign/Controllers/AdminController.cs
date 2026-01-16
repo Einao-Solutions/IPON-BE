@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Response;
 using patentdesign.Services;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace patentdesign.Controllers
 {
@@ -30,6 +31,13 @@ namespace patentdesign.Controllers
                 return Ok(result);
             }
             return BadRequest(new {message = "Failed to create application history"});
+        }
+        [HttpPatch("ApplicationHistory")]
+        public async Task<IActionResult> UpdateApplicationHistory([FromBody] UpdateApplicationHistoryDto dto)
+        {
+            var updated = await adminServices.UpdateApplicationHistory(dto);
+            if (updated) return Ok(updated);
+            return NotFound(new { message = "Application history not updated" });
         }
     }
 }
