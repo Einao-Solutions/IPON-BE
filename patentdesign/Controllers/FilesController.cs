@@ -903,6 +903,37 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent merger application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentMergerCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentMergerCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentMergerCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
     [HttpPost("AddStatusSearchHistory")]
     public async Task<IActionResult> AddStatusSearchHistory([FromQuery] string fileId, [FromQuery] string rrr)
     {
@@ -1018,6 +1049,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+
     [HttpGet("GetApplicationsByFile")]
     public async Task<IActionResult> GetApplicationsByFile([FromQuery] string fileId)
     {
@@ -1282,4 +1314,37 @@ public class FilesController(FileServices fileService) : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
         }
     }
+
+    /// <summary>
+    /// Submits a new patent merger application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), deed of merger, supporting documents, and merger dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent merger application details, including file ID, RRR, deed of merger, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentMergerApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentMergerApplication([FromBody] PatentMergerDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentMergerApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent merger application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent merger application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
 }

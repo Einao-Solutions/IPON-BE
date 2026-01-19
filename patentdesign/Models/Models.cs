@@ -888,7 +888,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment,
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment,PatentMerger,
 }
 
 
@@ -1237,6 +1237,11 @@ public record PaymentInfo
     public string? PatentAmendmentCost { get; set; }
     public string? PatentAmendmentServiceFee { get; set; }
     public string? PatentAmendmentServiceID { get; set; }
+
+    //Patent Merger
+    public string? PatentMergerCost { get; set; }
+    public string? PatentMergerServiceFee { get; set; }
+    public string? PatentMergerServiceID { get; set; }
 }
 
 public record PaymentRecord

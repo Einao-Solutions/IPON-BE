@@ -3632,6 +3632,47 @@ public class FileServices
         }
     }
 
+    public async Task<RecordalDto> PatentMergerCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMerger, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentMergerCost");
+            throw;
+        }
+    }
+
     public async Task<RecordalDto> GetPublicationStatusUpdateCost(string fileId, FileTypes fileType)
     {
         try
@@ -7920,6 +7961,130 @@ public class FileServices
         var update = Builders<Filling>.Update
             .Push(f => f.PostRegApplications, recordal)
             .Push(f => f.ApplicationHistory, mortgageHistory);
+
+        // Persist the updated file (including attachments)
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<bool> NewPatentMergerApplication(PatentMergerDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Upload Deed of Merger
+        if (dto.Deedofmerger != null && dto.Deedofmerger.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedofmerger);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "Deedofmerger");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "Deedofmerger",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Upload Supporting Documents
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "PatentMergerSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "PatentMergerSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Merger application submitted, awaiting payment";
+
+        // Application history
+        var mergerHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Merger,
+            CurrentStatus = status,
+            ApplicationDate = dto.MergerDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Merger Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.MergerRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = mergerHistory.id,
+            RecordalType = "Patent Merger Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.MergerDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.MergerRequestDate ?? DateTime.Now).ToString(),
+            Name = applicant?.Name,
+            Email = applicant?.Email,
+            Phone = applicant?.Phone,
+            Address = applicant?.Address,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, mergerHistory);
 
         // Persist the updated file (including attachments)
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
