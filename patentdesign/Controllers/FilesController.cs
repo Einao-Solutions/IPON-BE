@@ -799,13 +799,13 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-    [HttpGet("GetClericalUpdateCost")]
-    public async Task<IActionResult> GetClericalUpdateCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] string updateType)
+    [HttpPost("GetClericalUpdateCost")]
+    public async Task<IActionResult> GetClericalUpdateCost([FromBody] GetClericalCostDto dto)
     {
-        var res = await fileService.GetClericalUpdateCost(fileId, fileType, updateType);
+        var res = await fileService.GetClericalUpdateCost(dto);
         if (res == null)
         {
-            return NoContent();
+            return BadRequest(new {message = "Failed to Get Cost"});
         }
         return Ok(res);
     }
@@ -813,11 +813,21 @@ public class FilesController(FileServices fileService) : ControllerBase
     public async Task<IActionResult> ClericalUpdate([FromForm] ClericalUpdateDto clericalUpdate)
     {
         var res = await fileService.ClericalUpdate(clericalUpdate);
-        if (res == false)
+        if (res == "Failed")
         {
-            return NoContent();
+            return BadRequest(new {message = "Failed to Save Application"});
         }
         return Ok(res);
+    }
+    [HttpPost("ConfirmClericalUpdate")]
+    public async Task<IActionResult> ConfirmClericalUpdate([FromQuery] string fileId, [FromQuery] string clericalId)
+    {
+        var res = await fileService.ApplyClericalUpdateToFile(fileId, clericalId);
+        if (res == false)
+        {
+            return BadRequest(new { message = "Failed to Confirm Clerical Update" });
+        }
+        return Ok(new { message = "Clerical update confirmed"});
     }
     [HttpPost("UpdateRecordalStatus")]
     public async Task<IActionResult> UpdateRecordalStatus([FromQuery] string fileId, [FromQuery] string rrr)

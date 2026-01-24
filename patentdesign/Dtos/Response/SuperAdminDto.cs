@@ -37,3 +37,14 @@ public class ApplicationHistoryDto
     public string? CertificatePaymentId { get; set; }
     public string FileNumber { get; set; }
 }
+
+public class UpdateApplicationHistoryDto
+{
+    public string FileNumber { get; set; }
+    public string ApplicationId { get; set; }
+    public DateTime? ApplicationDate { get; set; }
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public ApplicationStatuses? CurrentStatus { get; set; }
+    public string? PaymentId { get; set; }
+    public string? CertificatePaymentId { get; set; }
+}
