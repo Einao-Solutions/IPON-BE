@@ -944,7 +944,6 @@ public class FileServices
 
         if (data.applicationType is FormApplicationTypes.NewApplication)
         {
-
             operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
             if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
             {
