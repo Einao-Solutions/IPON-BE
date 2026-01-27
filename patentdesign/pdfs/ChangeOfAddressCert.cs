@@ -64,7 +64,7 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                 });
 
                 column.Item().Height(5);
-                column.Item().Text($"This is to inform you that your request dated {app.FilingDate} to change registered applicant name on '{model.TitleOfTradeMark}', with file number {model.FileId} and RTM {model.RtmNumber}, in class {model.TrademarkClass} has been effected.")
+                column.Item().Text($"This is to inform you that your request dated {app.FilingDate} to change registered applicant address on '{model.TitleOfTradeMark}', with file number {model.FileId} and RTM {model.RtmNumber}, in class {model.TrademarkClass} has been effected.")
                     .FontFamily(Fonts.TimesNewRoman).Justify().LineHeight(2);
                 column.Item().Text("New Recordal Information:").FontFamily(Fonts.TimesNewRoman).FontSize(12).Justify().LineHeight(2);
                 column.Item().Text(app.Address).FontFamily(Fonts.TimesNewRoman).FontSize(12).Justify();

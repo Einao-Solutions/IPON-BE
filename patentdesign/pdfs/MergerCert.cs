@@ -89,12 +89,50 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
                 ? parsedDate.ToString("dd MMMM, yyyy") 
                 : date;
 
+            column.Item().Table(table =>
+            {
+                table.ColumnsDefinition(columns =>
+                {
+                    columns.ConstantColumn(80);
+                    columns.RelativeColumn();
+                });
 
-            column.Item().Text("From: ").FontFamily(Fonts.TimesNewRoman);
-            column.Item().Text(applicants.Name ?? postRegApp.OldName).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
-            column.Item().Height(10);
-            column.Item().Text("To: ").FontFamily(Fonts.TimesNewRoman);
-            column.Item().Text(postRegApp.Name).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                // From Section Header
+                table.Cell().Text("From:").Bold().FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text("");
+
+                // From Details
+                table.Cell().Text("Name:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.OldName ?? applicants.Name).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                table.Cell().Text("Address:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.OldAddress ?? applicants.Address).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                table.Cell().Text("Phone:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.OldPhone ?? applicants.Phone).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                table.Cell().Text("Email:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.OldEmail ?? applicants.Email).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                // To Section Header
+                table.Cell().Text("To:").Bold().FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text("");
+
+                // To Details
+                table.Cell().Text("Name:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.Name).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                table.Cell().Text("Address:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.Address).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                table.Cell().Text("Phone:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.Phone).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                table.Cell().Text("Email:").FontFamily(Fonts.TimesNewRoman);
+                table.Cell().Text(postRegApp.Email).SemiBold().FontFamily(Fonts.TimesNewRoman);
+            });
+
+            column.Item().Height(20);
 
 
             column.Item().Height(20);

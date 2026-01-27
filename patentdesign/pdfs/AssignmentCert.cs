@@ -78,14 +78,50 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 column.Item().Text($"Pursuant to the Deed of Assignment dated {app.FilingDate}");
                 column.Item().Height(30);
 
-                
 
-                column.Item().Text("Assignor: ").FontFamily(Fonts.TimesNewRoman);
-                column.Item().Text(assignee.AssignorName ?? postRegApp.OldName).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
-                column.Item().Height(10);
-                column.Item().Text("Assignee: ").FontFamily(Fonts.TimesNewRoman);
-                column.Item().Text(assignee.Name ?? postRegApp.Name).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
-                column.Item().Height(20);
+
+                column.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.ConstantColumn(80);
+                        columns.RelativeColumn();
+                    });
+
+                    // From Section Header
+                    table.Cell().Text("Assignor:").Bold().FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text("");
+
+                    // From Details
+                    table.Cell().Text("Name:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.AssignorName ?? applicants.Name).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Text("Address:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.AssignorAddress ?? applicants.Address).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Text("Phone:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.AssignorPhone ?? applicants.Phone).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Text("Email:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.AssignorEmail ?? applicants.Email).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    // To Section Header
+                    table.Cell().Text("Assignee:").Bold().FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text("");
+
+                    // To Details
+                    table.Cell().Text("Name:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.Name).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Text("Address:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.Address).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Text("Phone:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.Phone).SemiBold().FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Text("Email:").FontFamily(Fonts.TimesNewRoman);
+                    table.Cell().Text(assignee.Email).SemiBold().FontFamily(Fonts.TimesNewRoman);
+                });
 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(35).Image("assets/reg.png").FitArea();
