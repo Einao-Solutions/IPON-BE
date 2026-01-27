@@ -6156,9 +6156,27 @@ public class FileServices
                 RemitaResponse = remita
             };
             await _paymentService.AddPaymentRecord(payment);
-            recordal.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+            if (file.FileStatus == ApplicationStatuses.Publication || file.FileStatus == ApplicationStatuses.AwaitingCertification)
+            {
+                var rec = new TreatRecordalDto
+                {
+                    fileId = file.FileId,
+                    appId = recordal.id,
+                    reason = "Auto-Approved by System"
+                };
+                await ApproveChangeDataRecordal(rec);
+                recordal.CurrentStatus = ApplicationStatuses.AutoApproved;
+                recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AutoApproved;
+            }
+            else
+            {
+                recordal.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingRecordalProcess;
+            }
+                
             recordal.StatusHistory[0].beforeStatus = ApplicationStatuses.AwaitingPayment;
-            recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingRecordalProcess;
+            
+            
 
             var update = Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory);
 
