@@ -3906,7 +3906,13 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, mergerApp.FileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
-
+        var applicant = file.applicants.FirstOrDefault();
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, mergerApp.userId))
+            .FirstOrDefaultAsync()
+            ?? await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .FirstOrDefaultAsync();
         string docUrl = "";
         if (mergerApp.document != null)
         {
@@ -3925,11 +3931,12 @@ public class FileServices
             docUrl = links[0];
         }
         Console.WriteLine("document url: " + docUrl);
+        var userName = user != null
+                ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+                : applicant?.Name ?? "Unknown";
         try
         {
-            var applicant = file.applicants.FirstOrDefault();
-
-
+            
             // Create ApplicationInfo for ApplicationHistory
             var mergerHistory = new ApplicationInfo
             {
@@ -3948,8 +3955,8 @@ public class FileServices
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Merger application submitted",
-                        User = applicant.Name,
-                        UserId = file.CreatorAccount
+                        User = userName,
+                        UserId = user.Id
                     }
                 }
             };
@@ -3960,10 +3967,15 @@ public class FileServices
                 FilingDate = DateTime.Now.ToString(),
                 rrr = mergerApp.rrr,
                 FileNumber = mergerApp.FileId,
+                OldAddress = applicant.Address,
                 Address = mergerApp.Address,
+                OldNationality = applicant.country,
                 Nationality = mergerApp.Nationality,
+                OldName = applicant.Name,
                 Name = mergerApp.Name,
+                OldEmail = applicant.Email,
                 Email = mergerApp.Email,
+                OldPhone = applicant.Phone,
                 Phone = mergerApp.Phone,
                 documentUrl = docUrl,
                 RecordalType = "Merger",
@@ -4054,10 +4066,15 @@ public class FileServices
         {
             FileId = fileId,
             rrr = recordal.rrr,
+            OldName = recordal.OldName,
             Name = recordal.Name,
+            OldEmail = recordal.OldEmail,
             Email = recordal.Email,
+            OldAddress = recordal.OldAddress,
             Address = recordal.Address,
+            OldNationality = recordal.OldNationality,
             Nationality = recordal.Nationality,
+            OldPhone = recordal.OldPhone,
             Phone = recordal.Phone,
             MergerDate = recordal.dateOfRecordal,
             documentUrl = recordal.documentUrl
@@ -4114,7 +4131,18 @@ public class FileServices
             .FirstOrDefaultAsync();
 
         if (file == null) return false;
+        var applicant = file.applicants.FirstOrDefault();
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, newData.userId))
+            .FirstOrDefaultAsync()
+            ?? await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .FirstOrDefaultAsync();
+        var userName = user != null 
+            ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+            : applicant?.Name ?? "Unknown";
 
+        var userId = user?.Id ?? file.CreatorAccount;
         string docUrl = "";
         if (newData.document != null)
         {
@@ -4122,21 +4150,20 @@ public class FileServices
             await newData.document.CopyToAsync(ms);
             var userDoc = ms.ToArray();
             var links = await UploadAttachment(new List<TT>
-        {
-            new TT
             {
-                contentType = newData.document.ContentType,
-                data = userDoc,
-                fileName = Path.GetFileName(newData.document.FileName),
-                Name = ""
-            }
-        });
+                new TT
+                {
+                    contentType = newData.document.ContentType,
+                    data = userDoc,
+                    fileName = Path.GetFileName(newData.document.FileName),
+                    Name = ""
+                }
+            });
             docUrl = links[0];
         }
 
         try
         {
-            var applicant = file.applicants.FirstOrDefault();
             var appHistory = new ApplicationInfo
             {
                 id = Guid.NewGuid().ToString(),
@@ -4153,17 +4180,17 @@ public class FileServices
                     ? newData.NewName
                     : newData.NewAddress,
                 StatusHistory = new List<ApplicationHistory>
-            {
-                new ApplicationHistory
                 {
-                    Date = DateTime.Now,
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingPayment,
-                    Message = "Change Data",
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    new ApplicationHistory
+                    {
+                        Date = DateTime.Now,
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.AwaitingPayment,
+                        Message = "Change Data",
+                        User = userName,
+                        UserId = userId
+                    }
                 }
-            }
             };
 
             var recordal = new PostRegistrationApp
@@ -4177,7 +4204,9 @@ public class FileServices
                     ? "Change of Applicant Name"
                     : "Change of Applicant Address",
                 DateTreated = "",
+                OldName = applicant.Name,
                 Name = newData.NewName,
+                OldAddress = applicant.Address,
                 Address = newData.NewAddress
             };
 
@@ -4212,7 +4241,9 @@ public class FileServices
         {
             FileId = fileId,
             rrr = recordal.rrr,
+            OldName = recordal.OldName,
             NewName = recordal?.Name,
+            OldAddress = recordal.OldAddress,
             NewAddress = recordal?.Address,
             documentUrl = recordal?.documentUrl
         };
@@ -4966,6 +4997,17 @@ public class FileServices
             .FirstOrDefaultAsync();
         if (file == null) return false;
         var applicant = file.applicants.FirstOrDefault();
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, assignmentApp.userId))
+            .FirstOrDefaultAsync()
+            ?? await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .FirstOrDefaultAsync();
+        var userName = user != null
+            ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+            : applicant?.Name ?? "Unknown";
+        var userId = user?.Id ?? file.CreatorAccount;
+
         string assignDeedUrl = "";
         if (assignmentApp.AssignmentDeed != null)
         {
@@ -5018,19 +5060,24 @@ public class FileServices
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Assignment application submitted, awaiting approval",
-                        User = applicant.Name,
-                        UserId = file.CreatorAccount
+                        User = userName,
+                        UserId = userId
                     }
                 }
             };
-            //Create new registered user
+            //Create new assignee
             var newAssignee = new Assignee
             {
                 Name = assignmentApp.AssigneeName,
+                AssignorName = applicant.Name,
                 Email = assignmentApp.AssigneeEmail,
+                AssignorEmail = applicant.Email,
                 Phone = assignmentApp.AssigneePhone,
+                AssignorPhone = applicant.Phone,
                 Address = assignmentApp.AssigneeAddress,
+                AssignorAddress = applicant.Address,
                 Nationality = assignmentApp.AssigneeNationality,
+                AssignorNationality = applicant.country,
                 FileId = file.FileId,
                 isApproved = false,
                 Id = assignmentHistory.id,
@@ -5049,9 +5096,13 @@ public class FileServices
                 documentUrl = assignDeedUrl,
                 document2Url = authLetterUrl,
                 FilingDate = DateTime.Now.ToString(),
+                OldName = assignmentApp.AssignorName,
                 Name = assignmentApp.AssigneeName,
+                OldEmail = assignmentApp.AssignorEmail,
                 Email = assignmentApp.AssigneeEmail,
+                OldPhone = assignmentApp.AssignorPhone,
                 Phone = assignmentApp.AssigneePhone,
+                OldAddress = assignmentApp.AssignorAddress,
                 Address = assignmentApp.AssigneeAddress,
                 DateTreated = "",
 
@@ -5086,7 +5137,15 @@ public class FileServices
             FileId = fileId,
             rrr = assignee.rrr,
             AssigneeName = assignee.Name,
+            AssigneeEmail = assignee.Email,
             AssigneeAddress = assignee.Address,
+            AssigneePhone = assignee.Phone,
+            AssigneeNationality = assignee.Nationality,
+            AssignorName = assignee.AssignorName,
+            AssignorEmail = assignee.AssignorEmail,
+            AssignorAddress = assignee.AssignorAddress,
+            AssignorPhone = assignee.AssignorPhone,
+            AssignorNationality = assignee.AssignorNationality,
             AuthorizationLetterUrl = assignee.AuthorizationLetterUrl,
             AssignmentDeedUrl = assignee.AssignmentDeedUrl,
         };
