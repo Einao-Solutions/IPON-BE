@@ -23,6 +23,8 @@ public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, stri
         private void ComposeContent(IContainer container)
         {
             var app = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
+            var applicants = model.applicants.FirstOrDefault();
+
             if (app == null) throw new Exception("Application not found");
             container.PaddingVertical(5).Column(column =>
             {
@@ -67,7 +69,7 @@ public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, stri
                     .FontFamily(Fonts.TimesNewRoman).Justify().LineHeight(2);
                 column.Item().Text("New Recordal Information:").FontFamily(Fonts.TimesNewRoman).FontSize(12).Justify().LineHeight(2);
                 column.Item().Text(app.Name).FontFamily(Fonts.TimesNewRoman).FontSize(12).Justify();
-                column.Item().Height(30);
+                column.Item().Height(10);
                 var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
                 var date = postRegApp?.DateTreated;
                 var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt", 
@@ -76,6 +78,14 @@ public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, stri
                     out var parsedDate) 
                     ? parsedDate.ToString("dd MMMM, yyyy") 
                     : date;
+                
+                column.Item().Text("From: ").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Text(applicants.Name ?? postRegApp.OldName).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                column.Item().Height(10);
+                column.Item().Text("To: ").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Text(postRegApp.Name).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                column.Item().Height(20);
+
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(35).Image("assets/reg.png").FitArea();
                 column.Item().Height(20);

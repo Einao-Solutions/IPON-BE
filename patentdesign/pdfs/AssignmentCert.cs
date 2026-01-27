@@ -23,7 +23,17 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
         private void ComposeContent(IContainer container)
         {
             var app = model.PostRegApplications?.FirstOrDefault(r=>r.Id == applicationId);
-            
+            var applicants = model.applicants.FirstOrDefault();
+            var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
+            var date = postRegApp?.DateTreated;
+            var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var parsedDate)
+                ? parsedDate.ToString("dd MMMM, yyyy")
+                : date;
+            var assignee = model.Assignees.FirstOrDefault(a => a.Id == applicationId);
+
             container.PaddingVertical(5).Column(column =>
             {
                 column.Item().Height(30);
@@ -67,14 +77,16 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                     .FontFamily(Fonts.TimesNewRoman).Justify();
                 column.Item().Text($"Pursuant to the Deed of Assignment dated {app.FilingDate}");
                 column.Item().Height(30);
-                var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
-                var date = postRegApp?.DateTreated;
-                var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt", 
-                    System.Globalization.CultureInfo.InvariantCulture, 
-                    System.Globalization.DateTimeStyles.None, 
-                    out var parsedDate) 
-                    ? parsedDate.ToString("dd MMMM, yyyy") 
-                    : date;
+
+                
+
+                column.Item().Text("Assignor: ").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Text(assignee.AssignorName ?? postRegApp.OldName).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                column.Item().Height(10);
+                column.Item().Text("Assignee: ").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Text(assignee.Name ?? postRegApp.Name).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                column.Item().Height(20);
+
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(35).Image("assets/reg.png").FitArea();
                 column.Item().Height(20);

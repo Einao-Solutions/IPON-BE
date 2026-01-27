@@ -1,3 +1,4 @@
+using CloudinaryDotNet.Actions;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
@@ -20,12 +21,22 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
             page.Footer().Element(ComposeFooter);
         });
     }
+    static IContainer Block(IContainer container)
+    {
+        return container
+            .Border(1)
+            .ShowOnce()
+            .MinHeight(20)
+            .PaddingVertical(3)
+            .PaddingLeft(5)
+            .AlignLeft();
+    }
 
     private void ComposeContent(IContainer container)
     {
         var regUser = model.RegisteredUsers?.FirstOrDefault(r => r.Id == applicationId);
         var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
-        
+        var applicants = model.applicants.FirstOrDefault();
         container.PaddingVertical(5).Column(column =>
         {
             column.Item().Height(30);
@@ -68,7 +79,7 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
                 .Text(
                     $"I hereby certify that your name {postRegApp?.Name} has been entered into the Register as a proprietor of the trademark {model.TitleOfTradeMark}, with file number {model.FileId} and RTM {model.RtmNumber}, in class {model.TrademarkClass}, in respect of Abstract.")
                 .FontFamily(Fonts.TimesNewRoman).Justify();
-            column.Item().Height(30);
+            column.Item().Height(10);
 
             var date = postRegApp?.DateTreated;
             var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt", 
@@ -77,6 +88,16 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
                 out var parsedDate) 
                 ? parsedDate.ToString("dd MMMM, yyyy") 
                 : date;
+
+
+            column.Item().Text("From: ").FontFamily(Fonts.TimesNewRoman);
+            column.Item().Text(applicants.Name ?? postRegApp.OldName).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+            column.Item().Height(10);
+            column.Item().Text("To: ").FontFamily(Fonts.TimesNewRoman);
+            column.Item().Text(postRegApp.Name).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+
+
+            column.Item().Height(20);
             column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
             column.Item().Height(35).Image("assets/reg.png").FitArea();
             column.Item().Height(20);

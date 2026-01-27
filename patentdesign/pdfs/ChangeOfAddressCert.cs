@@ -23,6 +23,7 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
         private void ComposeContent(IContainer container)
         {
             var app = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
+            var applicants = model.applicants.FirstOrDefault();
             if (app == null) throw new Exception("Application not found");
             container.PaddingVertical(5).Column(column =>
             {
@@ -76,6 +77,14 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                     out var parsedDate) 
                     ? parsedDate.ToString("dd MMMM, yyyy") 
                     : date;
+
+                column.Item().Text("From: ").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Text(applicants.Address ?? postRegApp.OldAddress).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                column.Item().Height(10);
+                column.Item().Text("To: ").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Text(postRegApp.Address).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+                column.Item().Height(20);
+
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(35).Image("assets/reg.png").FitArea();
                 column.Item().Height(20);
