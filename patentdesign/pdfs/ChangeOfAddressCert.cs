@@ -66,9 +66,6 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                 column.Item().Height(5);
                 column.Item().Text($"This is to inform you that your request dated {app.FilingDate} to change registered applicant address on '{model.TitleOfTradeMark}', with file number {model.FileId} and RTM {model.RtmNumber}, in class {model.TrademarkClass} has been effected.")
                     .FontFamily(Fonts.TimesNewRoman).Justify().LineHeight(2);
-                column.Item().Text("New Recordal Information:").FontFamily(Fonts.TimesNewRoman).FontSize(12).Justify().LineHeight(2);
-                column.Item().Text(app.Address).FontFamily(Fonts.TimesNewRoman).FontSize(12).Justify();
-                column.Item().Height(30);
                 var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
                 var date = postRegApp?.DateTreated;
                 var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt", 
@@ -78,11 +75,47 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                     ? parsedDate.ToString("dd MMMM, yyyy") 
                     : date;
 
-                column.Item().Text("From: ").FontFamily(Fonts.TimesNewRoman);
-                column.Item().Text(applicants.Address ?? postRegApp.OldAddress).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
                 column.Item().Height(10);
-                column.Item().Text("To: ").FontFamily(Fonts.TimesNewRoman);
-                column.Item().Text(postRegApp.Address).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+
+                column.Item().Text("Recordal Information").FontSize(12).SemiBold().FontFamily(Fonts.TimesNewRoman).LineHeight(2);
+
+                column.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.RelativeColumn();     // Assignor
+                        columns.RelativeColumn();     // Assignee
+                    });
+
+                    IContainer Cell(IContainer c) =>
+                        c.Border(0.5f)
+                            .BorderColor(Colors.Grey.Lighten2)
+                            .PaddingVertical(4)
+                            .PaddingHorizontal(6);
+
+                    // ===== HEADER ROW =====
+                    table.Cell().Element(Cell)
+                        .Text("From:")
+                        .Bold()
+                        .FontFamily(Fonts.TimesNewRoman);
+
+                    table.Cell().Element(Cell)
+                        .Text("To:")
+                        .Bold()
+                        .FontFamily(Fonts.TimesNewRoman);
+
+                    // ===== NAME =====
+                    table.Cell().Element(Cell)
+                        .Text(!string.IsNullOrWhiteSpace(app.OldAddress) ? app.OldAddress : (applicants?.Address ?? "N/A"))
+                        .FontFamily(Fonts.TimesNewRoman);
+                    
+                    table.Cell().Element(Cell)
+                        .Text(app.Address)
+                        .FontFamily(Fonts.TimesNewRoman);
+
+                    
+                });
+
                 column.Item().Height(20);
 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
@@ -109,7 +142,7 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                     row.RelativeItem().AlignLeft().Column(c => { c.Item().AlignCenter().Element(GetQrCode); });
                     row.RelativeItem().AlignRight().Column(c =>
                     {
-                        c.Item().Height(100).Image("assets/Commeciallawdepartmentlogo.png").FitArea();
+                        c.Item().Height(50).Image("assets/Commeciallawdepartmentlogo.png").FitArea();
                     });
                 });
                 c.Item().Text("Scan the QR code to verify the document.").Italic().AlignCenter().FontSize(8);
@@ -125,7 +158,7 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
             using (PngByteQRCode qrCode = new PngByteQRCode(qrCodeData))
             {
                 byte[] qrCodeImage = qrCode.GetGraphic(10);
-                container.Height(100).Width(100).Image(qrCodeImage).FitArea();
+                container.Height(50).Width(100).Image(qrCodeImage).FitArea();
             }
         }
 }
