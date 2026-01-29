@@ -1347,4 +1347,36 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Submits a new patent mortgage application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), deed of mortgage, supporting documents, and mortgage dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent mortgage application details, including file ID, RRR, deed of mortgage, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentMortgageApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentMortgageApplication([FromBody] PatentMortgageDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentMortgageApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent mortgage application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent mortgage application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
 }

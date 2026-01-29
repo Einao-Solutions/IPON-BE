@@ -354,6 +354,7 @@ public record PostRegistrationApp
     public string? Address { get; set; }
     public string? Phone { get; set; }
     public string? Nationality { get; set; }
+    public string? State { get; set; }
     public string? documentUrl { get; set; }
     public string? document2Url { get; set; }
     public string? receiptUrl { get; set; }
@@ -362,7 +363,41 @@ public record PostRegistrationApp
     public string? acknowledgementUrl { get; set; }
     public string? message { get; set; }
     public string rrr {  get; set; }
+
+    // Explicit old assignor info for assignment record
+    public string? OldAssignorName { get; set; }
+    public string? OldAssignorEmail { get; set; }
+    public string? OldAssignorPhone { get; set; }
+    public string? OldAssignorAddress { get; set; }
+    public string? OldAssignorNationality { get; set; }
+    public string? OldAssignorState { get; set; }
+
+    // Explicit old licensee info for license record
+    public string? OldLicensorName { get; set; }
+    public string? OldLicensorEmail { get; set; }
+    public string? OldLicensorPhone { get; set; }
+    public string? OldLicensorAddress { get; set; }
+    public string? OldLicensorNationality { get; set; }
+    public string? OldLicensorState { get; set; }
+
+    // Old mortgagor (previous patent holder)
+    public string? OldMortgagorName { get; set; }
+    public string? OldMortgagorEmail { get; set; }
+    public string? OldMortgagorPhone { get; set; }
+    public string? OldMortgagorAddress { get; set; }
+    public string? OldMortgagorNationality { get; set; }
+    public string? OldMortgagorState { get; set; }
+
+    // Old merger party (previous patent holder)
+    public string? OldMergerName { get; set; }
+    public string? OldMergerEmail { get; set; }
+    public string? OldMergerPhone { get; set; }
+    public string? OldMergerAddress { get; set; }
+    public string? OldMergerNationality { get; set; }
+    public string? OldMergerState { get; set; }
+
 }
+
 public record Assignee
 {
     [BsonId]

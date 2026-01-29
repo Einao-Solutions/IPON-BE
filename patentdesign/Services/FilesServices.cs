@@ -3458,7 +3458,15 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
-                ApplicantEmail = applicant.Email
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantPhone = applicant.Phone,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
             };
 
             return result;
@@ -3499,7 +3507,15 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
-                ApplicantEmail = applicant.Email
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
             };
 
             return result;
@@ -3540,7 +3556,15 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
-                ApplicantEmail = applicant.Email
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
             };
 
             return result;
@@ -3580,7 +3604,15 @@ public class FileServices
                 rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
-                ApplicantName = applicant.Name
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantPhone = applicant.Phone,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
             };
 
             return result;
@@ -3620,7 +3652,15 @@ public class FileServices
                 rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
-                ApplicantName = applicant.Name
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
             };
 
             return result;
@@ -3661,7 +3701,15 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
-                ApplicantEmail = applicant.Email
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
             };
 
             return result;
@@ -3857,7 +3905,6 @@ public class FileServices
             throw;
         }
     }
-
 
     public async Task<List<AvailabilitySearchDto>> GetRelatedTitles(string? fileName = null, int? classNo = null, string? type = null)
     {
@@ -7678,17 +7725,17 @@ public class FileServices
             FieldToChange = "Patent Assignment Application",
             NewValue = "",
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = dto.AssignmentRequestDate ?? DateTime.Now,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = dto.AssignmentRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
             }
-        }
         };
 
         // Recordal info
@@ -7699,22 +7746,46 @@ public class FileServices
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
             dateOfRecordal = (dto.AssignmentDate ?? DateTime.Now).ToString(),
-           // documentUrl = dto.AssignmentDeed.
-           // document2Url = supportingDocsUrl,
             FilingDate = (dto.AssignmentRequestDate ?? DateTime.Now).ToString(),
-            Name = applicant?.Name,
-            Email = applicant?.Email,
-            Phone = applicant?.Phone,
-            Address = applicant?.Address,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : "" // mark treated if paid
+            // Old assignor (previous patent holder)
+            OldAssignorName = dto.OldAssignorName,
+            OldAssignorEmail = dto.OldAssignorEmail,
+            OldAssignorPhone = dto.OldAssignorPhone,
+            OldAssignorAddress = dto.OldAssignorAddress,
+            OldAssignorNationality = dto.OldAssignorNationality,
+            OldAssignorState = dto.OldAssignorState,
+            // New assignee (now the applicant)
+            Name = dto.NewAssigneeName,
+            Email = dto.NewAssigneeEmail,
+            Phone = dto.NewAssigneePhone,
+            Address = dto.NewAssigneeAddress,
+            Nationality = dto.NewAssigneeNationality,
+            State = dto.NewAssigneeState,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
 
+        // Replace applicants with new assignee info
+        file.applicants = new List<ApplicantInfo>
+    {
+        new ApplicantInfo
+        {
+            Name = dto.NewAssigneeName,
+            Email = dto.NewAssigneeEmail,
+            Phone = dto.NewAssigneePhone,
+            Address = dto.NewAssigneeAddress,
+            country = dto.NewAssigneeNationality,
+            State = dto.NewAssigneeState,
+        }
+    };
+
         var update = Builders<Filling>.Update
-            .Push(f => f.PostRegApplications, recordal)
-            .Push(f => f.ApplicationHistory, assignmentHistory);
+                .Push(f => f.PostRegApplications, recordal)
+                .Push(f => f.ApplicationHistory, assignmentHistory)
+                .Set(f => f.applicants, file.applicants)
+                .Set(f => f.Attachments, file.Attachments);
 
         // Persist the updated file (including attachments)
-        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+       // await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
@@ -7827,19 +7898,49 @@ public class FileServices
             rrr = dto.Rrr,
             dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
             FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
-            Name = applicant?.Name,
-            Email = applicant?.Email,
-            Phone = applicant?.Phone,
-            Address = applicant?.Address,
+            // Old licensor (previous patent holder)
+            OldLicensorName = dto.OldLicensorName,
+            OldLicensorEmail = dto.OldLicensorEmail,
+            OldLicensorPhone = dto.OldLicensorPhone,
+            OldLicensorAddress = dto.OldLicensorAddress,
+            OldLicensorNationality = dto.OldLicensorNationality,
+            OldLicensorState = dto.OldLicensorState,
+            // New licensee (now the applicant)
+            Name = dto.NewLicenseeName,
+            Email = dto.NewLicenseeEmail,
+            Phone = dto.NewLicenseePhone,
+            Address = dto.NewLicenseeAddress,
+            Nationality = dto.NewLicenseeNationality,
+            State = dto.NewLicenseeState,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
 
+        // Replace applicants with new licensee info
+        file.applicants = new List<ApplicantInfo>
+        {
+            new ApplicantInfo
+            {
+                Name = dto.NewLicenseeName,
+                Email = dto.NewLicenseeEmail,
+                Phone = dto.NewLicenseePhone,
+                Address = dto.NewLicenseeAddress,
+                country = dto.NewLicenseeNationality,
+                State = dto.NewLicenseeState
+            }
+        };
+
+        //var update = Builders<Filling>.Update
+        //    .Push(f => f.PostRegApplications, recordal)
+        //    .Push(f => f.ApplicationHistory, licenseHistory);
+
         var update = Builders<Filling>.Update
-            .Push(f => f.PostRegApplications, recordal)
-            .Push(f => f.ApplicationHistory, licenseHistory);
+        .Push(f => f.PostRegApplications, recordal)
+        .Push(f => f.ApplicationHistory, licenseHistory)
+        .Set(f => f.applicants, file.applicants)
+        .Set(f => f.Attachments, file.Attachments);
 
         // Persist the updated file (including attachments)
-        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+       // await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
@@ -7951,19 +8052,42 @@ public class FileServices
             rrr = dto.Rrr,
             dateOfRecordal = (dto.MortgageDate ?? DateTime.Now).ToString(),
             FilingDate = (dto.MortgageRequestDate ?? DateTime.Now).ToString(),
-            Name = applicant?.Name,
-            Email = applicant?.Email,
-            Phone = applicant?.Phone,
-            Address = applicant?.Address,
+            // Old mortgagor (previous patent holder)
+            OldMortgagorName = dto.OldMortgageeName,
+            OldMortgagorEmail = dto.OldMortgageeEmail,
+            OldMortgagorPhone = dto.OldMortgageePhone,
+            OldMortgagorAddress = dto.OldMortgageeAddress,
+            OldMortgagorNationality = dto.OldMortgageeNationality,
+            OldMortgagorState = dto.OldMortgageeState,
+            // New mortgagee (now the applicant)
+            Name = dto.NewMortgagorName,
+            Email = dto.NewMortgagorEmail,
+            Phone = dto.NewMortgagorPhone,
+            Address = dto.NewMortgagorAddress,
+            Nationality = dto.NewMortgagorNationality,
+            State = dto.NewMortgagorState,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
 
-        var update = Builders<Filling>.Update
-            .Push(f => f.PostRegApplications, recordal)
-            .Push(f => f.ApplicationHistory, mortgageHistory);
+        // Replace applicants with new mortgagee info
+        file.applicants = new List<ApplicantInfo>
+    {
+        new ApplicantInfo
+        {
+            Name = dto.NewMortgagorName,
+            Email = dto.NewMortgagorEmail,
+            Phone = dto.NewMortgagorPhone,
+            Address = dto.NewMortgagorAddress,
+            country = dto.NewMortgagorNationality,
+            State = dto.NewMortgagorState,
+        }
+    };
 
-        // Persist the updated file (including attachments)
-        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+        var update = Builders<Filling>.Update
+         .Push(f => f.PostRegApplications, recordal)
+         .Push(f => f.ApplicationHistory, mortgageHistory)
+         .Set(f => f.applicants, file.applicants)
+         .Set(f => f.Attachments, file.Attachments);
 
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
@@ -8075,19 +8199,42 @@ public class FileServices
             rrr = dto.Rrr,
             dateOfRecordal = (dto.MergerDate ?? DateTime.Now).ToString(),
             FilingDate = (dto.MergerRequestDate ?? DateTime.Now).ToString(),
-            Name = applicant?.Name,
-            Email = applicant?.Email,
-            Phone = applicant?.Phone,
-            Address = applicant?.Address,
+            // Old merger party (previous patent holder)
+            OldMergerName = dto.OldMergerName,
+            OldMergerEmail = dto.OldMergerEmail,
+            OldMergerPhone = dto.OldMergerPhone,
+            OldMergerAddress = dto.OldMergerAddress,
+            OldMergerNationality = dto.OldMergerNationality,
+            OldMergerState = dto.OldMergerState,
+            // New merged party (now the applicant)
+            Name = dto.NewMergerName,
+            Email = dto.NewMergerEmail,
+            Phone = dto.NewMergerPhone,
+            Address = dto.NewMergerAddress,
+            Nationality = dto.NewMergerNationality,
+            State = dto.NewMergerState,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
 
+        // Replace applicants with new merged party info
+        file.applicants = new List<ApplicantInfo>
+    {
+        new ApplicantInfo
+        {
+            Name = dto.NewMergerName,
+            Email = dto.NewMergerEmail,
+            Phone = dto.NewMergerPhone,
+            Address = dto.NewMergerAddress,
+            country = dto.NewMergerNationality,
+            State = dto.NewMergerState
+        }
+    };
+
         var update = Builders<Filling>.Update
             .Push(f => f.PostRegApplications, recordal)
-            .Push(f => f.ApplicationHistory, mergerHistory);
-
-        // Persist the updated file (including attachments)
-        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+            .Push(f => f.ApplicationHistory, mergerHistory)
+            .Set(f => f.applicants, file.applicants)
+            .Set(f => f.Attachments, file.Attachments);
 
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
@@ -8096,4 +8243,5 @@ public class FileServices
 
         return true;
     }
+ 
 }
