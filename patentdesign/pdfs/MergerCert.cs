@@ -59,7 +59,7 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
                 .Text($"(CAP 436 Laws Of The Federation of Nigeria 1990; Section 22 (3) Regulation 65)")
                 .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
             column.Item().Height(20);
-            column.Item().Height(70).PaddingTop(10).Row(row =>
+            column.Item().Height(60).PaddingTop(10).Row(row =>
             {
                 if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
                     model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
@@ -74,7 +74,6 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
                 }
             });
 
-            column.Item().Height(5);
             column.Item()
                 .Text(
                     $"I hereby certify that your name {postRegApp?.Name} has been entered into the Register as a proprietor of the trademark {model.TitleOfTradeMark}, with file number {model.FileId} and RTM {model.RtmNumber}, in class {model.TrademarkClass}, in respect of Abstract.")
@@ -179,10 +178,10 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
                         .FontFamily(Fonts.TimesNewRoman);
                 });
 
-            column.Item().Height(10);
+            column.Item().Height(40);
             column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-            column.Item().Height(35).Image("assets/reg.png").FitArea();
-            column.Item().Height(20);
+            column.Item().Height(30).Image("assets/reg.png").FitArea();
+            column.Item().Height(10);
             column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
             column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
             column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);

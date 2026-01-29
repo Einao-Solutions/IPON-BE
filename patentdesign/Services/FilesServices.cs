@@ -149,60 +149,100 @@ public class FileServices
             _ => "Application"
         };
 
-       
+            application.StatusHistory ??= new List<ApplicationHistory>();
 
-        application.StatusHistory ??= new List<ApplicationHistory>();
-        application.StatusHistory.Add(new ApplicationHistory
+        if (application.ApplicationType == FormApplicationTypes.NewApplication)
         {
-            beforeStatus = ApplicationStatuses.AwaitingPayment,
-            afterStatus = ApplicationStatuses.AwaitingSearch,
-            Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-            Message = "Payment Successful, awaiting search",
-            User = userName,
-            UserId = userId
-        });
-        application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
+            application.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.AwaitingSearch,
+                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                Message = "Payment Successful, awaiting search",
+                User = userName,
+                UserId = userId
+            });
+            application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
+        }
+        else if(application.ApplicationType == FormApplicationTypes.ChangeOfName || application.ApplicationType == FormApplicationTypes.ChangeOfAddress)
+        {
+            var app = new TreatRecordalDto
+            {
+                appId = applicationId,
+                reason = "Auto approved",
+                fileId = fileId,
+
+            };
+            var save = await ApproveChangeDataRecordal(app);
+            if (save == false) throw new Exception("Failed to apply recordal");
+            application.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.AutoApproved,
+                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                Message = "Payment Successful, auto approved.",
+                User = userName,
+                UserId = userId
+            });
+            application.CurrentStatus = ApplicationStatuses.AutoApproved;
+        }
+        else if (application.ApplicationType == FormApplicationTypes.ClericalUpdate)
+        {
+            var safe = await ApplyClericalUpdateToFile(fileId, applicationId);
+            if (safe == false) throw new Exception("Failed to save clerical update");
+            application.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.AutoApproved,
+                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                Message = "Payment Successful, auto approved.",
+                User = userName,
+                UserId = userId
+            });
+            application.CurrentStatus = ApplicationStatuses.AutoApproved;
+        }
+
 
         switch (application.ApplicationType)
-        {
-            case FormApplicationTypes.NewApplication:
-                {
-                    file.FileStatus = ApplicationStatuses.AwaitingSearch;
+            {
+                case FormApplicationTypes.NewApplication:
+                    {
+                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
 
-                    var segments = (file.FileId ?? string.Empty).Split('/');
-                    var max = Math.Max(segments.Length - 1, 0);
-                    var counter = await _countersCollection
-                        .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                        .FirstOrDefaultAsync();
-                    if (counter == null) throw new Exception("Counter not found for file type.");
+                        var segments = (file.FileId ?? string.Empty).Split('/');
+                        var max = Math.Max(segments.Length - 1, 0);
+                        var counter = await _countersCollection
+                            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
+                            .FirstOrDefaultAsync();
+                        if (counter == null) throw new Exception("Counter not found for file type.");
 
-                    var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-                    var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-                    _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+                        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
+                        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
+                        _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
-                    file.FileId = newId;
-                    application.ApplicationLetters =
-                    [
-                        ApplicationLetters.NewApplicationReceipt,
+                        file.FileId = newId;
+                        application.ApplicationLetters =
+                        [
+                            ApplicationLetters.NewApplicationReceipt,
                 ApplicationLetters.NewApplicationAcknowledgement
-                    ];
+                        ];
+                        break;
+                    }
+                case FormApplicationTypes.LicenseRenewal:
+                    {
+                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
+                        application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
+                        break;
+                    }
+                case FormApplicationTypes.DataUpdate:
+                    application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
                     break;
-                }
-            case FormApplicationTypes.LicenseRenewal:
-                {
-                    file.FileStatus = ApplicationStatuses.AwaitingSearch;
-                    application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
+                case FormApplicationTypes.Assignment:
+                    application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
                     break;
-                }
-            case FormApplicationTypes.DataUpdate:
-                application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
-                break;
-            case FormApplicationTypes.Assignment:
-                application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
-                break;
-            default:
-                break;
-        }
+                default:
+                    break;
+            }
         await _paymentService.AddPaymentRecord(new PaymentRecord
         {
             PaymentType = paymentType,
@@ -4111,6 +4151,10 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfTradeMark ?? "",
                 ApplicantName = applicant.Name,
+                ApplicantAddress = applicant.Address,
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
                 TrademarkClass = fileInfo.TrademarkClass,
                 DataChangeType = changeType
             };

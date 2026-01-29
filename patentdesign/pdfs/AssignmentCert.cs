@@ -55,9 +55,9 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 column.Item().AlignCenter()
                     .Text($"(CAP 436 Laws Of The Federation of Nigeria 1990; Section 22 (3) Regulation 65)")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-                column.Item().Height(20);
+                column.Item().Height(10);
                 
-                column.Item().Height(70).PaddingTop(10).Row(row =>
+                column.Item().Height(60).PaddingTop(10).Row(row =>
                 {
                     if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
                         model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
@@ -169,10 +169,10 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
                 });
 
-                column.Item().Height(20);
+                column.Item().Height(40);
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                column.Item().Height(35).Image("assets/reg.png").FitArea();
-                column.Item().Height(20);
+                column.Item().Height(30).Image("assets/reg.png").FitArea();
+                column.Item().Height(10);
                 column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
