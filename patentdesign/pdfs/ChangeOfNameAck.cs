@@ -1,4 +1,5 @@
-﻿using patentdesign.Models;
+﻿using System.Globalization;
+using patentdesign.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -89,7 +90,15 @@ namespace patentdesign.pdfs
                     //Payment Information Section
                     column.Item().Table(table =>
                     {
-                        string filingDate = string.IsNullOrWhiteSpace(app.FilingDate) ? "N/A" : DateTime.Parse(app.FilingDate).ToString("dd MMMM, yyyy");
+                        string filingDate = string.IsNullOrWhiteSpace(app?.FilingDate)
+                            ? "N/A"
+                            : DateTime.TryParse(
+                                app.FilingDate,
+                                CultureInfo.InvariantCulture,
+                                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                                out var parsedDate)
+                                ? parsedDate.ToString("dd MMMM, yyyy", CultureInfo.InvariantCulture)
+                                : "N/A";
 
                         table.ColumnsDefinition(columns =>
                         {

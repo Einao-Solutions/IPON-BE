@@ -74,15 +74,15 @@ namespace patentdesign
                     column.Item().AlignCenter().Text("TRADEMARK ACCEPTANCE LETTER").FontColor(Colors.Green.Darken3).FontFamily(Fonts.TimesNewRoman).FontSize(16).ExtraBold();
                     column.Item().Height(25);
                     var date = model.FilingDate ?? model.DateCreated;
-                    var exDate = model.ApplicationHistory[0].StatusHistory
+                    var exDate = model?.ApplicationHistory?[0].StatusHistory
                         .FirstOrDefault(a => a.afterStatus == ApplicationStatuses.Publication);
-                    bool isRejected = model.ApplicationHistory[0].StatusHistory.Any(s => s.afterStatus == ApplicationStatuses.Rejected);
-                    var appeal = model.ApplicationHistory.FirstOrDefault(d =>
+                    bool isRejected = model?.ApplicationHistory?[0].StatusHistory?.Any(s => s.afterStatus == ApplicationStatuses.Rejected) ?? false;
+                    var appeal = model?.ApplicationHistory?.FirstOrDefault(d =>
                         d.ApplicationType == FormApplicationTypes.AppealRequest);
-                    var appealDate = appeal.StatusHistory.FirstOrDefault(f=> f.afterStatus == ApplicationStatuses.Approved);
-                    var payDay = model.ApplicationHistory
+                    var appealDate = appeal?.StatusHistory.FirstOrDefault(f=> f.afterStatus == ApplicationStatuses.Approved);
+                    var payDay = model?.ApplicationHistory?
                         .FirstOrDefault(s => s.CurrentStatus == ApplicationStatuses.Active)?.ApplicationDate;
-                    var rrr = model.ApplicationHistory[0].PaymentId;
+                    var rrr = model?.ApplicationHistory?[0].PaymentId;
                     //File Information Section
                     column.Item().Table(table =>
                     {

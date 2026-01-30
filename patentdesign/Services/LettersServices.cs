@@ -1397,9 +1397,16 @@ public class LettersServices
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
-            representation != null && representation.url?[0] != "NULL")
+        representation != null && representation.url?[0] != "NULL")
         {
-            images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+            try
+            {
+                images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+            }
+            catch (Exception)
+            {
+                images = [];
+            }
         }
         var data = new ChangeOfNameAck(file, images, applicationId).GeneratePdf();
         return ReturnDocument(data);
