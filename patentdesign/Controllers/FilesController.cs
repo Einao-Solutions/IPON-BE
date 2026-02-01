@@ -1205,7 +1205,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(result);
     }
 
-    [HttpPost("withdrawalrequestdecision")]
+        [HttpPost("withdrawalrequestdecision")]
     public async Task<IActionResult> WithdrawalRequestDecision([FromBody] PublicationStatusDecisionDto dto)
     {
         var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment);
@@ -1281,6 +1281,24 @@ public class FilesController(FileServices fileService) : ControllerBase
            // _log.LogError(ex, "Error-at-PatentAssignmentApplication");
             return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
         }
+    }
+
+    /// <summary>
+    /// Returns all attachments, new assignee, and old assignor details for a patent assignment application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns assignment attachments and assignee details.<br/>
+    /// 404: Not found if no assignment application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentAssignmentDetails")]
+    public async Task<IActionResult> GetPatentAssignmentDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentAssignmentDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No assignment application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
     }
 
     /// <summary>
@@ -1377,6 +1395,36 @@ public class FilesController(FileServices fileService) : ControllerBase
             // Optionally log ex
             return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
         }
+    }
+
+    [HttpGet("GetPatentLicenseDetails")]
+    public async Task<IActionResult> GetPatentLicenseDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentLicenseDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No license application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    [HttpGet("GetPatentMortgageDetails")]
+    public async Task<IActionResult> GetPatentMortgageDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentMortgageDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No mortgage application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    [HttpGet("GetPatentMergerDetails")]
+    public async Task<IActionResult> GetPatentMergerDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentMergerDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No merger application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
     }
 
 }

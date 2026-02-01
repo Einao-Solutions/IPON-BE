@@ -5054,17 +5054,17 @@ public class FileServices
             FieldToChange = "Withdrawal Request",
             NewValue = "",
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = DateTime.Now,
-                beforeStatus = ApplicationStatuses.None,
-                afterStatus = ApplicationStatuses.RequestWithdrawal,
-                Message = "Withdrawal Request Submitted",
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.RequestWithdrawal,    
+                    Message = "Withdrawal Request Submitted",
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
             }
-        }
         };
 
         file.ApplicationHistory ??= new List<ApplicationInfo>();
@@ -7683,7 +7683,7 @@ public class FileServices
         {
             var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
             file.Attachments ??= new List<AttachmentType>();
-            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "Patent assignment supporting documents");
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "Patent post registration assignment supporting documents");
             if (existingSupport != null)
             {
                 foreach (var url in supportingDocsUrl)
@@ -7696,7 +7696,7 @@ public class FileServices
             {
                 file.Attachments.Add(new AttachmentType
                 {
-                    name = "Patent assignment supporting documents",
+                    name = "Patent post registration assignment supporting documents",
                     url = supportingDocsUrl
                 });
             }
@@ -7793,6 +7793,59 @@ public class FileServices
         );
 
         return true;
+    }
+    public async Task<object?> GetPatentAssignmentDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch assignment deed attachments
+        var assignmentDeedAttachments = file.Attachments?
+            .Where(a => a.name == "Patent post registration deed of assignments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch supporting document attachments
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "Patent post registration assignment supporting documents")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch the PostRegApp for assignment (should be only one per your requirements)
+        var assignmentApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent Assignment Recordal");
+
+        // New assignee details
+        var newAssignee = assignmentApp == null ? null : new
+        {
+            Name = assignmentApp.Name,
+            Address = assignmentApp.Address,
+            Email = assignmentApp.Email,
+            Phone = assignmentApp.Phone,
+            State = assignmentApp.State,
+            Nationality = assignmentApp.Nationality
+        };
+
+        // Old assignor details
+        var oldAssignor = assignmentApp == null ? null : new
+        {
+            Name = assignmentApp.OldAssignorName,
+            Address = assignmentApp.OldAssignorAddress,
+            Email = assignmentApp.OldAssignorEmail,
+            Phone = assignmentApp.OldAssignorPhone,
+            State = assignmentApp.OldAssignorState,
+            Nationality = assignmentApp.OldAssignorNationality
+        };
+
+        return new
+        {
+            FileId = file.FileId,
+            AssignmentDeedAttachments = assignmentDeedAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewAssignee = newAssignee,
+            OldAssignor = oldAssignor
+        };
     }
 
     public async Task<bool> NewPatentLicenseApplication(PatentLicenseDto dto)
@@ -8243,5 +8296,47 @@ public class FileServices
 
         return true;
     }
- 
+    public async Task<object?> GetPatentLicenseDetailsAsync(string fileId)
+    {
+        // Implement logic to fetch license details for the given fileId
+        // This should mirror the logic of GetPatentAssignmentDetailsAsync
+        // Example: fetch the file, filter for license application, return details
+        var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Assuming PostRegApplications or similar holds license info
+        var licenseApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "License");
+        if (licenseApp == null)
+            return null;
+
+        return licenseApp;
+    }
+
+    public async Task<object?> GetPatentMortgageDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        var mortgageApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "Mortgage");
+        if (mortgageApp == null)
+            return null;
+
+        return mortgageApp;
+    }
+
+    public async Task<object?> GetPatentMergerDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        var mergerApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "Merger");
+        if (mergerApp == null)
+            return null;
+
+        return mergerApp;
+    }
+
 }
