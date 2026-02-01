@@ -265,6 +265,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.WithdrawalServiceID;
                 serviceFee = _paymentInfo.WithdrawalServiceFee;
                 break;
+            case PaymentTypes.Appeal:
+                amount += _paymentInfo.AppealCost;
+                serviceId = _paymentInfo.AppealServiceID;
+                serviceFee = _paymentInfo.AppealServiceFee;
+                break;
         }
 
         return (amount, serviceId, serviceFee);
