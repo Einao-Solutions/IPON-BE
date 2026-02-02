@@ -7,7 +7,7 @@ pool:
 pr: none
 
 variables:
-- group: iponigeria-prod  # Azure DevOps variable group with your secrets
+- group: iponigeria-production-variables  # Azure DevOps variable group with your secrets
 - name: buildConfiguration
   value: Release
 

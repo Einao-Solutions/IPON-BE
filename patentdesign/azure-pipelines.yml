@@ -7,7 +7,7 @@ pool:
 pr: none
 
 variables:
-- group: iponigeria-test  # Azure DevOps variable group for Test environment
+- group: iponigeria-test-variables  # Azure DevOps variable group for Test environment
 - name: buildConfiguration
   value: Debug
 
