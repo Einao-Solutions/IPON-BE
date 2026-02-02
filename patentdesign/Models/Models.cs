@@ -763,9 +763,6 @@ public partial class DBRemitaPayment
    public string? PercentageUsed { get; set; }
 }
 
-
-
-
 public enum FormApplicationTypes
 {
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
