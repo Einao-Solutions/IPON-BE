@@ -117,11 +117,11 @@ public class FileServices
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
     {
-        var file = _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
-        if (file == null) throw new Exception("File not found.");
+        var file = await _fillingCollection.Find(d => d.Id == fileId).FirstOrDefaultAsync();
+        if (file == null) throw new KeyNotFoundException("File not found.");
         file.FilingDate = DateTime.Now;
         var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId);
-        if (application == null) throw new Exception("Application not found.");
+        if (application == null) throw new KeyNotFoundException("Application not found.");
 
         // Certificate-only path: validate and exit early
         if (isCertificate == true)
@@ -190,7 +190,7 @@ public class FileServices
         }
         else if (application.ApplicationType == FormApplicationTypes.ClericalUpdate)
         {
-            var safe = await ApplyClericalUpdateToFile(fileId, applicationId);
+            var safe = await ApplyClericalUpdateToFile(file.FileId, applicationId);
             if (safe == false) throw new Exception("Failed to save clerical update");
             application.StatusHistory.Add(new ApplicationHistory
             {

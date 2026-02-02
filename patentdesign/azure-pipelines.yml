@@ -1,4 +1,4 @@
-trigger:
+﻿trigger:
   - dev
 
 pool:
@@ -7,14 +7,17 @@ pool:
 pr: none
 
 variables:
-  buildConfiguration: 'Debug'
+- group: iponigeria-test  # Azure DevOps variable group for Test environment
+- name: buildConfiguration
+  value: Debug
 
 stages:
+  # ---------------------- BUILD STAGE ----------------------
   - stage: Build
-    displayName: 'Build .NET 8 Backend (Dev)'
+    displayName: 'Build .NET 8 Backend (Test)'
     jobs:
       - job: BuildJob
-        displayName: 'Build and Publish for Dev'
+        displayName: 'Build and Publish for Test'
         steps:
           - task: UseDotNet@2
             inputs:
@@ -22,15 +25,10 @@ stages:
               version: '8.x'
             displayName: 'Install .NET 8 SDK'
 
-          - script: dir
-            displayName: 'List project directory (debug step)'
-
           - script: dotnet restore ./patentdesign/patentdesign.csproj
-            workingDirectory: '$(System.DefaultWorkingDirectory)'
             displayName: 'Restore dependencies'
 
           - script: dotnet publish ./patentdesign/patentdesign.csproj -c $(buildConfiguration) -o $(Build.ArtifactStagingDirectory)/backend
-            workingDirectory: '$(System.DefaultWorkingDirectory)'
             displayName: 'Build & publish backend'
 
           - task: PublishBuildArtifacts@1
@@ -40,47 +38,62 @@ stages:
               publishLocation: 'Container'
             displayName: 'Publish build artifacts'
 
+  # ---------------------- DEPLOY STAGE ----------------------
   - stage: Deploy
-    displayName: 'Deploy to Dev IIS Server'
+    displayName: 'Deploy to Test IIS Server'
     dependsOn: Build
     jobs:
       - job: DeployJob
-        displayName: 'Deploy Application (Dev)'
+        displayName: 'Deploy Application (Test)'
         steps:
           - download: current
             artifact: backend
 
+          # ---------------------- 1️⃣ Inject env vars into IIS App Pool ----------------------
           - task: PowerShell@2
-            displayName: 'Stop Dev App Pool, clear old files & deploy new version'
+            displayName: 'Inject environment variables into IIS App Pool (Test)'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Import-Module WebAdministration
+
+                $appPool = "BackendTest"
+
+                $envVars = @{
+                    MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
+                    JWT_KEY                   = "$(JWT_KEY)"
+                }
+
+                Write-Host "Injecting environment variables into App Pool: $appPool"
+                foreach ($name in $envVars.Keys) {
+                    Set-ItemProperty "IIS:\AppPools\$appPool" -Name environmentVariables -Value @{$name=$envVars[$name]}
+                    Write-Host " - $name set"
+                }
+
+          # ---------------------- 2️⃣ Stop App Pool, deploy files ----------------------
+          - task: PowerShell@2
+            displayName: 'Stop Test App Pool, clear old files & deploy new version'
             inputs:
               targetType: 'inline'
               script: |
                 Import-Module WebAdministration
                 
-                $appPool = "Backend"
+                $appPool = "BackendTest"
                 $source = "$(Pipeline.Workspace)\backend\*"
-                $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
+                $destination = "C:\inetpub\wwwroot\IPO Test Backend"
                 
                 Write-Host "Stopping App Pool: $appPool"
-                try {
-                  if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
-                      Stop-WebAppPool -Name $appPool
-                  } else {
-                      Write-Host "App Pool '$appPool' is already stopped."
-                  }
-                } catch {
-                  Write-Host "Warning: Could not stop App Pool. Continuing... ($($_.Exception.Message))"
+                if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
+                    Stop-WebAppPool -Name $appPool
                 }
-                
+
                 Write-Host "Removing old files in $destination"
                 Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
-                
+
                 Write-Host "Copying new build from $source to $destination"
                 Copy-Item -Path $source -Destination $destination -Recurse -Force
-                
+
                 Write-Host "Starting App Pool: $appPool"
                 if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
                     Start-WebAppPool -Name $appPool
-                } else {
-                    Write-Host "App Pool '$appPool' is already running."
                 }
