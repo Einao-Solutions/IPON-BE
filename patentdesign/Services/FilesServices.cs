@@ -153,98 +153,59 @@ public class FileServices
 
             application.StatusHistory ??= new List<ApplicationHistory>();
 
-        if (application.ApplicationType == FormApplicationTypes.NewApplication)
-        {
-            application.StatusHistory.Add(new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AwaitingSearch,
-                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-                Message = "Payment Successful, awaiting search",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
-        }
-        else if(application.ApplicationType == FormApplicationTypes.ChangeOfName || application.ApplicationType == FormApplicationTypes.ChangeOfAddress)
-        {
-            var app = new TreatRecordalDto
-            {
-                appId = applicationId,
-                reason = "Auto approved",
-                fileId = fileId,
-
-            };
-            var save = await ApproveChangeDataRecordal(app);
-            if (save == false) throw new Exception("Failed to apply recordal");
-            application.StatusHistory.Add(new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AutoApproved,
-                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-                Message = "Payment Successful, auto approved.",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AutoApproved;
-        }
-        else if (application.ApplicationType == FormApplicationTypes.ClericalUpdate)
-        {
-            var safe = await ApplyClericalUpdateToFile(file.FileId, applicationId);
-            if (safe == false) throw new Exception("Failed to save clerical update");
-            application.StatusHistory.Add(new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AutoApproved,
-                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-                Message = "Payment Successful, auto approved.",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AutoApproved;
-        }
-
-
         switch (application.ApplicationType)
-            {
-                case FormApplicationTypes.NewApplication:
-                    {
-                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
+        {
+            case FormApplicationTypes.NewApplication:
+                application.StatusHistory.Add(new ApplicationHistory
+                {
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = ApplicationStatuses.AwaitingSearch,
+                    Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                    Message = "Payment Successful, awaiting search",
+                    User = userName,
+                    UserId = userId
+                });
+                application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
+                file.FileStatus = ApplicationStatuses.AwaitingSearch;
+                break;
 
-                        var segments = (file.FileId ?? string.Empty).Split('/');
-                        var max = Math.Max(segments.Length - 1, 0);
-                        var counter = await _countersCollection
-                            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                            .FirstOrDefaultAsync();
-                        if (counter == null) throw new Exception("Counter not found for file type.");
+            case FormApplicationTypes.ChangeOfName:
+            case FormApplicationTypes.ChangeOfAddress:
+                var app = new TreatRecordalDto
+                {
+                    appId = applicationId,
+                    reason = "Auto approved",
+                    fileId = fileId,
+                };
+                var save = await ApproveChangeDataRecordal(app);
+                if (!save) throw new Exception("Failed to apply recordal");
+                application.StatusHistory.Add(new ApplicationHistory
+                {
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = ApplicationStatuses.AutoApproved,
+                    Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt2) ? paidAt2 : DateTime.Now,
+                    Message = "Payment Successful, auto approved.",
+                    User = userName,
+                    UserId = userId
+                });
+                application.CurrentStatus = ApplicationStatuses.AutoApproved;
+                break;
 
-                        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-                        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-                        _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
-
-                        file.FileId = newId;
-                        application.ApplicationLetters =
-                        [
-                            ApplicationLetters.NewApplicationReceipt,
-                ApplicationLetters.NewApplicationAcknowledgement
-                        ];
-                        break;
-                    }
-                case FormApplicationTypes.LicenseRenewal:
-                    {
-                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
-                        application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
-                        break;
-                    }
-                case FormApplicationTypes.DataUpdate:
-                    application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
-                    break;
-                case FormApplicationTypes.Assignment:
-                    application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
-                    break;
-                default:
-                    break;
-            }
+            case FormApplicationTypes.ClericalUpdate:
+                var safe = await ApplyClericalUpdateToFile(file.FileId, applicationId);
+                if (!safe) throw new Exception("Failed to save clerical update");
+                application.StatusHistory.Add(new ApplicationHistory
+                {
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = ApplicationStatuses.Re_conduct,
+                    Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt3) ? paidAt3 : DateTime.Now,
+                    Message = "Payment Successful, re-conduct.",
+                    User = userName,
+                    UserId = userId
+                });
+                application.CurrentStatus = ApplicationStatuses.Re_conduct;
+                break;
+        }
         await _paymentService.AddPaymentRecord(new PaymentRecord
         {
             PaymentType = paymentType,
@@ -5742,28 +5703,28 @@ public class FileServices
 
             if (file == null)
             {
-                throw new Exception("File not found");
+                throw new KeyNotFoundException("File not found");
             }
 
             var clerical = file.ClericalUpdates?.FirstOrDefault(c => c.Id == clericalUpdateId);
             if (clerical == null)
             {
-                throw new Exception("Clerical update record not found");
+                throw new KeyNotFoundException("Clerical update record not found");
             }
             var freeUpdate = file.FileStatus == ApplicationStatuses.AwaitingSearch;
             if (!freeUpdate)
             {
                 var paid = await _paymentService.CheckPayment(clerical.PaymentRRR);
-                if (paid.status != "00")
+                if (paid?.status != "00")
                 {
-                    throw new Exception("Payment not completed for this clerical update");
+                    throw new KeyNotFoundException("Payment not completed for this clerical update");
                 }
             }
 
             var app = file.ApplicationHistory?.FirstOrDefault(a => a.id == clericalUpdateId);
             if (app == null)
             {
-                throw new Exception("Application history not found");
+                throw new KeyNotFoundException("Application history not found");
             }
 
             var updateDef = Builders<Filling>.Update.Combine();
@@ -6080,16 +6041,22 @@ public class FileServices
             // Update application status and file status
             if(app.ApplicationType != FormApplicationTypes.Amendment)
             {
-                app.CurrentStatus = ApplicationStatuses.Approved;
                 clerical.IsApproved = true;
                 clerical.DateTreated = DateTime.Now;
+                app.CurrentStatus = ApplicationStatuses.AutoApproved;
+                if (file.FileStatus == ApplicationStatuses.AwaitingExaminer || file.FileStatus == ApplicationStatuses.Re_conduct)
+                {
+                    file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingSearch;
 
-                var finalUpdate = Builders<Filling>.Update.Combine(
-                    updateDef,
-                    Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory),
-                    Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates),
-                    Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Re_conduct)
-                );
+                }
+
+                    var finalUpdate = Builders<Filling>.Update.Combine(
+                            updateDef,
+                            Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory),
+                            Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates),
+                            Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingSearch),
+                            Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.AwaitingSearch)
+                    );
 
                 await _fillingCollection.UpdateOneAsync(
                     Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
