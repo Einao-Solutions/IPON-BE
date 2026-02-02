@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.Extensions.Options;
+using Microsoft.VisualBasic.FileIO;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
@@ -23,6 +24,7 @@ using patentdesign.Utils;
 using QuestPDF.Fluent;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net.Mail;
 using System.Reflection.Metadata.Ecma335;
 using System.Security.Authentication;
@@ -6733,8 +6735,31 @@ public class FileServices
 
         return filing?.Type; // null if not found
     }
-    
-   public async Task<bool> UploadAppealFiles(AppealDto app)
+    public async Task<dynamic> GetAppealCost(string fileId, string userId)
+    {
+        var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync()
+                   ?? throw new KeyNotFoundException($"File {fileId} not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync()
+                   ?? throw new KeyNotFoundException($"User {userId} not found");
+
+        var userName = $"{user.FirstName} {user.LastName}";
+
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.Appeal, file.Type, "", null, null, null);
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Appeal Request",
+                userName, user.Email, user.PhoneNumber);
+
+            return new { cost = data.Item1, rrr = paymentId };
+        }
+        catch (Exception)
+        {
+            throw;
+        }
+    }
+    public async Task<bool> UploadAppealFiles(AppealDto app)
     {
         var file = await _fillingCollection.Find(f => f.FileId == app.FileNumber).FirstOrDefaultAsync();
         if (file == null) return false;
