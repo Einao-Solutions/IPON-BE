@@ -73,7 +73,13 @@ namespace patentdesign
                     column.Item().Height(10);
                     column.Item().AlignCenter().Text("TRADEMARK ACCEPTANCE LETTER").FontColor(Colors.Green.Darken3).FontFamily(Fonts.TimesNewRoman).FontSize(16).ExtraBold();
                     column.Item().Height(25);
-                    var date = model.DateCreated;
+                    var date = model.FilingDate ?? model.DateCreated;
+                    var exDate = model.ApplicationHistory[0].StatusHistory
+                        .FirstOrDefault(a => a.afterStatus == ApplicationStatuses.Publication);
+                    bool isRejected = model.ApplicationHistory[0].StatusHistory.Any(s => s.afterStatus == ApplicationStatuses.Rejected);
+                    var appeal = model.ApplicationHistory.FirstOrDefault(d =>
+                        d.ApplicationType == FormApplicationTypes.AppealRequest);
+                    var appealDate = appeal.StatusHistory.FirstOrDefault(f=> f.afterStatus == ApplicationStatuses.Approved);
                     var payDay = model.ApplicationHistory
                         .FirstOrDefault(s => s.CurrentStatus == ApplicationStatuses.Active)?.ApplicationDate;
                     var rrr = model.ApplicationHistory[0].PaymentId;
@@ -205,8 +211,12 @@ namespace patentdesign
                             c.Item().Text("EXAMINATION DATE:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
                         });
                         table.Cell().Element(Block).Column(c => {
-                            c.Item().Text(model.ApplicationHistory.LastOrDefault()?.StatusHistory.LastOrDefault().Date.ToString("dd/MM/yyyy")).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            var dateStr = isRejected 
+                                ? (appealDate?.Date != default ? appealDate.Date.ToString("dd/MM/yyyy") : "N/A")
+                                : (exDate?.Date != default ? exDate.Date.ToString("dd/MM/yyyy") : "N/A");
+                            c.Item().Text(dateStr).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
+
 
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("EXAMINING OFFICER:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();

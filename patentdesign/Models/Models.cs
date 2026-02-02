@@ -349,11 +349,16 @@ public record PostRegistrationApp
     public string? DateTreated { get; set; } = "";
     public string? Reason { get; set; } = null;
     public string? Name { get; set; }
+    public string? OldName { get; set; } = String.Empty;
     public string? Email { get; set; }
+    public string? OldEmail { get; set; } = String.Empty;
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
+    public string? OldAddress { get; set; } = String.Empty;
     public string? Phone { get; set; }
+    public string? OldPhone { get; set; } = String.Empty;
     public string? Nationality { get; set; }
+    public string? OldNationality { get; set; } = String.Empty;
     public string? State { get; set; }
     public string? documentUrl { get; set; }
     public string? document2Url { get; set; }
@@ -402,10 +407,15 @@ public record Assignee
 {
     [BsonId]
     public string Id { get; set; }
+    public string? AssignorName { get; set; }
     public string Name { get; set; } = "";
     public string? Address { get; set; } = "";
+    public string? AssignorAddress { get; set; }
     public string? Email { get; set; } = "";
+    public string? AssignorEmail { get; set; }
     public string? Phone { get; set; } = "";
+    public string? AssignorPhone { get; set; }
+    public string? AssignorNationality { get; set; }
     public string Nationality { get; set; } = "";
     public string? rrr { get; set; } = null;
     public string FileId { get; set; }

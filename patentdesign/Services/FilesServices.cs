@@ -149,60 +149,100 @@ public class FileServices
             _ => "Application"
         };
 
-       
+            application.StatusHistory ??= new List<ApplicationHistory>();
 
-        application.StatusHistory ??= new List<ApplicationHistory>();
-        application.StatusHistory.Add(new ApplicationHistory
+        if (application.ApplicationType == FormApplicationTypes.NewApplication)
         {
-            beforeStatus = ApplicationStatuses.AwaitingPayment,
-            afterStatus = ApplicationStatuses.AwaitingSearch,
-            Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-            Message = "Payment Successful, awaiting search",
-            User = userName,
-            UserId = userId
-        });
-        application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
+            application.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.AwaitingSearch,
+                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                Message = "Payment Successful, awaiting search",
+                User = userName,
+                UserId = userId
+            });
+            application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
+        }
+        else if(application.ApplicationType == FormApplicationTypes.ChangeOfName || application.ApplicationType == FormApplicationTypes.ChangeOfAddress)
+        {
+            var app = new TreatRecordalDto
+            {
+                appId = applicationId,
+                reason = "Auto approved",
+                fileId = fileId,
+
+            };
+            var save = await ApproveChangeDataRecordal(app);
+            if (save == false) throw new Exception("Failed to apply recordal");
+            application.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.AutoApproved,
+                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                Message = "Payment Successful, auto approved.",
+                User = userName,
+                UserId = userId
+            });
+            application.CurrentStatus = ApplicationStatuses.AutoApproved;
+        }
+        else if (application.ApplicationType == FormApplicationTypes.ClericalUpdate)
+        {
+            var safe = await ApplyClericalUpdateToFile(fileId, applicationId);
+            if (safe == false) throw new Exception("Failed to save clerical update");
+            application.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.AutoApproved,
+                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
+                Message = "Payment Successful, auto approved.",
+                User = userName,
+                UserId = userId
+            });
+            application.CurrentStatus = ApplicationStatuses.AutoApproved;
+        }
+
 
         switch (application.ApplicationType)
-        {
-            case FormApplicationTypes.NewApplication:
-                {
-                    file.FileStatus = ApplicationStatuses.AwaitingSearch;
+            {
+                case FormApplicationTypes.NewApplication:
+                    {
+                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
 
-                    var segments = (file.FileId ?? string.Empty).Split('/');
-                    var max = Math.Max(segments.Length - 1, 0);
-                    var counter = await _countersCollection
-                        .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                        .FirstOrDefaultAsync();
-                    if (counter == null) throw new Exception("Counter not found for file type.");
+                        var segments = (file.FileId ?? string.Empty).Split('/');
+                        var max = Math.Max(segments.Length - 1, 0);
+                        var counter = await _countersCollection
+                            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
+                            .FirstOrDefaultAsync();
+                        if (counter == null) throw new Exception("Counter not found for file type.");
 
-                    var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-                    var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-                    _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+                        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
+                        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
+                        _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
-                    file.FileId = newId;
-                    application.ApplicationLetters =
-                    [
-                        ApplicationLetters.NewApplicationReceipt,
+                        file.FileId = newId;
+                        application.ApplicationLetters =
+                        [
+                            ApplicationLetters.NewApplicationReceipt,
                 ApplicationLetters.NewApplicationAcknowledgement
-                    ];
+                        ];
+                        break;
+                    }
+                case FormApplicationTypes.LicenseRenewal:
+                    {
+                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
+                        application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
+                        break;
+                    }
+                case FormApplicationTypes.DataUpdate:
+                    application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
                     break;
-                }
-            case FormApplicationTypes.LicenseRenewal:
-                {
-                    file.FileStatus = ApplicationStatuses.AwaitingSearch;
-                    application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
+                case FormApplicationTypes.Assignment:
+                    application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
                     break;
-                }
-            case FormApplicationTypes.DataUpdate:
-                application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
-                break;
-            case FormApplicationTypes.Assignment:
-                application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
-                break;
-            default:
-                break;
-        }
+                default:
+                    break;
+            }
         await _paymentService.AddPaymentRecord(new PaymentRecord
         {
             PaymentType = paymentType,
@@ -945,7 +985,6 @@ public class FileServices
 
         if (data.applicationType is FormApplicationTypes.NewApplication)
         {
-
             operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
             if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
             {
@@ -4198,7 +4237,13 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, mergerApp.FileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
-
+        var applicant = file.applicants.FirstOrDefault();
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, mergerApp.userId))
+            .FirstOrDefaultAsync()
+            ?? await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .FirstOrDefaultAsync();
         string docUrl = "";
         if (mergerApp.document != null)
         {
@@ -4217,11 +4262,12 @@ public class FileServices
             docUrl = links[0];
         }
         Console.WriteLine("document url: " + docUrl);
+        var userName = user != null
+                ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+                : applicant?.Name ?? "Unknown";
         try
         {
-            var applicant = file.applicants.FirstOrDefault();
-
-
+            
             // Create ApplicationInfo for ApplicationHistory
             var mergerHistory = new ApplicationInfo
             {
@@ -4240,8 +4286,8 @@ public class FileServices
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Merger application submitted",
-                        User = applicant.Name,
-                        UserId = file.CreatorAccount
+                        User = userName,
+                        UserId = user.Id
                     }
                 }
             };
@@ -4252,10 +4298,15 @@ public class FileServices
                 FilingDate = DateTime.Now.ToString(),
                 rrr = mergerApp.rrr,
                 FileNumber = mergerApp.FileId,
+                OldAddress = applicant.Address,
                 Address = mergerApp.Address,
+                OldNationality = applicant.country,
                 Nationality = mergerApp.Nationality,
+                OldName = applicant.Name,
                 Name = mergerApp.Name,
+                OldEmail = applicant.Email,
                 Email = mergerApp.Email,
+                OldPhone = applicant.Phone,
                 Phone = mergerApp.Phone,
                 documentUrl = docUrl,
                 RecordalType = "Merger",
@@ -4346,10 +4397,15 @@ public class FileServices
         {
             FileId = fileId,
             rrr = recordal.rrr,
+            OldName = recordal.OldName,
             Name = recordal.Name,
+            OldEmail = recordal.OldEmail,
             Email = recordal.Email,
+            OldAddress = recordal.OldAddress,
             Address = recordal.Address,
+            OldNationality = recordal.OldNationality,
             Nationality = recordal.Nationality,
+            OldPhone = recordal.OldPhone,
             Phone = recordal.Phone,
             MergerDate = recordal.dateOfRecordal,
             documentUrl = recordal.documentUrl
@@ -4386,6 +4442,10 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfTradeMark ?? "",
                 ApplicantName = applicant.Name,
+                ApplicantAddress = applicant.Address,
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
                 TrademarkClass = fileInfo.TrademarkClass,
                 DataChangeType = changeType
             };
@@ -4406,7 +4466,18 @@ public class FileServices
             .FirstOrDefaultAsync();
 
         if (file == null) return false;
+        var applicant = file.applicants.FirstOrDefault();
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, newData.userId))
+            .FirstOrDefaultAsync()
+            ?? await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .FirstOrDefaultAsync();
+        var userName = user != null 
+            ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+            : applicant?.Name ?? "Unknown";
 
+        var userId = user?.Id ?? file.CreatorAccount;
         string docUrl = "";
         if (newData.document != null)
         {
@@ -4414,21 +4485,20 @@ public class FileServices
             await newData.document.CopyToAsync(ms);
             var userDoc = ms.ToArray();
             var links = await UploadAttachment(new List<TT>
-        {
-            new TT
             {
-                contentType = newData.document.ContentType,
-                data = userDoc,
-                fileName = Path.GetFileName(newData.document.FileName),
-                Name = ""
-            }
-        });
+                new TT
+                {
+                    contentType = newData.document.ContentType,
+                    data = userDoc,
+                    fileName = Path.GetFileName(newData.document.FileName),
+                    Name = ""
+                }
+            });
             docUrl = links[0];
         }
 
         try
         {
-            var applicant = file.applicants.FirstOrDefault();
             var appHistory = new ApplicationInfo
             {
                 id = Guid.NewGuid().ToString(),
@@ -4445,17 +4515,17 @@ public class FileServices
                     ? newData.NewName
                     : newData.NewAddress,
                 StatusHistory = new List<ApplicationHistory>
-            {
-                new ApplicationHistory
                 {
-                    Date = DateTime.Now,
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingPayment,
-                    Message = "Change Data",
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    new ApplicationHistory
+                    {
+                        Date = DateTime.Now,
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.AwaitingPayment,
+                        Message = "Change Data",
+                        User = userName,
+                        UserId = userId
+                    }
                 }
-            }
             };
 
             var recordal = new PostRegistrationApp
@@ -4469,7 +4539,9 @@ public class FileServices
                     ? "Change of Applicant Name"
                     : "Change of Applicant Address",
                 DateTreated = "",
+                OldName = applicant.Name,
                 Name = newData.NewName,
+                OldAddress = applicant.Address,
                 Address = newData.NewAddress
             };
 
@@ -4504,7 +4576,9 @@ public class FileServices
         {
             FileId = fileId,
             rrr = recordal.rrr,
+            OldName = recordal.OldName,
             NewName = recordal?.Name,
+            OldAddress = recordal.OldAddress,
             NewAddress = recordal?.Address,
             documentUrl = recordal?.documentUrl
         };
@@ -5258,6 +5332,17 @@ public class FileServices
             .FirstOrDefaultAsync();
         if (file == null) return false;
         var applicant = file.applicants.FirstOrDefault();
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, assignmentApp.userId))
+            .FirstOrDefaultAsync()
+            ?? await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .FirstOrDefaultAsync();
+        var userName = user != null
+            ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+            : applicant?.Name ?? "Unknown";
+        var userId = user?.Id ?? file.CreatorAccount;
+
         string assignDeedUrl = "";
         if (assignmentApp.AssignmentDeed != null)
         {
@@ -5310,19 +5395,24 @@ public class FileServices
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Assignment application submitted, awaiting approval",
-                        User = applicant.Name,
-                        UserId = file.CreatorAccount
+                        User = userName,
+                        UserId = userId
                     }
                 }
             };
-            //Create new registered user
+            //Create new assignee
             var newAssignee = new Assignee
             {
                 Name = assignmentApp.AssigneeName,
+                AssignorName = applicant.Name,
                 Email = assignmentApp.AssigneeEmail,
+                AssignorEmail = applicant.Email,
                 Phone = assignmentApp.AssigneePhone,
+                AssignorPhone = applicant.Phone,
                 Address = assignmentApp.AssigneeAddress,
+                AssignorAddress = applicant.Address,
                 Nationality = assignmentApp.AssigneeNationality,
+                AssignorNationality = applicant.country,
                 FileId = file.FileId,
                 isApproved = false,
                 Id = assignmentHistory.id,
@@ -5341,9 +5431,13 @@ public class FileServices
                 documentUrl = assignDeedUrl,
                 document2Url = authLetterUrl,
                 FilingDate = DateTime.Now.ToString(),
+                OldName = assignmentApp.AssignorName,
                 Name = assignmentApp.AssigneeName,
+                OldEmail = assignmentApp.AssignorEmail,
                 Email = assignmentApp.AssigneeEmail,
+                OldPhone = assignmentApp.AssignorPhone,
                 Phone = assignmentApp.AssigneePhone,
+                OldAddress = assignmentApp.AssignorAddress,
                 Address = assignmentApp.AssigneeAddress,
                 DateTreated = "",
 
@@ -5378,7 +5472,15 @@ public class FileServices
             FileId = fileId,
             rrr = assignee.rrr,
             AssigneeName = assignee.Name,
+            AssigneeEmail = assignee.Email,
             AssigneeAddress = assignee.Address,
+            AssigneePhone = assignee.Phone,
+            AssigneeNationality = assignee.Nationality,
+            AssignorName = assignee.AssignorName,
+            AssignorEmail = assignee.AssignorEmail,
+            AssignorAddress = assignee.AssignorAddress,
+            AssignorPhone = assignee.AssignorPhone,
+            AssignorNationality = assignee.AssignorNationality,
             AuthorizationLetterUrl = assignee.AuthorizationLetterUrl,
             AssignmentDeedUrl = assignee.AssignmentDeedUrl,
         };
@@ -6389,9 +6491,27 @@ public class FileServices
                 RemitaResponse = remita
             };
             await _paymentService.AddPaymentRecord(payment);
-            recordal.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+            if (file.FileStatus == ApplicationStatuses.Publication || file.FileStatus == ApplicationStatuses.AwaitingCertification)
+            {
+                var rec = new TreatRecordalDto
+                {
+                    fileId = file.FileId,
+                    appId = recordal.id,
+                    reason = "Auto-Approved by System"
+                };
+                await ApproveChangeDataRecordal(rec);
+                recordal.CurrentStatus = ApplicationStatuses.AutoApproved;
+                recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AutoApproved;
+            }
+            else
+            {
+                recordal.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingRecordalProcess;
+            }
+                
             recordal.StatusHistory[0].beforeStatus = ApplicationStatuses.AwaitingPayment;
-            recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingRecordalProcess;
+            
+            
 
             var update = Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory);
 
@@ -8296,47 +8416,45 @@ public class FileServices
 
         return true;
     }
-    public async Task<object?> GetPatentLicenseDetailsAsync(string fileId)
-    {
-        // Implement logic to fetch license details for the given fileId
-        // This should mirror the logic of GetPatentAssignmentDetailsAsync
-        // Example: fetch the file, filter for license application, return details
-        var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
-        if (file == null)
-            return null;
+    //public async Task<object?> GetPatentLicenseDetailsAsync(string fileId)
+    //{
 
-        // Assuming PostRegApplications or similar holds license info
-        var licenseApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "License");
-        if (licenseApp == null)
-            return null;
+    //    var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //        return null;
 
-        return licenseApp;
-    }
+    //    // Assuming PostRegApplications or similar holds license info
+    //    var licenseApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "License");
+    //    if (licenseApp == null)
+    //        return null;
 
-    public async Task<object?> GetPatentMortgageDetailsAsync(string fileId)
-    {
-        var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
-        if (file == null)
-            return null;
+    //    return licenseApp;
+    //}
 
-        var mortgageApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "Mortgage");
-        if (mortgageApp == null)
-            return null;
+    //public async Task<object?> GetPatentMortgageDetailsAsync(string fileId)
+    //{
+    //    var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //        return null;
 
-        return mortgageApp;
-    }
+    //    var mortgageApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "Mortgage");
+    //    if (mortgageApp == null)
+    //        return null;
 
-    public async Task<object?> GetPatentMergerDetailsAsync(string fileId)
-    {
-        var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
-        if (file == null)
-            return null;
+    //    return mortgageApp;
+    //}
 
-        var mergerApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "Merger");
-        if (mergerApp == null)
-            return null;
+    //public async Task<object?> GetPatentMergerDetailsAsync(string fileId)
+    //{
+    //    var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //        return null;
 
-        return mergerApp;
-    }
+    //    var mergerApp = file.PostRegApplications?.FirstOrDefault(a => a.Type == "Merger");
+    //    if (mergerApp == null)
+    //        return null;
+
+    //    return mergerApp;
+    //}
 
 }
