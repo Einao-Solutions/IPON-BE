@@ -117,134 +117,191 @@ public class FileServices
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
     {
-        var file = await _fillingCollection.Find(d => d.Id == fileId).FirstOrDefaultAsync();
-        if (file == null) throw new KeyNotFoundException("File not found.");
-        file.FilingDate = DateTime.Now;
-        var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId);
-        if (application == null) throw new KeyNotFoundException("Application not found.");
+        var file = await _fillingCollection.Find(d => d.Id == fileId).FirstOrDefaultAsync()
+            ?? throw new KeyNotFoundException("File not found.");
 
-        // Certificate-only path: validate and exit early
+        file.FilingDate = DateTime.Now;
+
+        var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId)
+            ?? throw new KeyNotFoundException("Application not found.");
+
+        // Handle certificate-only path
         if (isCertificate == true)
         {
-            var certRrr = application.CertificatePaymentId
-                          ?? file.ApplicationHistory.FirstOrDefault()?.CertificatePaymentId;
-            if (string.IsNullOrWhiteSpace(certRrr))
-                throw new Exception("Certificate payment reference not found.");
-
-            var certRes = await ValidateCertificatePayment(file.Id, certRrr, userName, userId);
-            return certRes.data;
+            return await HandleCertificateValidation(file, application, userName, userId);
         }
 
+        // Validate and get payment info
+        var paymentInfo = await ValidateAndGetPaymentInfo(application);
+        var paymentDate = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
+
+        // Initialize status history
+        application.StatusHistory ??= new List<ApplicationHistory>();
+
+        // Process application based on type
+        await ProcessApplicationType(file, application, paymentDate, userName, userId);
+
+        // Update file in database
+        var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
+        if (idx >= 0) file.ApplicationHistory[idx] = application;
+
+        await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
+
+        // Record payment and performance metrics
+        await RecordPaymentAndPerformance(file, application, paymentInfo, userName, userId);
+
+        return file;
+    }
+
+    private async Task<Filling?> HandleCertificateValidation(Filling file, ApplicationInfo application, string? userName, string? userId)
+    {
+        var certRrr = application.CertificatePaymentId ?? file.ApplicationHistory.FirstOrDefault()?.CertificatePaymentId;
+
+        if (string.IsNullOrWhiteSpace(certRrr))
+            throw new ArgumentException("Certificate payment reference not found.");
+
+        var certRes = await ValidateCertificatePayment(file.Id, certRrr, userName, userId);
+        return certRes.data;
+    }
+
+    private async Task<RemitaResponseClass> ValidateAndGetPaymentInfo(ApplicationInfo application)
+    {
         if (string.IsNullOrWhiteSpace(application.PaymentId))
             throw new Exception("Payment reference not found for the application.");
 
         var paymentInfo = await _remitaPaymentUtils.GetDetailsByRRR(application.PaymentId);
+
         if (paymentInfo == null || paymentInfo.status != "00")
-            throw new Exception($"Payment Not Found or Invalid RRR, {application.PaymentId}");
+            throw new InvalidOperationException($"Payment Not Found or Invalid RRR, {application.PaymentId}");
 
-        var paymentType = application.ApplicationType switch
-        {
-            FormApplicationTypes.NewApplication => "New Application",
-            FormApplicationTypes.LicenseRenewal => "License Renewal",
-            FormApplicationTypes.DataUpdate => "Data Update",
-            FormApplicationTypes.Assignment => "Assignment",
-            _ => "Application"
-        };
+        return paymentInfo;
+    }
 
-            application.StatusHistory ??= new List<ApplicationHistory>();
-
-        if (application.ApplicationType == FormApplicationTypes.NewApplication)
-        {
-            application.StatusHistory.Add(new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AwaitingSearch,
-                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-                Message = "Payment Successful, awaiting search",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AwaitingSearch;
-        }
-        else if(application.ApplicationType == FormApplicationTypes.ChangeOfName || application.ApplicationType == FormApplicationTypes.ChangeOfAddress)
-        {
-            var app = new TreatRecordalDto
-            {
-                appId = applicationId,
-                reason = "Auto approved",
-                fileId = fileId,
-
-            };
-            var save = await ApproveChangeDataRecordal(app);
-            if (save == false) throw new Exception("Failed to apply recordal");
-            application.StatusHistory.Add(new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AutoApproved,
-                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-                Message = "Payment Successful, auto approved.",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AutoApproved;
-        }
-        else if (application.ApplicationType == FormApplicationTypes.ClericalUpdate)
-        {
-            var safe = await ApplyClericalUpdateToFile(file.FileId, applicationId);
-            if (safe == false) throw new Exception("Failed to save clerical update");
-            application.StatusHistory.Add(new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AutoApproved,
-                Date = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now,
-                Message = "Payment Successful, auto approved.",
-                User = userName,
-                UserId = userId
-            });
-            application.CurrentStatus = ApplicationStatuses.AutoApproved;
-        }
-
-
+    private async Task ProcessApplicationType(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
+    {
         switch (application.ApplicationType)
-            {
-                case FormApplicationTypes.NewApplication:
-                    {
-                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
+        {
+            case FormApplicationTypes.NewApplication:
+                await ProcessNewApplication(file, application, paymentDate, userName, userId);
+                break;
 
-                        var segments = (file.FileId ?? string.Empty).Split('/');
-                        var max = Math.Max(segments.Length - 1, 0);
-                        var counter = await _countersCollection
-                            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                            .FirstOrDefaultAsync();
-                        if (counter == null) throw new Exception("Counter not found for file type.");
+            case FormApplicationTypes.LicenseRenewal:
+                ProcessLicenseRenewal(file, application, paymentDate, userName, userId);
+                break;
 
-                        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-                        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-                        _ = _countersCollection.FindOneAndUpdate(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+            case FormApplicationTypes.ChangeOfName:
+            case FormApplicationTypes.ChangeOfAddress:
+                await ProcessChangeData(file, application, paymentDate, userName, userId);
+                break;
 
-                        file.FileId = newId;
-                        application.ApplicationLetters =
-                        [
-                            ApplicationLetters.NewApplicationReceipt,
-                ApplicationLetters.NewApplicationAcknowledgement
-                        ];
-                        break;
-                    }
-                case FormApplicationTypes.LicenseRenewal:
-                    {
-                        file.FileStatus = ApplicationStatuses.AwaitingSearch;
-                        application.ApplicationLetters = [ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck];
-                        break;
-                    }
-                case FormApplicationTypes.DataUpdate:
-                    application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
-                    break;
-                case FormApplicationTypes.Assignment:
-                    application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
-                    break;
-                default:
-                    break;
-            }
+            case FormApplicationTypes.ClericalUpdate:
+                await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
+                break;
+
+            case FormApplicationTypes.DataUpdate:
+                application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+
+            case FormApplicationTypes.Assignment:
+                application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+        }
+    }
+
+    private async Task ProcessNewApplication(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
+    {
+        file.FileStatus = ApplicationStatuses.AwaitingSearch;
+        file.FileId = await GenerateNewFileId(file);
+
+        application.ApplicationLetters = [
+            ApplicationLetters.NewApplicationReceipt,
+        ApplicationLetters.NewApplicationAcknowledgement
+        ];
+
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
+            paymentDate, userName, userId, "Payment Successful, awaiting search");
+    }
+
+    private void ProcessLicenseRenewal(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
+    {
+        file.FileStatus = ApplicationStatuses.Active;
+        file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Active;
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.Approved,
+            paymentDate, userName, userId, "Payment Successful, License Renewed");
+
+        application.CurrentStatus = ApplicationStatuses.Approved;
+    }
+
+    private async Task ProcessChangeData(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
+    {
+        var approved = await ApproveChangeDataRecordal(new TreatRecordalDto
+        {
+            appId = application.id,
+            reason = "Auto approved",
+            fileId = file.FileId,
+        });
+
+        if (!approved)
+            throw new Exception("Failed to apply recordal");
+
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
+            paymentDate, userName, userId, "Payment Successful, auto approved.");
+    }
+
+    private async Task ProcessClericalUpdate(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
+    {
+        var applied = await ApplyClericalUpdateToFile(file.FileId, application.id);
+
+        if (!applied)
+            throw new Exception("Failed to save clerical update");
+
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
+            paymentDate, userName, userId, "Payment Successful, auto approved.");
+    }
+
+    private void AddStatusHistory(ApplicationInfo application, ApplicationStatuses beforeStatus, ApplicationStatuses afterStatus,
+        DateTime date, string? userName, string? userId, string message)
+    {
+        application.StatusHistory.Add(new ApplicationHistory
+        {
+            beforeStatus = beforeStatus,
+            afterStatus = afterStatus,
+            Date = date,
+            Message = message,
+            User = userName,
+            UserId = userId
+        });
+        application.CurrentStatus = afterStatus;
+    }
+
+    private async Task<string> GenerateNewFileId(Filling file)
+    {
+        var segments = (file.FileId ?? string.Empty).Split('/');
+        var max = Math.Max(segments.Length - 1, 0);
+
+        var counter = await _countersCollection
+            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
+            .FirstOrDefaultAsync()
+            ?? throw new Exception("Counter not found for file type.");
+
+        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
+
+        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
+        await _countersCollection.FindOneAndUpdateAsync(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+
+        return newId;
+    }
+
+    private async Task RecordPaymentAndPerformance(Filling file, ApplicationInfo application, RemitaResponseClass paymentInfo, string? userName, string? userId)
+    {
+        var paymentType = GetPaymentTypeDescription(application.ApplicationType);
+        var reason = GetRecordReason(file.Type, application.ApplicationType);
+        var country = file.applicants?.FirstOrDefault()?.country;
+
         await _paymentService.AddPaymentRecord(new PaymentRecord
         {
             PaymentType = paymentType,
@@ -252,30 +309,32 @@ public class FileServices
             FileId = file.FileId,
             RemitaResponse = paymentInfo
         });
-        var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
-        if (idx >= 0) file.ApplicationHistory[idx] = application;
 
-        await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
-
-        var reason = application.ApplicationType switch
-        {
-            FormApplicationTypes.NewApplication => $"New {file.Type} Application",
-            FormApplicationTypes.LicenseRenewal => $"{file.Type} Renewal Application",
-            FormApplicationTypes.DataUpdate => "Data Update Application",
-            FormApplicationTypes.Assignment => $"{file.Type} Assignment Application",
-            _ => "Application"
-        };
-
-        var country = file.applicants != null && file.applicants.Count > 0 ? file.applicants[0].country : null;
-        saveFinance(paymentInfo, reason, applicationId, file.Id, country, file.Type,
+        saveFinance(paymentInfo, reason, application.id, file.Id, country, file.Type,
             file.DesignType, file.PatentType, file.TrademarkType, file.TrademarkClass);
 
         savePerformance(PerformanceType.Application, application.ApplicationType,
             null, null, DateTime.Now, userName, file.Id, file.Type, file.PatentType, file.DesignType, file.TrademarkType);
-
-        return file;
     }
 
+    private string GetPaymentTypeDescription(FormApplicationTypes applicationType) => applicationType switch
+    {
+        FormApplicationTypes.NewApplication => "New Application",
+        FormApplicationTypes.LicenseRenewal => "License Renewal",
+        FormApplicationTypes.DataUpdate => "Data Update",
+        FormApplicationTypes.Assignment => "Assignment",
+        _ => "Application"
+    };
+
+    private string GetRecordReason(FileTypes fileType, FormApplicationTypes applicationType) => applicationType switch
+    {
+        FormApplicationTypes.NewApplication => $"New {fileType} Application",
+        FormApplicationTypes.LicenseRenewal => $"{fileType} Renewal Application",
+        FormApplicationTypes.DataUpdate => "Data Update Application",
+        FormApplicationTypes.Assignment => $"{fileType} Assignment Application",
+        _ => "Application"
+    };
+   
     public async Task GenerateRandom()
     {
         var random = _fillingCollection.Find(x => x.Type == FileTypes.Design && x.FileStatus == ApplicationStatuses.Active)
@@ -4479,7 +4538,7 @@ public class FileServices
             return false;
         }
     }
-    public async Task<RenewalAppDto> RenewalCost(string fileId, FileTypes fileType)
+    public async Task<RenewalAppDto> RenewalCost(string fileId, FileTypes fileType, string userId)
     {
         try
         {
@@ -4489,9 +4548,16 @@ public class FileServices
 
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
-                Console.WriteLine("No file or applicants found.");
-                return null;
+                throw new KeyNotFoundException("File or applicants not found.");
             }
+            var user = await _userCollection
+                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
+                .FirstOrDefaultAsync();
+            if (user == null)
+            {
+                throw new KeyNotFoundException("User not found.");
+            }
+            var userName = string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)));
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, "", null, null, null);
             Console.WriteLine("Renewal Cost: " + data.Item1);
             Console.WriteLine("Service Fee: " + data.Item3);
@@ -4501,14 +4567,54 @@ public class FileServices
                 Console.WriteLine("Renewal Cost: " + data.Item1);
                 Console.WriteLine("Service Fee: " + data.Item3);
             }
-            var applicant = fileInfo.applicants[0];
             // Remove special characters from applicantName
-            var sanitizedApplicantName = Regex.Replace(applicant.Name ?? "", @"[^a-zA-Z0-9\s]", "");
+            var sanitizedApplicantName = Regex.Replace(userName ?? "", @"[^a-zA-Z0-9\s]", "");
 
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "Recordal Application",
-                sanitizedApplicantName, applicant.Email, applicant.Phone);
+                sanitizedApplicantName, user.Email, user.PhoneNumber);
+            //Application History
+            var renewalHistory = new ApplicationInfo
+            {
+                id = Guid.NewGuid().ToString(),
+                ApplicationType = FormApplicationTypes.LicenseRenewal,
+                CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                ApplicationDate = DateTime.Now,
+                PaymentId = paymentId,
+                FieldToChange = "Renewal Application",
+                NewValue = "",
+                StatusHistory = new List<ApplicationHistory>
+                {
+                    new ApplicationHistory
+                    {
+                        Date = DateTime.Now,
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.AwaitingPayment,
+                        Message = "Renewal Application",
+                        User = userName,
+                        UserId = userId
+                    }
+                }
+            };
+            //Post Registration Application
+            var renewal = new PostRegistrationApp
+            {
+                Id = renewalHistory.id,
+                dateOfRecordal = DateTime.Now.ToString(),
+                FilingDate = DateTime.Now.ToString(),
+                rrr = paymentId,
+                FileNumber = fileId,
+                RecordalType = "Renewal"
+            };
 
+            var update = Builders<Filling>.Update
+               .Push(f => f.PostRegApplications, renewal)
+               .Push(f => f.ApplicationHistory, renewalHistory);
+
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.Id, fileInfo.Id),
+                update
+            );
             var renewalCost = new RenewalAppDto
             {
                 Cost = data.Item1,
@@ -4516,6 +4622,7 @@ public class FileServices
                 FileId = fileId,
                 ServiceFee = data.Item3,
                 IsLateRenewal = fileInfo.FileStatus == ApplicationStatuses.Inactive,
+                ApplicantName = userName,
             };
 
             return renewalCost;
