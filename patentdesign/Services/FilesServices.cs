@@ -169,8 +169,8 @@ public class FileServices
         if (string.IsNullOrWhiteSpace(application.PaymentId))
             throw new Exception("Payment reference not found for the application.");
 
-        var paymentInfo = await _remitaPaymentUtils.GetDetailsByRRR(application.PaymentId);
-
+        var paymentInfo = await _paymentService.CheckPayment(application.PaymentId);
+        Console.WriteLine("payment info: ", paymentInfo);
         if (paymentInfo == null || paymentInfo.status != "00")
             throw new InvalidOperationException($"Payment Not Found or Invalid RRR, {application.PaymentId}");
 
@@ -206,7 +206,8 @@ public class FileServices
 
             case FormApplicationTypes.Assignment:
                 application.ApplicationLetters = [ApplicationLetters.AssignmentReceipt, ApplicationLetters.AssignmentAck];
-                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
                     paymentDate, userName, userId, "Payment Successful");
                 break;
         }
@@ -225,7 +226,74 @@ public class FileServices
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
             paymentDate, userName, userId, "Payment Successful, awaiting search");
     }
+    public async Task<bool> ExaminePatentDesign(string fileId, string userId, ApplicationStatuses status)
+    {
+        try
+        {
+            var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync()
+                ?? throw new KeyNotFoundException("File not found.");
 
+            var user = await _userCollection.Find(x => x.Id == userId).FirstOrDefaultAsync()
+                ?? throw new KeyNotFoundException("User not found.");
+
+            var canTreat = user.UserRoles.Contains(Roles.PatentCertification) ||
+                   user.UserRoles.Contains(Roles.DesignCertification) ||
+                   user.UserRoles.Contains(Roles.SuperAdmin);
+
+            if (!canTreat)
+                throw new UnauthorizedAccessException("User is not authorized to paerform this action.");
+
+            // Validate application history exists
+            if (file.ApplicationHistory == null || file.ApplicationHistory.Count == 0)
+                throw new InvalidOperationException("No application history found for this file.");
+
+            // Prepare updates
+            var userName = $"{user.FirstName} {user.LastName}".Trim();
+            ApplicationHistory statusHistory = null;
+            if (status is ApplicationStatuses.AwaitingCertificateConfirmation)
+            {
+                statusHistory = new ApplicationHistory
+                {
+                    beforeStatus = ApplicationStatuses.AwaitingExaminer,
+                    afterStatus = ApplicationStatuses.AwaitingCertificateConfirmation,
+                    Date = DateTime.Now,
+                    Message = "Examination completed, awaiting certificate confirmation",
+                    User = userName,
+                    UserId = user.Id
+                };
+            }
+            else if(status is ApplicationStatuses.Active)
+            {
+                statusHistory = new ApplicationHistory
+                {
+                    beforeStatus = ApplicationStatuses.AwaitingExaminer,
+                    afterStatus = ApplicationStatuses.Active,
+                    Date = DateTime.Now,
+                    Message = "Certified, file is now Active",
+                    User = userName,
+                    UserId = user.Id
+                };
+            }
+               
+            // Apply updates to database
+            var updates = Builders<Filling>.Update.Combine([
+                Builders<Filling>.Update.Set(f => f.FileStatus, status),
+                Builders<Filling>.Update.Push("ApplicationHistory.0.StatusHistory", statusHistory),
+                Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", status)
+            ]);
+
+            var result = await _fillingCollection.FindOneAndUpdateAsync(
+                Builders<Filling>.Filter.Eq(x => x.FileId, fileId),
+                updates,
+                new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After }
+            );
+            return true;
+        }
+        catch (Exception)
+        {
+            throw;
+        }
+    }
     private void ProcessLicenseRenewal(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
         file.FileStatus = ApplicationStatuses.Active;
@@ -1090,35 +1158,35 @@ public class FileServices
 
         }
 
-        if (data.applicationType is FormApplicationTypes.LicenseRenewal)
-        {
-            var dt = _fillingCollection.Find(Builders<Filling>.Filter.And(
-                Builders<Filling>.Filter.Eq(a => a.Id, data.fileId)
-            )).FirstOrDefault();
+        //if (data.applicationType is FormApplicationTypes.LicenseRenewal)
+        //{
+        //    var dt = _fillingCollection.Find(Builders<Filling>.Filter.And(
+        //        Builders<Filling>.Filter.Eq(a => a.Id, data.fileId)
+        //    )).FirstOrDefault();
 
-            if (dt.ApplicationHistory.Select(x => x.ExpiryDate)
-                .ToList().Any(y => y < DateOnly.FromDateTime(DateTime.Now)))
-            {
-                operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
-            }
-            if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
-            {
-                var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.LicenseRenewal);
-                if (data.applicationType == FormApplicationTypes.LicenseRenewal)
-                {
-                    operations.Add(Builders<Filling>.Update.Push(
-                        "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.RenewalCertificate));
-                }
-                operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
-            }
+        //    if (dt.ApplicationHistory.Select(x => x.ExpiryDate)
+        //        .ToList().Any(y => y < DateOnly.FromDateTime(DateTime.Now)))
+        //    {
+        //        operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+        //    }
+        //    if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
+        //    {
+        //        var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.LicenseRenewal);
+        //        if (data.applicationType == FormApplicationTypes.LicenseRenewal)
+        //        {
+        //            operations.Add(Builders<Filling>.Update.Push(
+        //                "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.RenewalCertificate));
+        //        }
+        //        operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
+        //    }
 
-            if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer)
-            {
-                var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1).ToListAsync()).First();
-                operations.Add(Builders<Filling>.Update.Push(
-                    "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
-            }
-        }
+        //    if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer)
+        //    {
+        //        var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1).ToListAsync()).First();
+        //        operations.Add(Builders<Filling>.Update.Push(
+        //            "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
+        //    }
+        //}
         if (data.AfterStatus is ApplicationStatuses.Publication)
         {
             operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationAcceptance));
