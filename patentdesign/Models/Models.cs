@@ -853,11 +853,11 @@ public record PriorityInfo
 
 public record UpdateMany
 {
-    public string reasons {get;set;}
-        public int newStatus {get;set;}
-    public string userId {get;set;}
-        public string userName {get;set;}
-    public List<string> files {get;set;}
+    public string? reasons {get;set;}
+    public int newStatus {get;set;}
+    public string? userId {get;set;}
+    public string? userName {get;set;}
+    public List<string>? files {get;set;}
 }
 
 public enum PatentBaseTypes 
@@ -893,13 +893,13 @@ public enum ApplicationStatuses
 
 public record AssignmentCertificateType
 {
-    public string fileNumber { get; set; }
-    public string applicantName { get; set; }
-    public CorrespondenceType CorrespondenceType { get; set; }
-    public AssignmentType assignmentType { get; set; }
+    public string? fileNumber { get; set; }
+    public string? applicantName { get; set; }
+    public CorrespondenceType? CorrespondenceType { get; set; }
+    public AssignmentType? assignmentType { get; set; }
     public DateTime paymentDate { get; set; }
-    public string examinerName { get; set; }
-    public byte[] examinerSignature { get; set; }
+    public string? examinerName { get; set; }
+    public byte[]? examinerSignature { get; set; }
 }
 
 public class TradeFilterModel
@@ -929,8 +929,8 @@ public enum PaymentTypes
 {
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
-    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal
-        PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger,
+    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger,
 }
 
 
