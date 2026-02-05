@@ -157,27 +157,78 @@ namespace patentdesign.Services
         {
             try
             {
+                // 1. Fetch file first
+                var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber)
+                    .FirstOrDefaultAsync();
+
+                if (file == null || file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+                    return false;
+
+                var applicationIndex = file.ApplicationHistory
+                    .FindIndex(a => a.id == dto.ApplicationId);
+
+                if (applicationIndex < 0)
+                    return false;
+
+                var isFirstApplication = applicationIndex == 0;
+
+                // 2. Build filter (use positional operator)
                 var filter = Builders<Filling>.Filter.And(
                     Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
-                    Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == dto.ApplicationId)
+                    Builders<Filling>.Filter.ElemMatch(
+                        f => f.ApplicationHistory,
+                        a => a.id == dto.ApplicationId
+                    )
                 );
 
                 var updates = new List<UpdateDefinition<Filling>>();
 
+                // 3. ApplicationHistory updates
                 if (dto.ApplicationDate.HasValue)
-                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ApplicationDate", dto.ApplicationDate.Value));
+                    updates.Add(Builders<Filling>.Update
+                        .Set("ApplicationHistory.$.ApplicationDate", dto.ApplicationDate.Value));
+
                 if (dto.ApplicationType.HasValue)
-                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ApplicationType", dto.ApplicationType.Value));
+                    updates.Add(Builders<Filling>.Update
+                        .Set("ApplicationHistory.$.ApplicationType", dto.ApplicationType.Value));
+
                 if (dto.CurrentStatus.HasValue)
-                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", dto.CurrentStatus.Value));
-                if (dto.PaymentId != null)
-                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.PaymentId", dto.PaymentId));
-                if (dto.CertificatePaymentId != null)
-                    updates.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.CertificatePaymentId", dto.CertificatePaymentId));
+                    updates.Add(Builders<Filling>.Update
+                        .Set("ApplicationHistory.$.CurrentStatus", dto.CurrentStatus.Value));
 
-                if (!updates.Any()) return false;
+                if (!string.IsNullOrEmpty(dto.PaymentId))
+                    updates.Add(Builders<Filling>.Update
+                        .Set("ApplicationHistory.$.PaymentId", dto.PaymentId));
 
-                var result = await _fillingCollection.UpdateOneAsync(filter, Builders<Filling>.Update.Combine(updates));
+                if (!string.IsNullOrEmpty(dto.CertificatePaymentId))
+                    updates.Add(Builders<Filling>.Update
+                        .Set("ApplicationHistory.$.CertificatePaymentId", dto.CertificatePaymentId));
+
+                // 4. Cascade updates if first application
+                if (isFirstApplication)
+                {
+                    if (dto.CurrentStatus.HasValue)
+                    {
+                        updates.Add(Builders<Filling>.Update
+                            .Set(f => f.FileStatus, dto.CurrentStatus.Value));
+                    }
+
+                    if (dto.ApplicationDate.HasValue)
+                    {
+                        updates.Add(Builders<Filling>.Update
+                            .Set(f => f.FilingDate, dto.ApplicationDate.Value));
+                    }
+                }
+
+                if (!updates.Any())
+                    return false;
+
+                // 5. Execute update
+                var result = await _fillingCollection.UpdateOneAsync(
+                    filter,
+                    Builders<Filling>.Update.Combine(updates)
+                );
+
                 return result.ModifiedCount > 0;
             }
             catch (Exception ex)
@@ -186,5 +237,6 @@ namespace patentdesign.Services
                 return false;
             }
         }
+
     }
 }

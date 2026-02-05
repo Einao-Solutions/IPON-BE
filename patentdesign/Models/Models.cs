@@ -897,7 +897,7 @@ public enum PaymentTypes
 {
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
-    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate
+    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal
 }
 
 
@@ -1222,6 +1222,10 @@ public record PaymentInfo
     public string OppositionServiceFee { get; set; }
     public string OppositionServiceID { get; set; }
 
+    //appeal
+    public string AppealCost { get; set; }
+    public string AppealServiceFee { get; set; }
+    public string AppealServiceID { get; set; }
 }
 
 public record PaymentRecord
