@@ -714,9 +714,9 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
     [HttpGet("GetRenewalCost")]
-    public async Task<IActionResult> GetRenewalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    public async Task<IActionResult> GetRenewalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] string userId)
     {
-        var res = await fileService.RenewalCost(fileId, fileType);
+        var res = await fileService.RenewalCost(fileId, fileType, userId);
         if (res == null)
         {
             return NoContent();
