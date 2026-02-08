@@ -253,8 +253,8 @@ public record ClericalUpdate
     public string? OldCorrespondenceState { get; set; }
     public string? OldPatentAbstract { get; set; }
     public string? NewPatentAbstract { get; set; }
-    public PatentApplicationTypes OldPatentApplicationType { get; set; }
-    public PatentApplicationTypes NewPatentApplicationType { get; set; }
+    public PatentApplicationTypes? OldPatentApplicationType { get; set; }
+    public PatentApplicationTypes? NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
     public string? NewRepresentationUrl { get; set; }
     public string? OldPowerOfAttorneyUrl { get; set; }

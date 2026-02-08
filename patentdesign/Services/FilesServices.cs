@@ -145,7 +145,7 @@ public class FileServices
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
 
-        await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
+        //await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
 
         // Record payment and performance metrics
         await RecordPaymentAndPerformance(file, application, paymentInfo, userName, userId);
@@ -5715,22 +5715,23 @@ public class FileServices
                 break;
 
             case ClericalUpdateTypes.ApplicantAddress:
-                clerical.OldApplicantAddress = file.applicants[0].Address;
-                clerical.NewApplicantAddress = updateData.ApplicantAddress;
-                if(!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
+                clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
+                clerical.NewApplicantAddresses = new List<string> { updateData.ApplicantAddress };
+
+                if (!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
                 {
-                    clerical.OldApplicantEmail = file.applicants[0].Email;
-                    clerical.NewApplicantEmail = updateData.ApplicantEmail;
+                    clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
+                    clerical.NewApplicantEmails = new List<string> { updateData.ApplicantEmail };
                 }
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantPhone))
                 {
-                    clerical.OldApplicantPhone = file.applicants[0].Phone;
-                    clerical.NewApplicantPhone = updateData.ApplicantPhone;
+                    clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
+                    clerical.NewApplicantPhones = new List<string> { updateData.ApplicantPhone };
                 }
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
                 {
-                    clerical.OldApplicantNationality = file.applicants[0].country;
-                    clerical.NewApplicantNationality = updateData.ApplicantNationality;
+                    clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
+                    clerical.NewApplicantNationalities = new List<string> { updateData.ApplicantNationality };
                 }
                 break;
 
@@ -5965,27 +5966,35 @@ public class FileServices
                     break;
 
                 case "ApplicantAddress":
-                    for (int i = 0; i < file.applicants.Count; i++)
+                    if(clerical.NewApplicantAddresses?.Any() == true)
                     {
-                        if (i < clerical.NewApplicantAddresses?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantAddresses[i]))
-                            file.applicants[i].Address = clerical.NewApplicantAddresses[i];
+                        for (int i = 0; i < clerical.NewApplicantAddresses.Count && i < file.applicants.Count; i++) 
+                        { 
+                            if (i < clerical.NewApplicantAddresses?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantAddresses[i]))
+                                file.applicants[i].Address = clerical.NewApplicantAddresses[i];
 
-                        if (i < clerical.NewApplicantEmails?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantEmails[i]))
-                            file.applicants[i].Email = clerical.NewApplicantEmails[i];
+                            if (i < clerical.NewApplicantEmails?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantEmails[i]))
+                                file.applicants[i].Email = clerical.NewApplicantEmails[i];
 
-                        if (i < clerical.NewApplicantPhones?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantPhones[i]))
-                            file.applicants[i].Phone = clerical.NewApplicantPhones[i];
+                            if (i < clerical.NewApplicantPhones?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantPhones[i]))
+                                file.applicants[i].Phone = clerical.NewApplicantPhones[i];
 
-                        if (i < clerical.NewApplicantNationalities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
-                            file.applicants[i].country = clerical.NewApplicantNationalities[i];
+                            if (i < clerical.NewApplicantNationalities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
+                                file.applicants[i].country = clerical.NewApplicantNationalities[i];
 
-                        if (i < clerical.NewApplicantStates?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantStates[i]))
-                            file.applicants[i].State = clerical.NewApplicantStates[i];
+                            if (i < clerical.NewApplicantStates?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantStates[i]))
+                                file.applicants[i].State = clerical.NewApplicantStates[i];
 
-                        if (i < clerical.NewApplicantCities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantCities[i]))
-                            file.applicants[i].city = clerical.NewApplicantCities[i];
+                            if (i < clerical.NewApplicantCities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantCities[i]))
+                                file.applicants[i].city = clerical.NewApplicantCities[i];
+                        }
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
-                    updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    else if (!string.IsNullOrWhiteSpace(clerical.NewApplicantAddress) && file.applicants.Count > 0)
+                    {
+                        file.applicants[0].Address = clerical.NewApplicantAddress;
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    }
                     break;
 
                 case "FileClass":
