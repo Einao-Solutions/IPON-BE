@@ -1534,9 +1534,18 @@ public class LettersServices
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
-            representation != null && representation.url?[0] != "NULL")
+        representation != null && representation.url?[0] != "NULL")
         {
-            images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+            try
+            {
+                using var httpClient = new HttpClient();
+                images = await httpClient.GetByteArrayAsync(representation.url[0]);
+            }
+            catch (HttpRequestException ex)
+            {
+                Console.WriteLine($"Failed to fetch representation image: {ex.Message}");
+                images = [];
+            }
         }
 
         var data = new ClericalUpdateAck(file, images, applicationId).GeneratePdf();
