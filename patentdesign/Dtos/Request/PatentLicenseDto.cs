@@ -21,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public string? OldLicensorPhone { get; set; } = string.Empty;
         public string? OldLicensorNationality { get; set; } = string.Empty;
         public string? OldLicensorState { get; set; } = string.Empty;
+        public string? OldLicensorCity { get; set; } = string.Empty;
 
         // New Licensee Details
         public string? NewLicenseeEmail { get; set; } = string.Empty;
@@ -29,5 +30,6 @@ namespace patentdesign.Dtos.Request
         public string? NewLicenseeName { get; set; } = string.Empty;
         public string? NewLicenseeNationality { get; set; } = string.Empty;
         public string? NewLicenseeState { get; set; } = string.Empty;
+        public string? NewLicenseeCity { get; set; } = string.Empty;
     }
 }

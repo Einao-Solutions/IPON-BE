@@ -21,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public string? OldAssignorAddress { get; set; }
         public string? OldAssignorNationality { get; set; }
         public string? OldAssignorState { get; set; }
+        public string? OldAssignorCity { get; set; }
 
         // New assignee (to become new applicant)
         public string? NewAssigneeName { get; set; }
@@ -29,5 +30,6 @@ namespace patentdesign.Dtos.Request
         public string? NewAssigneeAddress { get; set; }
         public string? NewAssigneeNationality { get; set; }
         public string? NewAssigneeState { get; set; }
+        public string? NewAssigneeCity { get; set; }
     }
 }

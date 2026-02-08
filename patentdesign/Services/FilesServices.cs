@@ -7868,6 +7868,8 @@ public class FileServices
             OldAssignorAddress = dto.OldAssignorAddress,
             OldAssignorNationality = dto.OldAssignorNationality,
             OldAssignorState = dto.OldAssignorState,
+            OldAssignorCity = dto.OldAssignorCity,
+
             // New assignee (now the applicant)
             Name = dto.NewAssigneeName,
             Email = dto.NewAssigneeEmail,
@@ -7875,27 +7877,13 @@ public class FileServices
             Address = dto.NewAssigneeAddress,
             Nationality = dto.NewAssigneeNationality,
             State = dto.NewAssigneeState,
+            City = dto.NewAssigneeCity,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
-
-        // Replace applicants with new assignee info
-        // file.applicants = new List<ApplicantInfo>
-        //{
-        //    new ApplicantInfo
-        //    {
-        //        Name = dto.NewAssigneeName,
-        //        Email = dto.NewAssigneeEmail,
-        //        Phone = dto.NewAssigneePhone,
-        //        Address = dto.NewAssigneeAddress,
-        //        country = dto.NewAssigneeNationality,
-        //        State = dto.NewAssigneeState,
-        //    }
-        //};
 
         var update = Builders<Filling>.Update
                 .Push(f => f.PostRegApplications, recordal)
                 .Push(f => f.ApplicationHistory, assignmentHistory)
-               // .Set(f => f.applicants, file.applicants)
                 .Set(f => f.Attachments, file.Attachments);
 
         await _fillingCollection.UpdateOneAsync(
@@ -7936,7 +7924,8 @@ public class FileServices
             Email = assignmentApp.Email,
             Phone = assignmentApp.Phone,
             State = assignmentApp.State,
-            Nationality = assignmentApp.Nationality
+            Nationality = assignmentApp.Nationality,
+            City = assignmentApp.City
         };
 
         // Old assignor details
@@ -7947,7 +7936,8 @@ public class FileServices
             Email = assignmentApp.OldAssignorEmail,
             Phone = assignmentApp.OldAssignorPhone,
             State = assignmentApp.OldAssignorState,
-            Nationality = assignmentApp.OldAssignorNationality
+            Nationality = assignmentApp.OldAssignorNationality,
+            City = assignmentApp.OldAssignorCity,
         };
 
         var filingDate = assignmentApp.FilingDate;
@@ -7996,7 +7986,14 @@ public class FileServices
             file.applicants = new List<ApplicantInfo> { newAssignee };
         }
 
-        // Optionally, generate refusal document if refused (not shown here)
+        //if (approve && newAssignee != null)
+        //{
+        //    if (!string.IsNullOrWhiteSpace(newAssignee.Nationality))
+        //    {
+        //        newAssignee.country = newAssignee.Nationality;
+        //    }
+        //    file.applicants = new List<ApplicantInfo> { newAssignee };
+        //}
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
@@ -8119,6 +8116,8 @@ public class FileServices
             OldLicensorAddress = dto.OldLicensorAddress,
             OldLicensorNationality = dto.OldLicensorNationality,
             OldLicensorState = dto.OldLicensorState,
+            OldLicensorCity = dto.OldLicensorCity,
+
             // New licensee (now the applicant)
             Name = dto.NewLicenseeName,
             Email = dto.NewLicenseeEmail,
@@ -8126,31 +8125,14 @@ public class FileServices
             Address = dto.NewLicenseeAddress,
             Nationality = dto.NewLicenseeNationality,
             State = dto.NewLicenseeState,
+            City = dto.NewLicenseeCity,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
-
-        // Replace applicants with new licensee info
-        //file.applicants = new List<ApplicantInfo>
-        //{
-        //    new ApplicantInfo
-        //    {
-        //        Name = dto.NewLicenseeName,
-        //        Email = dto.NewLicenseeEmail,
-        //        Phone = dto.NewLicenseePhone,
-        //        Address = dto.NewLicenseeAddress,
-        //        country = dto.NewLicenseeNationality,
-        //        State = dto.NewLicenseeState
-        //    }
-        //};
 
         var update = Builders<Filling>.Update
         .Push(f => f.PostRegApplications, recordal)
         .Push(f => f.ApplicationHistory, licenseHistory)
-        //  .Set(f => f.applicants, file.applicants)
         .Set(f => f.Attachments, file.Attachments);
-
-        // Persist the updated file (including attachments)
-       // await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
@@ -8190,7 +8172,8 @@ public class FileServices
             Email = licenseApp.Email,
             Phone = licenseApp.Phone,
             State = licenseApp.State,
-            Nationality = licenseApp.Nationality
+            Nationality = licenseApp.Nationality,
+            City = licenseApp.City,
         };
 
         // Old licensor details
@@ -8201,7 +8184,8 @@ public class FileServices
             Email = licenseApp.OldLicensorEmail,
             Phone = licenseApp.OldLicensorPhone,
             State = licenseApp.OldLicensorState,
-            Nationality = licenseApp.OldLicensorNationality
+            Nationality = licenseApp.OldLicensorNationality,
+            City = licenseApp.OldLicensorCity
         };
 
         var filingDate = licenseApp.FilingDate;
@@ -8370,6 +8354,7 @@ public class FileServices
             OldMortgagorAddress = dto.OldMortgageeAddress,
             OldMortgagorNationality = dto.OldMortgageeNationality,
             OldMortgagorState = dto.OldMortgageeState,
+            OldMortgagorCity = dto.OldMortgageeCity,
             // New mortgagee (now the applicant)
             Name = dto.NewMortgagorName,
             Email = dto.NewMortgagorEmail,
@@ -8377,27 +8362,13 @@ public class FileServices
             Address = dto.NewMortgagorAddress,
             Nationality = dto.NewMortgagorNationality,
             State = dto.NewMortgagorState,
+            City = dto.NewMortgagorCity,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
-
-    //    // Replace applicants with new mortgagee info
-    //    file.applicants = new List<ApplicantInfo>
-    //{
-    //    new ApplicantInfo
-    //    {
-    //        Name = dto.NewMortgagorName,
-    //        Email = dto.NewMortgagorEmail,
-    //        Phone = dto.NewMortgagorPhone,
-    //        Address = dto.NewMortgagorAddress,
-    //        country = dto.NewMortgagorNationality,
-    //        State = dto.NewMortgagorState,
-    //    }
-    //};
 
         var update = Builders<Filling>.Update
          .Push(f => f.PostRegApplications, recordal)
          .Push(f => f.ApplicationHistory, mortgageHistory)
-      //   .Set(f => f.applicants, file.applicants)
          .Set(f => f.Attachments, file.Attachments);
 
         await _fillingCollection.UpdateOneAsync(
@@ -8438,7 +8409,8 @@ public class FileServices
             Email = mortgageApp.Email,
             Phone = mortgageApp.Phone,
             State = mortgageApp.State,
-            Nationality = mortgageApp.Nationality
+            Nationality = mortgageApp.Nationality,
+            City = mortgageApp.City,
         };
 
         // Old mortgagor details
@@ -8449,7 +8421,8 @@ public class FileServices
             Email = mortgageApp.OldMortgagorEmail,
             Phone = mortgageApp.OldMortgagorPhone,
             State = mortgageApp.OldMortgagorState,
-            Nationality = mortgageApp.OldMortgagorNationality
+            Nationality = mortgageApp.OldMortgagorNationality,
+            City = mortgageApp.OldMortgagorCity
         };
 
         var filingDate = mortgageApp.FilingDate;
@@ -8618,6 +8591,7 @@ public class FileServices
             OldMergerAddress = dto.OldMergerAddress,
             OldMergerNationality = dto.OldMergerNationality,
             OldMergerState = dto.OldMergerState,
+            OldMergerCity = dto.OldMergerCity,
             // New merged party (now the applicant)
             Name = dto.NewMergerName,
             Email = dto.NewMergerEmail,
@@ -8625,27 +8599,13 @@ public class FileServices
             Address = dto.NewMergerAddress,
             Nationality = dto.NewMergerNationality,
             State = dto.NewMergerState,
+            City = dto.NewMergerCity,
             DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
         };
-
-        // Replace applicants with new merged party info
-    //    file.applicants = new List<ApplicantInfo>
-    //{
-    //    new ApplicantInfo
-    //    {
-    //        Name = dto.NewMergerName,
-    //        Email = dto.NewMergerEmail,
-    //        Phone = dto.NewMergerPhone,
-    //        Address = dto.NewMergerAddress,
-    //        country = dto.NewMergerNationality,
-    //        State = dto.NewMergerState
-    //    }
-    //};
 
         var update = Builders<Filling>.Update
             .Push(f => f.PostRegApplications, recordal)
             .Push(f => f.ApplicationHistory, mergerHistory)
-         //   .Set(f => f.applicants, file.applicants)
             .Set(f => f.Attachments, file.Attachments);
 
         await _fillingCollection.UpdateOneAsync(
@@ -8686,7 +8646,8 @@ public class FileServices
             Email = mergerApp.Email,
             Phone = mergerApp.Phone,
             State = mergerApp.State,
-            Nationality = mergerApp.Nationality
+            Nationality = mergerApp.Nationality,
+            City = mergerApp.City,
         };
 
         // Old merger party details
@@ -8697,7 +8658,8 @@ public class FileServices
             Email = mergerApp.OldMergerEmail,
             Phone = mergerApp.OldMergerPhone,
             State = mergerApp.OldMergerState,
-            Nationality = mergerApp.OldMergerNationality
+            Nationality = mergerApp.OldMergerNationality,
+            City = mergerApp.OldMergerCity
         };
 
         var filingDate = mergerApp.FilingDate;

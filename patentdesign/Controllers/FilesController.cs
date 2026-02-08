@@ -1205,7 +1205,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(result);
     }
 
-        [HttpPost("withdrawalrequestdecision")]
+    [HttpPost("withdrawalrequestdecision")]
     public async Task<IActionResult> WithdrawalRequestDecision([FromBody] PublicationStatusDecisionDto dto)
     {
         var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment);

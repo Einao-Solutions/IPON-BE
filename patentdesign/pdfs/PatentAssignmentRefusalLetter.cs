@@ -1,24 +1,26 @@
-﻿using patentdesign.Models;
+﻿using System;
+using System.Linq;
+using patentdesign.Enums;
+using patentdesign.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-using System;
-using System.Linq;
-
 
 namespace patentdesign.pdfs
 {
-    public class PatentAssignmentAcknowledgementletter : IDocument
+    public class PatentAssignmentRefusalLetter : IDocument
     {
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
+        private readonly ApplicationInfo application;
 
-        public PatentAssignmentAcknowledgementletter(Filling model, string url, Receipt receipt)
+        public PatentAssignmentRefusalLetter(Filling model, string url, Receipt receipt, ApplicationInfo application)
         {
             this.model = model;
             this.url = url;
             this.receipt = receipt;
+            this.application = application;
         }
 
         public void Compose(IDocumentContainer container)
@@ -31,9 +33,9 @@ namespace patentdesign.pdfs
         }
 
         private static IContainer Box(IContainer c) => c
-          .Border(1)
-          .Padding(5)
-          .AlignLeft();
+            .Border(1)
+            .Padding(5)
+            .AlignLeft();
 
         private static IContainer Header(IContainer c) => c
             .Border(1)
@@ -41,12 +43,12 @@ namespace patentdesign.pdfs
 
         private static void WriteText(IContainer cell, string text)
         {
-            bool placeholder = text == "N/A";
+            var placeholder = text == "N/A";
             cell.Text(text)
                 .FontFamily(Fonts.TimesNewRoman)
                 .FontSize(12)
                 .Italic(placeholder)
-                .FontColor(placeholder ? Colors.Black : Colors.Black);
+                .FontColor(Colors.Black);
         }
 
         private static string F(object? v) => v switch
@@ -62,46 +64,47 @@ namespace patentdesign.pdfs
         {
             container.Column(col =>
             {
-                string date = "-";
-                if (!string.IsNullOrWhiteSpace(receipt.Date))
+                var date = "-";
+                if (!string.IsNullOrWhiteSpace(receipt.Date) &&
+                    DateTime.TryParse(receipt.Date, out var parsedDate))
                 {
-                    if (DateTime.TryParse(receipt.Date, out var parsedDate))
-                        date = parsedDate.ToString("dd/MM/yyyy");
+                    date = parsedDate.ToString("dd/MM/yyyy");
                 }
-                string amount = "-";
-                if (!string.IsNullOrWhiteSpace(receipt.Amount))
-                {
-                    if (long.TryParse(receipt.Amount, out var parsedAmount))
-                        amount = parsedAmount.ToString("N0");
-                }
-                // Header (logo & titles)
-                col.Item().Height(60).AlignCenter().PaddingBottom(10).Image("assets/logo.png").FitArea();
-                col.Item().AlignCenter().PaddingBottom(10).Text("FEDERAL REPUBLIC OF NIGERIA").FontFamily(Fonts.TimesNewRoman).FontSize(20).Bold();
-                col.Item().AlignCenter().Text("FEDERAL MINISTRY OF INDUSTRY, TRADE AND INVESTMENT").FontFamily(Fonts.TimesNewRoman).FontSize(14);
-                col.Item().AlignCenter().PaddingBottom(10).Text("COMMERCIAL LAW DEPARTMENT").FontFamily(Fonts.TimesNewRoman).FontSize(14);
-                col.Item().AlignCenter().Text("PATENT ASSIGNMENT ACKNOWLEDGEMENT LETTER").FontFamily(Fonts.TimesNewRoman).FontSize(16).FontColor(Colors.Green.Darken3).ExtraBold();
+
+                // Header
+                col.Item().Height(60).AlignCenter().PaddingBottom(10)
+                    .Image("assets/logo.png").FitArea();
+                col.Item().AlignCenter().PaddingBottom(10)
+                    .Text("FEDERAL REPUBLIC OF NIGERIA")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(20).Bold();
+                col.Item().AlignCenter()
+                    .Text("FEDERAL MINISTRY OF INDUSTRY, TRADE AND INVESTMENT")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(14);
+                col.Item().AlignCenter().PaddingBottom(10)
+                    .Text("COMMERCIAL LAW DEPARTMENT")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(14);
+                col.Item().AlignCenter()
+                    .Text("PATENT ASSIGNMENT REFUSAL LETTER")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(16)
+                    .FontColor(Colors.Red.Darken2).ExtraBold();
                 col.Item().Height(10);
 
                 // PAYMENT INFORMATION
                 TwoColumnSection(col, "PAYMENT INFORMATION", new[]
                 {
                     ("Filing date:", F(date)),
-                    ("Payment rrr:",       F(receipt.rrr)),
-                    ("File number:",      F(model.FileId)),
-                    ("Fee title:",        F(receipt.PaymentFor)),
+                    ("Payment rrr:", F(receipt.rrr)),
+                    ("File number:", F(model.FileId)),
+                    ("Fee title:",   F(receipt.PaymentFor)),
                 });
 
-                // -------------------------------------------------------
-                // ASSIGNMENT DATA FROM PostRegApplications
-                // -------------------------------------------------------
+                // Assignment post-reg data
                 var assignmentRecordal = model.PostRegApplications?
                     .FirstOrDefault(p => p.RecordalType == "Patent Assignment Recordal");
 
-                // -------------------------------------------------------
-                // ASSIGNOR INFORMATION (from old assignor fields)
-                // -------------------------------------------------------
                 if (assignmentRecordal != null)
                 {
+                    // ASSIGNOR
                     TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
                     {
                         ("Name:",        F(assignmentRecordal.OldAssignorName)),
@@ -113,9 +116,7 @@ namespace patentdesign.pdfs
                         ("Nationality:", F(assignmentRecordal.OldAssignorNationality))
                     });
 
-                    // ---------------------------------------------------
-                    // ASSIGNEE INFORMATION (new owner in this recordal)
-                    // ---------------------------------------------------
+                    // ASSIGNEE
                     TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
                     {
                         ("Name:",        F(assignmentRecordal.Name)),
@@ -153,6 +154,7 @@ namespace patentdesign.pdfs
                     });
                 }
 
+
                 // PATENT INFORMATION
                 col.Item().Element(Header)
                     .Text("PATENT INFORMATION")
@@ -162,40 +164,70 @@ namespace patentdesign.pdfs
 
                 TwoColumnSection(col, string.Empty, new[]
                 {
-                    ("File Origin:", F(model.FileOrigin)),
-                    ("Patent type:",      $"{F(model.PatentType)} - {F(model.FileOrigin)}")
-                });
+                     ("File Origin:", F(model.FileOrigin)),
+                     ("Patent type:",      $"{F(model.PatentType)} - {F(model.FileOrigin)}")
+                 });
 
                 FullWidthBox(col, "Application Type:", F(model.PatentApplicationType));
 
-                // Footer note
-                col.Item().AlignCenter().PaddingTop(30).Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
-                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Green.Darken2);
+                // REFUSAL INFORMATION
+                col.Item().Element(Header)
+                    .Text("REFUSAL INFORMATION")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+                // Officer name = status history user for Rejected
+                var refusalHistory = application.StatusHistory
+                    .LastOrDefault(h => h.afterStatus == ApplicationStatuses.Rejected);
+
+                var officerName = refusalHistory?.User ?? "-";
+                var reason = refusalHistory?.Message ?? "-";
+
+                TwoColumnSection(col, string.Empty, new[]
+                {
+                    ("Officer's Name:", officerName),
+                    ("Reason:",       reason)
+                });
+
+                col.Item().AlignCenter().PaddingTop(30)
+                    .Text("YOUR APPLICATION HAS BEEN REFUSED")
+                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Red.Darken2);
             });
         }
 
         private static void TwoColumnSection(ColumnDescriptor col, string title, (string Label, string Value)[] pairs)
         {
             if (!string.IsNullOrWhiteSpace(title))
-                col.Item().Element(Header).Text(title).FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+            {
+                col.Item().Element(Header)
+                    .Text(title)
+                    .FontFamily(Fonts.TimesNewRoman)
+                    .FontSize(14)
+                    .Bold();
+            }
 
-            for (int i = 0; i < pairs.Length; i += 2)
+            for (var i = 0; i < pairs.Length; i += 2)
             {
                 col.Item().Row(row =>
                 {
-                    // Left cell
                     row.RelativeItem().Element(Box).Column(c2 =>
                     {
-                        c2.Item().Text(pairs[i].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        c2.Item()
+                            .Text(pairs[i].Label)
+                            .FontFamily(Fonts.TimesNewRoman)
+                            .FontSize(10)
+                            .Bold();
                         WriteText(c2.Item(), pairs[i].Value);
                     });
 
-                    // Right cell (if any)
                     if (i + 1 < pairs.Length)
                     {
                         row.RelativeItem().Element(Box).Column(c2 =>
                         {
-                            c2.Item().Text(pairs[i + 1].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                            c2.Item()
+                                .Text(pairs[i + 1].Label)
+                                .FontFamily(Fonts.TimesNewRoman)
+                                .FontSize(10)
+                                .Bold();
                             WriteText(c2.Item(), pairs[i + 1].Value);
                         });
                     }
@@ -212,7 +244,14 @@ namespace patentdesign.pdfs
             col.Item().Element(Box).Column(c2 =>
             {
                 if (!string.IsNullOrEmpty(label))
-                    c2.Item().Text(label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                {
+                    c2.Item()
+                        .Text(label)
+                        .FontFamily(Fonts.TimesNewRoman)
+                        .FontSize(10)
+                        .Bold();
+                }
+
                 WriteText(c2.Item(), value);
             });
         }
@@ -223,12 +262,14 @@ namespace patentdesign.pdfs
             {
                 r.RelativeItem().Element(Box).Column(c2 =>
                 {
-                    c2.Item().Text($"{index}. Application Number:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    c2.Item().Text($"{index}. Application Number:")
+                        .FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
                     WriteText(c2.Item(), F(p?.number));
                 });
                 r.RelativeItem().Element(Box).Column(c2 =>
                 {
-                    c2.Item().Text("Country:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    c2.Item().Text("Country:")
+                        .FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
                     WriteText(c2.Item(), F(p?.Country));
                 });
             });

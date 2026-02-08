@@ -360,6 +360,7 @@ public record PostRegistrationApp
     public string? Nationality { get; set; }
     public string? OldNationality { get; set; } = String.Empty;
     public string? State { get; set; }
+    public string? City { get; set; }
     public string? documentUrl { get; set; }
     public string? document2Url { get; set; }
     public string? receiptUrl { get; set; }
@@ -376,6 +377,7 @@ public record PostRegistrationApp
     public string? OldAssignorAddress { get; set; }
     public string? OldAssignorNationality { get; set; }
     public string? OldAssignorState { get; set; }
+    public string? OldAssignorCity { get; set; }
 
     // Explicit old licensee info for license record
     public string? OldLicensorName { get; set; }
@@ -384,6 +386,7 @@ public record PostRegistrationApp
     public string? OldLicensorAddress { get; set; }
     public string? OldLicensorNationality { get; set; }
     public string? OldLicensorState { get; set; }
+    public string? OldLicensorCity { get; set; }
 
     // Old mortgagor (previous patent holder)
     public string? OldMortgagorName { get; set; }
@@ -392,6 +395,7 @@ public record PostRegistrationApp
     public string? OldMortgagorAddress { get; set; }
     public string? OldMortgagorNationality { get; set; }
     public string? OldMortgagorState { get; set; }
+    public string? OldMortgagorCity { get; set; }
 
     // Old merger party (previous patent holder)
     public string? OldMergerName { get; set; }
@@ -400,6 +404,7 @@ public record PostRegistrationApp
     public string? OldMergerAddress { get; set; }
     public string? OldMergerNationality { get; set; }
     public string? OldMergerState { get; set; }
+    public string? OldMergerCity { get; set; }
 
 }
 
@@ -797,7 +802,10 @@ public enum ApplicationLetters
     ChangeOfAddressReceipt, ChangeOfNameReceipt, ClericalUpdateReceipt, ClericalUpdateAck, NewTrademarkAppReceipt, StatusSearchReport, StatusSearchReceipt, AppealAck,
     PatentRenewalAcknowlegementLetter, PatentRenewalReceipt, PatentRenewalCertificate,
     PublicationStatusUpdateAcknowledgement, PublicationStatusUpdateReceipt, PublicationStatusUpdateApproval, PublicationStatusUpdateRefusal,
-    ChangeOfNameCert, ChangeOfAddressCert, WithdrawalRequestAcknowledgement, WithdrawalRequestReceipt, WithdrawalRequestApproval, WithdrawalRequestRefusal
+    ChangeOfNameCert, ChangeOfAddressCert, WithdrawalRequestAcknowledgement, WithdrawalRequestReceipt, WithdrawalRequestApproval, WithdrawalRequestRefusal,
+    PatentAssignmentAcknowlegement, PatentLicenseAcknowledgement, PatentMortgageAcknowledgement, PatentMergerAcknowledgement, PatentCtcAcknowledgement, PatentAmendmentAcknowledgement,
+    PatentAssignmentRefusalLetter, PatentLicenseRefusalLetter, PatentMortgageRefusalLetter, PatentMergerRefusalLetter, PatentCtcRefusalLetter, PatentAmendmentRefusalLetter
+
 }
 public class SearchInfo
 {

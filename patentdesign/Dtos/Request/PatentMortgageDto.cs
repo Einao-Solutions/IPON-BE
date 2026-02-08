@@ -21,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public string? OldMortgageeAddress { get; set; }
         public string? OldMortgageeNationality { get; set; }
         public string? OldMortgageeState { get; set; }
+        public string? OldMortgageeCity { get; set; }
 
         // New mortgagee (to become new applicant)
         public string? NewMortgagorName { get; set; }
@@ -29,6 +30,7 @@ namespace patentdesign.Dtos.Request
         public string? NewMortgagorAddress { get; set; }
         public string? NewMortgagorNationality { get; set; }
         public string? NewMortgagorState { get; set; }
+        public string? NewMortgagorCity { get; set; }
 
     }
 }

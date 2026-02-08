@@ -21,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public string? OldMergerAddress { get; set; }
         public string? OldMergerNationality { get; set; }
         public string? OldMergerState { get; set; }
+        public string? OldMergerCity { get; set; }
 
         // New merged party (to become new applicant)
         public string? NewMergerName { get; set; }
@@ -29,6 +30,7 @@ namespace patentdesign.Dtos.Request
         public string? NewMergerAddress { get; set; }
         public string? NewMergerNationality { get; set; }
         public string? NewMergerState { get; set; }
+        public string? NewMergerCity { get; set; }
     }
 }
  
