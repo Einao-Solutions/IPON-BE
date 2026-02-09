@@ -25,6 +25,11 @@ namespace patentdesign.Dtos.Request
         public string? ServiceFee { get; set; }
         public string? RtmNumber { get; set; }
 
+        // patent cost re‑use / guard fields
+        public bool HasExistingApplication { get; set; }
+        public string? ExistingApplicationId { get; set; }
+        public string? ExistingRRR { get; set; }
+
     }
     public class MergerApplicationDto
     {

@@ -3533,8 +3533,6 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAssignment, fileType, "", null, null, null);
-
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
@@ -3547,29 +3545,48 @@ public class FileServices
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent Assignment",
-                applicant.Name, applicant.Email, applicant.Phone);
+            // Check if there is already a pending/created assignment application
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Assignment &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
 
-            var result = new RecordalDto
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
                 ApplicantEmail = applicant.Email,
                 ApplicantAddress = applicant.Address,
                 ApplicantNationality = applicant.country,
-                ApplicantPhone = applicant.Phone,
                 ApplicantState = applicant.State,
+                ApplicantPhone = applicant.Phone,
                 PatentType = fileInfo.PatentType,
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,
+                FileOrigin = fileInfo.FileOrigin
             };
 
-            return result;
+            if (existingApp != null)
+            {
+                // Do NOT generate a new RRR; just tell the frontend an app already exists
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            // Normal cost + RRR generation path
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAssignment, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Assignment",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception ex)
         {
@@ -3582,8 +3599,6 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentLicense, fileType, "", null, null, null);
-
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
@@ -3596,14 +3611,13 @@ public class FileServices
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent License",
-                applicant.Name, applicant.Email, applicant.Phone);
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.License &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
 
-            var result = new RecordalDto
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
@@ -3615,10 +3629,27 @@ public class FileServices
                 PatentType = fileInfo.PatentType,
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,
+                FileOrigin = fileInfo.FileOrigin
             };
 
-            return result;
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentLicense, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent License",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception ex)
         {
@@ -3631,8 +3662,6 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMortgage, fileType, "", null, null, null);
-
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
@@ -3645,14 +3674,13 @@ public class FileServices
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent Mortgage",
-                applicant.Name, applicant.Email, applicant.Phone);
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Mortgage &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
 
-            var result = new RecordalDto
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
@@ -3664,14 +3692,94 @@ public class FileServices
                 PatentType = fileInfo.PatentType,
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,
+                FileOrigin = fileInfo.FileOrigin
             };
 
-            return result;
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMortgage, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Mortgage",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "Error-at-PatentMortgageCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentMergerCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Merger &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin
+            };
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMerger, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentMergerCost");
             throw;
         }
     }
@@ -3768,55 +3876,6 @@ public class FileServices
         catch (Exception ex)
         {
             _log.LogError(ex, "Error-at-PatentAmendmentCost");
-            throw;
-        }
-    }
-
-    public async Task<RecordalDto> PatentMergerCost(string fileId, FileTypes fileType)
-    {
-        try
-        {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMerger, fileType, "", null, null, null);
-
-            var fileInfo = await _fillingCollection
-                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
-                .FirstOrDefaultAsync();
-
-            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
-            {
-                Console.WriteLine("No file or applicants found.");
-                return null;
-            }
-
-            var applicant = fileInfo.applicants[0];
-
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent Merger",
-                applicant.Name, applicant.Email, applicant.Phone);
-
-            var result = new RecordalDto
-            {
-                Amount = data.Item1,
-                rrr = paymentId,
-                FileId = fileId,
-                FileTitle = fileInfo.TitleOfInvention ?? "",
-                ApplicantName = applicant.Name,
-                ApplicantEmail = applicant.Email,
-                ApplicantAddress = applicant.Address,
-                ApplicantPhone = applicant.Phone,
-                ApplicantNationality = applicant.country,
-                ApplicantState = applicant.State,
-                PatentType = fileInfo.PatentType,
-                PatentApplicationType = fileInfo.PatentApplicationType,
-                TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,
-            };
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "Error-at-PatentMergerCost");
             throw;
         }
     }

@@ -563,16 +563,56 @@ public class LettersServices
                     break;
 
                 case FormApplicationTypes.Assignment:
-                    documents.AddRange(new[]
+                    if (file.Type == FileTypes.Patent)
                     {
-                        ApplicationLetters.AssignmentAck,
-                        ApplicationLetters.AssignmentReceipt,
-                        // ApplicationLetters.AssignmentCert
-                    });
-                    if(app.CurrentStatus == ApplicationStatuses.Approved) documents.Add(ApplicationLetters.AssignmentCert);
-                    
+                        // PATENT POST-REG: use patent assignment letters
+                        documents.Add(ApplicationLetters.PatentAssignmentAcknowlegement);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.PatentAssignmentRefusalLetter);
+                        }
+                    }
+                    else
+                    {
+                        documents.AddRange(new[]
+                            {
+                            ApplicationLetters.AssignmentAck,
+                            ApplicationLetters.AssignmentReceipt,
+                            // ApplicationLetters.AssignmentCert
+                        });
+                        if (app.CurrentStatus == ApplicationStatuses.Approved) documents.Add(ApplicationLetters.AssignmentCert);
+                    }
                     break;
-                
+
+                case FormApplicationTypes.License:
+                    if (file.Type == FileTypes.Patent)
+                    {
+                        // PATENT POST-REG: license letters
+                        documents.Add(ApplicationLetters.PatentLicenseAcknowledgement);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.PatentLicenseRefusalLetter);
+                        }
+                    }
+                    // If you later add TM or Design license-docs, handle the else branch here.
+                    break;
+
+                case FormApplicationTypes.Mortgage:
+                    if (file.Type == FileTypes.Patent)
+                    {
+                        // PATENT POST-REG: mortgage letters
+                        documents.Add(ApplicationLetters.PatentMortgageAcknowledgement);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.PatentMortgageRefusalLetter);
+                        }
+                    }
+                    // If you later add TM or Design mortgage-docs, handle the else branch here.
+                    break;
+
                 case FormApplicationTypes.RegisteredUser:
                     documents.AddRange(new[]
                     {
@@ -584,14 +624,28 @@ public class LettersServices
                     break;
 
                 case FormApplicationTypes.Merger:
-                    documents.AddRange(new[]
+                    if (file.Type == FileTypes.Patent)
                     {
+                        // PATENT POST-REG: merger letters
+                        documents.Add(ApplicationLetters.PatentMergerAcknowledgement);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.PatentMergerRefusalLetter);
+                        }
+                    }
+                    else
+                    {
+                        documents.AddRange(new[]
+{
                         ApplicationLetters.MergerAck,
                         ApplicationLetters.MergerReceipt,
                         // ApplicationLetters.MergerCert
-                    });
-                    if(app.CurrentStatus == ApplicationStatuses.Approved) documents.Add(ApplicationLetters.MergerCert);
-                    
+                        });
+                        if (app.CurrentStatus == ApplicationStatuses.Approved) documents.Add(ApplicationLetters.MergerCert);
+
+                    }
+
                     break;
 
                 case FormApplicationTypes.ChangeOfName:

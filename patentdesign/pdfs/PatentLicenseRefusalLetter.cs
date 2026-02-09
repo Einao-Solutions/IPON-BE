@@ -156,36 +156,37 @@ namespace patentdesign.pdfs
                     .Text("PATENT INFORMATION")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                FullWidthBox(col, "Title Of Invention:", F(model.TitleOfInvention));
+                    FullWidthBox(col, "Title Of Invention:", F(model.TitleOfInvention));
 
-                TwoColumnSection(col, string.Empty, new[]
-                {
+                    TwoColumnSection(col, string.Empty, new[]
+                    {
                     ("File Origin:", F(model.FileOrigin)),
                     ("Patent type:",      $"{F(model.PatentType)} - {F(model.FileOrigin)}")
                 });
 
-                FullWidthBox(col, "Application Type:", F(model.PatentApplicationType));
+                    FullWidthBox(col, "Application Type:", F(model.PatentApplicationType));
 
-                // REFUSAL INFORMATION
-                col.Item().Element(Header)
-                    .Text("REFUSAL INFORMATION")
-                    .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                    // REFUSAL INFORMATION
+                    col.Item().Element(Header)
+                        .Text("REFUSAL INFORMATION")
+                        .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                var refusalHistory = application.StatusHistory
-                    .LastOrDefault(h => h.afterStatus == ApplicationStatuses.Rejected);
+                    var refusalHistory = application.StatusHistory
+                        .LastOrDefault(h => h.afterStatus == ApplicationStatuses.Rejected);
 
-                var officerName = refusalHistory?.User ?? "-";
-                var reason = refusalHistory?.Message ?? "-";
+                    var officerName = refusalHistory?.User ?? "-";
+                    var reason = refusalHistory?.Message ?? "-";
 
-                TwoColumnSection(col, string.Empty, new[]
-                {
+                    TwoColumnSection(col, string.Empty, new[]
+                    {
                     ("Officer's Name:", officerName),
                     ("Reason:",       reason)
                 });
 
-                col.Item().AlignCenter().PaddingTop(30)
-                    .Text("YOUR APPLICATION HAS BEEN REFUSED")
-                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Red.Darken2);
+                    col.Item().AlignCenter().PaddingTop(30)
+                        .Text("YOUR APPLICATION HAS BEEN REFUSED")
+                        .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Red.Darken2);
+                }
             });
         }
 
