@@ -142,7 +142,7 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                         });
                         if (clerical != null)
                         {
-                            var excludedKeys = new[] { "id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved" };
+                            var excludedKeys = new[] { "id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved",  };
                             var clericalProps = clerical.GetType().GetProperties();
 
                             // Group Old/New pairs
@@ -162,15 +162,52 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
 
                                 var fieldName = FormatPropertyName(oldProp.Name.Substring(3)); // Remove "Old" prefix
 
+                                // Check if this is a URL property that should display as an image
+                                bool isImageUrl = oldProp.Name.EndsWith("Url", StringComparison.OrdinalIgnoreCase) &&
+                                                  (oldProp.Name.Contains("Representation") || oldProp.Name.Contains("Attachment"));
+
                                 table.Cell().Element(Block).Column(c =>
                                 {
                                     c.Item().Text($"Old {fieldName}:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                                    c.Item().Text(FormatValue(oldValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    if (isImageUrl && oldValue is string oldUrl && !string.IsNullOrEmpty(oldUrl))
+                                    {
+                                        try
+                                        {
+                                            using var httpClient = new HttpClient();
+                                            var imageBytes = httpClient.GetByteArrayAsync(oldUrl).GetAwaiter().GetResult();
+                                            c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
+                                        }
+                                        catch
+                                        {
+                                            c.Item().Text(oldUrl).FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        c.Item().Text(FormatValue(oldValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    }
                                 });
+
                                 table.Cell().Element(Block).Column(c =>
                                 {
                                     c.Item().Text($"New {fieldName}:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                                    c.Item().Text(FormatValue(newValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    if (isImageUrl && newValue is string newUrl && !string.IsNullOrEmpty(newUrl))
+                                    {
+                                        try
+                                        {
+                                            using var httpClient = new HttpClient();
+                                            var imageBytes = httpClient.GetByteArrayAsync(newUrl).GetAwaiter().GetResult();
+                                            c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
+                                        }
+                                        catch
+                                        {
+                                            c.Item().Text(newUrl).FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        c.Item().Text(FormatValue(newValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    }
                                 });
                             }
                         }
