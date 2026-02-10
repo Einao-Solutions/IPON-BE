@@ -21,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public string? ClassDescription { get; set; }
         public string? FileTitle { get; set; }
         public FileTypes FileType { get; set; }
+        public TradeMarkType? TrademarkType { get; set; }
         public IFormFile? Representation { get; set; }
         public TradeMarkLogo? TrademarkLogo { get; set; } 
         public string? WordMark { get; set; } = string.Empty;

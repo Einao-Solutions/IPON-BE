@@ -221,6 +221,8 @@ public record ClericalUpdate
     public string UpdateType { get; set; }
     public DateTime FilingDate { get; set; }
     public string? PaymentRRR { get; set; } = string.Empty;
+    public TradeMarkType? OldTrademarkType { get; set; }
+    public TradeMarkType? NewTrademarkType { get; set; }
     public string? OldTrademarkLogo { get; set; }
     public string? NewTrademarkLogo { get; set; }
     public string? OldApplicantName { get; set; }

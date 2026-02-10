@@ -5520,7 +5520,7 @@ public class FileServices
                         CorrespondencePhone = fileInfo.Correspondence?.phone,
                         RepresentationUrl = repAttachment?.url.FirstOrDefault(),
                         Disclaimer = fileInfo.TrademarkDisclaimer,
-
+                        TrademarkType = fileInfo.TrademarkType
 
                     };
                     break;
@@ -5732,10 +5732,18 @@ public class FileServices
                     clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
                     clerical.NewApplicantPhones = new List<string> { updateData.ApplicantPhone };
                 }
+                
+                break;
+            case ClericalUpdateTypes.TrademarkType:
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
                 {
                     clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
                     clerical.NewApplicantNationalities = new List<string> { updateData.ApplicantNationality };
+                }
+                if (updateData.TrademarkType is not null)
+                {
+                    clerical.OldTrademarkType = file.TrademarkType;
+                    clerical.NewTrademarkType = updateData.TrademarkType;
                 }
                 break;
 
@@ -6050,7 +6058,22 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence, correspondence));
 
                     break;
-
+                case "TrademarkType":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality))
+                    {
+                        for (int i = 0; i < clerical.NewApplicantNationalities.Count && i < file.applicants.Count; i++)
+                            if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
+                                file.applicants[i].country = clerical.NewApplicantNationalities[i];
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    }
+                    else if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality) && file.applicants.Count > 0)
+                    {
+                        file.applicants[0].country = clerical.NewApplicantNationality;
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    }
+                    if (clerical.NewTrademarkType is not null)
+                        updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkType, clerical.NewTrademarkType));
+                    break;
                 case "FileTitle":
                     if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
                     {

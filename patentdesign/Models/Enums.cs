@@ -87,7 +87,8 @@
         RemoveApplicant,
         AddAndRemoveApplicant,
         EditInventors,
-        PriorityInfo
+        PriorityInfo,
+        TrademarkType
     }
 
 }
