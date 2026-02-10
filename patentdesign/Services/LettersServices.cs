@@ -1343,6 +1343,7 @@ public class LettersServices
         }
 
         var data = new mergerAck(fileData, images, applicationId).GeneratePdf();
+
         return ReturnDocument(data);
     }
     public async Task<Dictionary<string, object>> MergerReceipt(Filling file, string appId)
