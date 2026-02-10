@@ -5764,10 +5764,19 @@ public class FileServices
                     file.TitleOfTradeMark;
 
                 clerical.NewFileTitle = updateData.FileTitle;
+
                 clerical.OldRepresentationUrl =
                     file.Attachments?.FirstOrDefault(a => a.name == "representation")?.url?.FirstOrDefault();
+                
                 clerical.NewRepresentationUrl = representationUrl;
+                
+                if (updateData.TrademarkLogo.HasValue)
+                {
+                    clerical.OldTrademarkLogo = file.TrademarkLogo?.ToString();
+                    clerical.NewTrademarkLogo = updateData.TrademarkLogo.Value.ToString();
+                }
                 break;
+            
             case ClericalUpdateTypes.DesignInformation:
                 clerical.OldFileTitle = file.TitleOfDesign;
                 clerical.NewFileTitle = updateData.TitleOfDesign;
@@ -5776,6 +5785,7 @@ public class FileServices
                 clerical.OldDesignType = file.DesignType;
                 clerical.NewDesignType = updateData.DesignType;
                 break;
+            
             case ClericalUpdateTypes.CreatorInformation:
                 clerical.OldDesignCreators = file.DesignCreators?.Select(c => new ApplicantInfo
                 {
@@ -5846,7 +5856,6 @@ public class FileServices
                     }
                 }
                 break;
-
 
             case ClericalUpdateTypes.AddApplicant:
 
@@ -6037,6 +6046,41 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence, correspondence));
 
                     break;
+
+                case "FileTitle":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
+                    {
+                        switch (file.Type)
+                        {
+                            case FileTypes.Design:
+                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfDesign, clerical.NewFileTitle));
+                                break;
+                            case FileTypes.Patent:
+                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfInvention, clerical.NewFileTitle));
+                                break;
+                            case FileTypes.TradeMark:
+                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+                                break;
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(clerical.NewTrademarkLogo) &&
+                        Enum.TryParse<TradeMarkLogo>(clerical.NewTrademarkLogo, out var logo))
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, logo));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(clerical.NewRepresentationUrl))
+                    {
+                        var repIdx = file.Attachments.FindIndex(a => a.name == "representation");
+                        if (repIdx >= 0)
+                            file.Attachments[repIdx].url = new List<string> { clerical.NewRepresentationUrl };
+                        else
+                            file.Attachments.Add(new AttachmentType { name = "representation", url = new List<string> { clerical.NewRepresentationUrl } });
+
+                        updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
+                    }
+                    break;
             }
 
             if (!updates.Any())
@@ -6081,8 +6125,6 @@ public class FileServices
             return false;
         }
     }
-
-
 
     //Get existing clerical update application
     public async Task<ClericalUpdateDetailsDto> GetClericalUpdateApp(string fileId, string appId)
