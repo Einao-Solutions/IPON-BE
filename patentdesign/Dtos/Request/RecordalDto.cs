@@ -30,6 +30,8 @@ namespace patentdesign.Dtos.Request
         public string? ExistingApplicationId { get; set; }
         public string? ExistingRRR { get; set; }
 
+        // NEW: for CTC – all file attachments
+        public List<AttachmentType>? Attachments { get; set; }
     }
     public class MergerApplicationDto
     {
