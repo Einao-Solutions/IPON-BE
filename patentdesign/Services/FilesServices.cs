@@ -6072,7 +6072,24 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
                     if (clerical.NewTrademarkType is not null)
+                    {
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkType, clerical.NewTrademarkType));
+
+                        // Update FileId prefix based on TrademarkType
+                        var fileIdParts = file.FileId?.Split('/');
+                        if (fileIdParts is { Length: >= 1 })
+                        {
+                            // TradeMarkType.Foreign = 1, TradeMarkType.Local = 0
+                            var newPrefix = clerical.NewTrademarkType == TradeMarkType.Foreign ? "F" : "NG";
+
+                            if (fileIdParts[0] != newPrefix)
+                            {
+                                fileIdParts[0] = newPrefix;
+                                var updatedFileId = string.Join("/", fileIdParts);
+                                updates.Add(Builders<Filling>.Update.Set(f => f.FileId, updatedFileId));
+                            }
+                        }
+                    }
                     break;
                 case "FileTitle":
                     if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
