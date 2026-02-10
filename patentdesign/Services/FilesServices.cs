@@ -1277,14 +1277,14 @@ public class FileServices
             StatusHistory =
             [
                 new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.None,
-                afterStatus = ApplicationStatuses.AwaitingCertification,
-                Date = DateTime.Now,
-                Message = "Certificate application initiated, awaiting payment",
-                User = username,
-                UserId = user.Id
-            }
+                {
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingCertification,
+                    Date = DateTime.Now,
+                    Message = "Certificate application initiated, awaiting payment",
+                    User = username,
+                    UserId = user.Id
+                }
             ]
         };
 
@@ -1295,7 +1295,8 @@ public class FileServices
             filter,
             Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Set("ApplicationHistory.0.CertificatePaymentId", rrr),
-                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification)
+                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification),
+                Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.AwaitingCertification)
             )
         );
 
@@ -3113,12 +3114,15 @@ public class FileServices
         var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateReceipt);
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateAck);
+        var cIndex = file.ApplicationHistory.FindIndex(x => x.ApplicationType == FormApplicationTypes.Certification);
         var newLetters = file.ApplicationHistory[0].ApplicationLetters;
         var result = await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, fileId),
             Builders<Filling>.Update.Combine([
                 Builders<Filling>.Update.Set(x => x.ApplicationHistory[0].ApplicationLetters, newLetters),
                      Builders<Filling>.Update.Set(x => x.ApplicationHistory[0].CertificatePaymentId, rrr),
                      Builders<Filling>.Update.Set(x => x.ApplicationHistory[0].CurrentStatus,
+                         ApplicationStatuses.AwaitingCertificateConfirmation),
+                     Builders<Filling>.Update.Set(x => x.ApplicationHistory[cIndex].CurrentStatus,
                          ApplicationStatuses.AwaitingCertificateConfirmation),
                      Builders<Filling>.Update.Set(x => x.FileStatus,
                          ApplicationStatuses.AwaitingCertificateConfirmation),
