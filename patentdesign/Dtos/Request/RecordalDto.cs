@@ -12,13 +12,23 @@ namespace patentdesign.Dtos.Request
         public string? ApplicantPhone { get; set; }
         public string? ApplicantNationality { get; set; }
         public string? ApplicantAddress { get; set; }
+        public string? ApplicantState { get; set; }
         public string? FileId { get; set; }
         public string? FileType { get; set; }
+        public string? FileOrigin { get; set; }
+        public PatentTypes? PatentType { get; set; }
+        public PatentApplicationTypes? PatentApplicationType { get; set; }
+        public string? TitleOfInvention { get; set; }
         public string? DataChangeType { get; set; }
         public string? rrr { get; set; }
         public string? Amount { get; set; }
         public string? ServiceFee { get; set; }
         public string? RtmNumber { get; set; }
+
+        // patent cost re‑use / guard fields
+        public bool HasExistingApplication { get; set; }
+        public string? ExistingApplicationId { get; set; }
+        public string? ExistingRRR { get; set; }
 
     }
     public class MergerApplicationDto

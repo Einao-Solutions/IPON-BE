@@ -3581,7 +3581,7 @@ public class FileServices
                 data.Item1, data.Item3, data.Item2, "Status Search",
                 applicant.Name, applicant.Email, applicant.Phone);
 
-            var mergeCost = new RecordalDto
+            var statusSearchCost = new RecordalDto
             {
                 Amount = data.Item1,
                 rrr = paymentId,
@@ -3591,12 +3591,363 @@ public class FileServices
                 TrademarkClass = fileInfo.TrademarkClass
             };
 
-            return mergeCost;
+            return statusSearchCost;
         }
         catch (Exception up)
         {
             //log error
             _log.LogError(up, "Error-at-StatusSearchCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentAssignmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            // Check if there is already a pending/created assignment application
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Assignment &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantPhone = applicant.Phone,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin
+            };
+
+            if (existingApp != null)
+            {
+                // Do NOT generate a new RRR; just tell the frontend an app already exists
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            // Normal cost + RRR generation path
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAssignment, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Assignment",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentAssignmentCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentLicenseCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.License &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin
+            };
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentLicense, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent License",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentLicenseCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentMortgageCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Mortgage &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin
+            };
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMortgage, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Mortgage",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentMortgageCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentMergerCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Merger &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin
+            };
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentMerger, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentMergerCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentCtcCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentCtc, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantPhone = applicant.Phone,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentCtcCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> PatentAmendmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAmendment, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Amendment",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var result = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantPhone = applicant.Phone,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                PatentType = fileInfo.PatentType,
+                PatentApplicationType = fileInfo.PatentApplicationType,
+                TitleOfInvention = fileInfo.TitleOfInvention,
+                FileOrigin = fileInfo.FileOrigin,
+            };
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-PatentAmendmentCost");
             throw;
         }
     }
@@ -3785,7 +4136,6 @@ public class FileServices
             throw;
         }
     }
-
 
     public async Task<List<AvailabilitySearchDto>> GetRelatedTitles(string? fileName = null, int? classNo = null, string? type = null)
     {
@@ -5018,17 +5368,17 @@ public class FileServices
             FieldToChange = "Withdrawal Request",
             NewValue = "",
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = DateTime.Now,
-                beforeStatus = ApplicationStatuses.None,
-                afterStatus = ApplicationStatuses.RequestWithdrawal,
-                Message = "Withdrawal Request Submitted",
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.RequestWithdrawal,    
+                    Message = "Withdrawal Request Submitted",
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
             }
-        }
         };
 
         file.ApplicationHistory ??= new List<ApplicationInfo>();
@@ -5925,7 +6275,6 @@ public class FileServices
 
         return clerical;
     }
-
 
     public async Task<bool> ApplyClericalUpdateToFile(string fileId, string clericalUpdateId)
     {
@@ -7555,4 +7904,960 @@ public class FileServices
 
         return result.ModifiedCount > 0;
     }
+
+    #region
+
+    //Patent Assignment Registration Section
+    public async Task<bool> NewPatentAssignmentApplication(PatentAssignmentDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Upload Assignment Deed
+        if (dto.AssignmentDeed != null && dto.AssignmentDeed.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.AssignmentDeed);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "Patent post registration deed of assignments");
+            if (existingDeed != null)
+            {
+                // Add only new URLs if not already present
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "Patent post registration deed of assignments",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Upload Supporting Documents
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "Patent post registration assignment supporting documents");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "Patent post registration assignment supporting documents",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        // Verify payment (single check here)
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Assignment application submitted, awaiting payment";
+
+        // Application history
+        var assignmentHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Assignment,
+            CurrentStatus = status,
+            ApplicationDate = dto.AssignmentDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Assignment Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.AssignmentRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
+            }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = assignmentHistory.id,
+            RecordalType = "Patent Assignment Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.AssignmentDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.AssignmentRequestDate ?? DateTime.Now).ToString(),
+            // Old assignor (previous patent holder)
+            OldAssignorName = dto.OldAssignorName,
+            OldAssignorEmail = dto.OldAssignorEmail,
+            OldAssignorPhone = dto.OldAssignorPhone,
+            OldAssignorAddress = dto.OldAssignorAddress,
+            OldAssignorNationality = dto.OldAssignorNationality,
+            OldAssignorState = dto.OldAssignorState,
+            OldAssignorCity = dto.OldAssignorCity,
+
+            // New assignee (now the applicant)
+            Name = dto.NewAssigneeName,
+            Email = dto.NewAssigneeEmail,
+            Phone = dto.NewAssigneePhone,
+            Address = dto.NewAssigneeAddress,
+            Nationality = dto.NewAssigneeNationality,
+            State = dto.NewAssigneeState,
+            City = dto.NewAssigneeCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+                .Push(f => f.PostRegApplications, recordal)
+                .Push(f => f.ApplicationHistory, assignmentHistory)
+                .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetPatentAssignmentDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch assignment deed attachments
+        var assignmentDeedAttachments = file.Attachments?
+            .Where(a => a.name == "Patent post registration deed of assignments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch supporting document attachments
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "Patent post registration assignment supporting documents")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch the PostRegApp for assignment (should be only one per your requirements)
+        var assignmentApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent Assignment Recordal");
+
+        // New assignee details
+        var newAssignee = assignmentApp == null ? null : new
+        {
+            Name = assignmentApp.Name,
+            Address = assignmentApp.Address,
+            Email = assignmentApp.Email,
+            Phone = assignmentApp.Phone,
+            State = assignmentApp.State,
+            Nationality = assignmentApp.Nationality,
+            City = assignmentApp.City
+        };
+
+        // Old assignor details
+        var oldAssignor = assignmentApp == null ? null : new
+        {
+            Name = assignmentApp.OldAssignorName,
+            Address = assignmentApp.OldAssignorAddress,
+            Email = assignmentApp.OldAssignorEmail,
+            Phone = assignmentApp.OldAssignorPhone,
+            State = assignmentApp.OldAssignorState,
+            Nationality = assignmentApp.OldAssignorNationality,
+            City = assignmentApp.OldAssignorCity,
+        };
+
+        var filingDate = assignmentApp.FilingDate;
+
+        return new
+        {
+            FileId = file.FileId,
+            AssignmentDeedAttachments = assignmentDeedAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewAssignee = newAssignee,
+            OldAssignor = oldAssignor,
+            Filingdate = filingDate
+        };
+    }
+
+    public async Task<(bool Success, string Message)> PatentAssignmentDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newAssignee = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        // Find the ApplicationInfo for Assignment
+        var assignmentApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Assignment);
+
+        if (assignmentApp == null)
+            return (false, "No assignment application found");
+
+        // Prepare new status history entry
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = assignmentApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        assignmentApp.StatusHistory.Add(newStatus);
+        assignmentApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+
+        // Update applicant info if approved
+        if (approve && newAssignee != null)
+        {
+            file.applicants = new List<ApplicantInfo> { newAssignee };
+        }
+
+        //if (approve && newAssignee != null)
+        //{
+        //    if (!string.IsNullOrWhiteSpace(newAssignee.Nationality))
+        //    {
+        //        newAssignee.country = newAssignee.Nationality;
+        //    }
+        //    file.applicants = new List<ApplicantInfo> { newAssignee };
+        //}
+
+        // Save changes
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Assignment approved" : "Assignment refused");
+    }
+
+    #endregion
+
+    #region 
+    
+    //Patent License Post Registration Section
+    public async Task<bool> NewPatentLicenseApplication(PatentLicenseDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Upload Deed of License
+        if (dto.Deedoflicense != null && dto.Deedoflicense.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedoflicense);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "Deedoflicense");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "Deedoflicense",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Upload Supporting Documents
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "PatentLicenseSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "PatentLicenseSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "License application submitted, awaiting payment";
+
+        // Application history
+        var licenseHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.License,
+            CurrentStatus = status,
+            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent License Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.LicenseRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = licenseHistory.id,
+            RecordalType = "Patent License Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
+            // Old licensor (previous patent holder)
+            OldLicensorName = dto.OldLicensorName,
+            OldLicensorEmail = dto.OldLicensorEmail,
+            OldLicensorPhone = dto.OldLicensorPhone,
+            OldLicensorAddress = dto.OldLicensorAddress,
+            OldLicensorNationality = dto.OldLicensorNationality,
+            OldLicensorState = dto.OldLicensorState,
+            OldLicensorCity = dto.OldLicensorCity,
+
+            // New licensee (now the applicant)
+            Name = dto.NewLicenseeName,
+            Email = dto.NewLicenseeEmail,
+            Phone = dto.NewLicenseePhone,
+            Address = dto.NewLicenseeAddress,
+            Nationality = dto.NewLicenseeNationality,
+            State = dto.NewLicenseeState,
+            City = dto.NewLicenseeCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+        .Push(f => f.PostRegApplications, recordal)
+        .Push(f => f.ApplicationHistory, licenseHistory)
+        .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetPatentLicenseDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch deed of license attachments
+        var deedOfLicenseAttachments = file.Attachments?
+            .Where(a => a.name == "Deedoflicense")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch supporting document attachments
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "PatentLicenseSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch the PostRegApp for license
+        var licenseApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent License Recordal");
+
+        // New licensee details
+        var newLicensee = licenseApp == null ? null : new
+        {
+            Name = licenseApp.Name,
+            Address = licenseApp.Address,
+            Email = licenseApp.Email,
+            Phone = licenseApp.Phone,
+            State = licenseApp.State,
+            Nationality = licenseApp.Nationality,
+            City = licenseApp.City,
+        };
+
+        // Old licensor details
+        var oldLicensor = licenseApp == null ? null : new
+        {
+            Name = licenseApp.OldLicensorName,
+            Address = licenseApp.OldLicensorAddress,
+            Email = licenseApp.OldLicensorEmail,
+            Phone = licenseApp.OldLicensorPhone,
+            State = licenseApp.OldLicensorState,
+            Nationality = licenseApp.OldLicensorNationality,
+            City = licenseApp.OldLicensorCity
+        };
+
+        var filingDate = licenseApp.FilingDate;
+
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfLicenseAttachments = deedOfLicenseAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewLicensee = newLicensee,
+            OldLicensor = oldLicensor,
+            Filingdate = filingDate
+        };
+    }
+
+    public async Task<(bool Success, string Message)> PatentLicenseDecisionAsync( string fileId, string appId, bool approve, string reason, ApplicantInfo newLicensee = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        // Find the ApplicationInfo for License
+        var licenseApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.License);
+
+        if (licenseApp == null)
+            return (false, "No license application found");
+
+        // Prepare new status history entry
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = licenseApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        licenseApp.StatusHistory.Add(newStatus);
+        licenseApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+
+        // If approved, update applicant info with new licensee details
+        if (approve && newLicensee != null)
+        {
+            file.applicants = new List<ApplicantInfo> { newLicensee };
+        }
+
+        // Save changes
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "License approved" : "License refused");
+    }
+
+    #endregion
+
+    #region
+    //Patent Mortgage Post Registration Section
+    public async Task<bool> NewPatentMortgageApplication(PatentMortgageDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Upload Deed of Mortgage
+        if (dto.Deedofmortgage != null && dto.Deedofmortgage.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedofmortgage);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "Deedofmortgage");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "Deedofmortgage",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Upload Supporting Documents
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "PatentMortgageSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "PatentMortgageSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Mortgage application submitted, awaiting payment";
+
+        // Application history
+        var mortgageHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Mortgage,
+            CurrentStatus = status,
+            ApplicationDate = dto.MortgageDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Mortgage Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.MortgageRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = mortgageHistory.id,
+            RecordalType = "Patent Mortgage Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.MortgageDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.MortgageRequestDate ?? DateTime.Now).ToString(),
+            // Old mortgagor (previous patent holder)
+            OldMortgagorName = dto.OldMortgageeName,
+            OldMortgagorEmail = dto.OldMortgageeEmail,
+            OldMortgagorPhone = dto.OldMortgageePhone,
+            OldMortgagorAddress = dto.OldMortgageeAddress,
+            OldMortgagorNationality = dto.OldMortgageeNationality,
+            OldMortgagorState = dto.OldMortgageeState,
+            OldMortgagorCity = dto.OldMortgageeCity,
+            // New mortgagee (now the applicant)
+            Name = dto.NewMortgagorName,
+            Email = dto.NewMortgagorEmail,
+            Phone = dto.NewMortgagorPhone,
+            Address = dto.NewMortgagorAddress,
+            Nationality = dto.NewMortgagorNationality,
+            State = dto.NewMortgagorState,
+            City = dto.NewMortgagorCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+         .Push(f => f.PostRegApplications, recordal)
+         .Push(f => f.ApplicationHistory, mortgageHistory)
+         .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetPatentMortgageDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch deed of mortgage attachments
+        var deedOfMortgageAttachments = file.Attachments?
+            .Where(a => a.name == "Deedofmortgage")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch supporting document attachments
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "PatentMortgageSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch the PostRegApp for mortgage
+        var mortgageApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent Mortgage Recordal");
+
+        // New mortgagee details
+        var newMortgagee = mortgageApp == null ? null : new
+        {
+            Name = mortgageApp.Name,
+            Address = mortgageApp.Address,
+            Email = mortgageApp.Email,
+            Phone = mortgageApp.Phone,
+            State = mortgageApp.State,
+            Nationality = mortgageApp.Nationality,
+            City = mortgageApp.City,
+        };
+
+        // Old mortgagor details
+        var oldMortgagor = mortgageApp == null ? null : new
+        {
+            Name = mortgageApp.OldMortgagorName,
+            Address = mortgageApp.OldMortgagorAddress,
+            Email = mortgageApp.OldMortgagorEmail,
+            Phone = mortgageApp.OldMortgagorPhone,
+            State = mortgageApp.OldMortgagorState,
+            Nationality = mortgageApp.OldMortgagorNationality,
+            City = mortgageApp.OldMortgagorCity
+        };
+
+        var filingDate = mortgageApp.FilingDate;
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfMortgageAttachments = deedOfMortgageAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewMortgagee = newMortgagee,
+            OldMortgagor = oldMortgagor,
+            Filingdate = filingDate
+        };
+    }
+
+    public async Task<(bool Success, string Message)> PatentMortgageDecisionAsync( string fileId, string appId, bool approve, string reason, ApplicantInfo newMortgagee = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        // Find the ApplicationInfo for Mortgage
+        var mortgageApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Mortgage);
+
+        if (mortgageApp == null)
+            return (false, "No mortgage application found");
+
+        // Prepare new status history entry
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = mortgageApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        mortgageApp.StatusHistory.Add(newStatus);
+        mortgageApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+
+        // If approved, update applicant info with new mortgagee details
+        if (approve && newMortgagee != null)
+        {
+            file.applicants = new List<ApplicantInfo> { newMortgagee };
+        }
+
+        // Save changes
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Mortgage approved" : "Mortgage refused");
+    }
+
+    #endregion
+
+    #region
+
+    //Patent Merger Post Registration Section
+    public async Task<bool> NewPatentMergerApplication(PatentMergerDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Upload Deed of Merger
+        if (dto.Deedofmerger != null && dto.Deedofmerger.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedofmerger);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "Deedofmerger");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "Deedofmerger",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Upload Supporting Documents
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "PatentMergerSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "PatentMergerSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Merger application submitted, awaiting payment";
+
+        // Application history
+        var mergerHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Merger,
+            CurrentStatus = status,
+            ApplicationDate = dto.MergerDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Merger Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.MergerRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = mergerHistory.id,
+            RecordalType = "Patent Merger Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.MergerDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.MergerRequestDate ?? DateTime.Now).ToString(),
+            // Old merger party (previous patent holder)
+            OldMergerName = dto.OldMergerName,
+            OldMergerEmail = dto.OldMergerEmail,
+            OldMergerPhone = dto.OldMergerPhone,
+            OldMergerAddress = dto.OldMergerAddress,
+            OldMergerNationality = dto.OldMergerNationality,
+            OldMergerState = dto.OldMergerState,
+            OldMergerCity = dto.OldMergerCity,
+            // New merged party (now the applicant)
+            Name = dto.NewMergerName,
+            Email = dto.NewMergerEmail,
+            Phone = dto.NewMergerPhone,
+            Address = dto.NewMergerAddress,
+            Nationality = dto.NewMergerNationality,
+            State = dto.NewMergerState,
+            City = dto.NewMergerCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, mergerHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetPatentMergerDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch deed of merger attachments
+        var deedOfMergerAttachments = file.Attachments?
+            .Where(a => a.name == "Deedofmerger")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch supporting document attachments
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "PatentMergerSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        // Fetch the PostRegApp for merger
+        var mergerApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent Merger Recordal");
+
+        // New merged party details
+        var newMergedParty = mergerApp == null ? null : new
+        {
+            Name = mergerApp.Name,
+            Address = mergerApp.Address,
+            Email = mergerApp.Email,
+            Phone = mergerApp.Phone,
+            State = mergerApp.State,
+            Nationality = mergerApp.Nationality,
+            City = mergerApp.City,
+        };
+
+        // Old merger party details
+        var oldMergerParty = mergerApp == null ? null : new
+        {
+            Name = mergerApp.OldMergerName,
+            Address = mergerApp.OldMergerAddress,
+            Email = mergerApp.OldMergerEmail,
+            Phone = mergerApp.OldMergerPhone,
+            State = mergerApp.OldMergerState,
+            Nationality = mergerApp.OldMergerNationality,
+            City = mergerApp.OldMergerCity
+        };
+
+        var filingDate = mergerApp.FilingDate;
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfMergerAttachments = deedOfMergerAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewMergedParty = newMergedParty,
+            OldMergerParty = oldMergerParty,
+            filingDate =  filingDate
+
+        };
+    }
+
+    public async Task<(bool Success, string Message)> PatentMergerDecisionAsync( string fileId, string appId, bool approve, string reason, ApplicantInfo newMergedParty = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+        // Find the ApplicationInfo for Merger
+        var mergerApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Merger);
+        if (mergerApp == null)
+            return (false, "No merger application found");
+        // Prepare new status history entry
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = mergerApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+        mergerApp.StatusHistory.Add(newStatus);
+        mergerApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+        // If approved, update applicant info with new merged party details
+        if (approve && newMergedParty != null)
+        {
+            file.applicants = new List<ApplicantInfo> { newMergedParty };
+        }
+        // Save changes
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+        return (true, approve ? "Merger approved" : "Merger refused");
+    }
+
+    #endregion
+
 }

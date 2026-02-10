@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
@@ -745,6 +746,194 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
 
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent assignment application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentAssignmentCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentAssignmentCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentAssignmentCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent license application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentLicenseCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentLicenseCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentLicenseCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent mortgage application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentMortgageCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentMortgageCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentMortgageCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent CTC (Certified True Copy) application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentCtcCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentCtcCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentCtcCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent amendment application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentAmendmentCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentAmendmentCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentAmendmentCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the cost and payment reference for a patent merger application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (e.g., Patent, Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetPatentMergerCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetPatentMergerCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.PatentMergerCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
     [HttpPost("AddStatusSearchHistory")]
     public async Task<IActionResult> AddStatusSearchHistory([FromQuery] string fileId, [FromQuery] string rrr)
     {
@@ -860,6 +1049,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+
     [HttpGet("GetApplicationsByFile")]
     public async Task<IActionResult> GetApplicationsByFile([FromQuery] string fileId)
     {
@@ -1060,6 +1250,387 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
 
     }
+
+
+    #region
+
+    //Patent Assignment Post Registration Section
+    /// <summary>
+    /// Submits a new patent assignment application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), assignment deed, supporting documents, and assignment dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent assignment application details, including file ID, RRR, assignment deed, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentAssignmentApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentAssignmentApplication([FromBody] PatentAssignmentDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentAssignmentApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent assignment application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent assignment application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+           // _log.LogError(ex, "Error-at-PatentAssignmentApplication");
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns all attachments, new assignee, and old assignor details for a patent assignment application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns assignment attachments and assignee details.<br/>
+    /// 404: Not found if no assignment application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentAssignmentDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentAssignmentDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentAssignmentDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No assignment application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent assignment application.
+    /// </summary>
+    /// <remarks>
+    /// The examiner reviews the assignment application, enters a reason, and chooses to approve or refuse.
+    /// If approved, the system updates the assignment status and applicant info. If refused, status is updated and applicant info remains unchanged.
+    /// </remarks>
+    /// <param name="dto">Assignment decision details including file ID, application ID, approval flag, reason, and new assignee info.</param>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item>200: Success, returns decision result and message.</item>
+    /// <item>404: Not found if file or application does not exist.</item>
+    /// <item>500: Internal server error.</item>
+    /// </list>
+    /// </returns>
+    [HttpPost("assignment-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> AssignmentDecision([FromBody] PatentAssignmentDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentAssignmentDecisionAsync(
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewAssignee);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
+
+
+    #region
+    //Patent License Post Registration Section
+    /// <summary>
+    /// Submits a new patent license application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), deed of license, supporting documents, and license dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent license application details, including file ID, RRR, deed of license, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentLicenseApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentLicenseApplication([FromBody] PatentLicenseDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentLicenseApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent license application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent license application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns all attachments, new licensee, and old licensor details for a patent license application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns license attachments and licensee/licensor details.<br/>
+    /// 404: Not found if no license application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentLicenseDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentLicenseDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentLicenseDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No license application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent license application.
+    /// </summary>
+    /// <remarks>
+    /// The examiner reviews the license application, enters a reason, and chooses to approve or refuse.
+    /// If approved, the system updates the license status and applicant info. If refused, status is updated and applicant info remains unchanged.
+    /// </remarks>
+    /// <param name="dto">License decision details including file ID, application ID, approval flag, reason, and new licensee info.</param>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item>200: Success, returns decision result and message.</item>
+    /// <item>404: Not found if file or application does not exist.</item>
+    /// <item>500: Internal server error.</item>
+    /// </list>
+    /// </returns>
+    [HttpPost("license-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> LicenseDecision([FromBody] PatentLicenseDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentLicenseDecisionAsync(
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewLicensee);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
+
+
+    #region
+
+    //Patent Merger Post Registration Section
+    /// <summary>
+    /// Submits a new patent merger application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), deed of merger, supporting documents, and merger dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent merger application details, including file ID, RRR, deed of merger, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentMergerApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentMergerApplication([FromBody] PatentMergerDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentMergerApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent merger application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent merger application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns all attachments, new merged party, and old merger party details for a patent merger application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns merger attachments and merger party details.<br/>
+    /// 404: Not found if no merger application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentMergerDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentMergerDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentMergerDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No merger application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent merger application.
+    /// </summary>
+    /// <remarks>
+    /// The examiner reviews the merger application, enters a reason, and chooses to approve or refuse.
+    /// If approved, the system updates the merger status and applicant info. If refused, status is updated and applicant info remains unchanged.
+    /// </remarks>
+    /// <param name="dto">Merger decision details including file ID, application ID, approval flag, reason, and new merged party info.</param>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item>200: Success, returns decision result and message.</item>
+    /// <item>404: Not found if file or application does not exist.</item>
+    /// <item>500: Internal server error.</item>
+    /// </list>
+    /// </returns>
+    [HttpPost("merger-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> MergerDecision([FromBody] PatentMergerDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentMergerDecisionAsync(
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMergedParty);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
+
+
+
+    #region
+
+    //Patent Mortgage Post Registration Section
+    /// <summary>
+    /// Submits a new patent mortgage application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), deed of mortgage, supporting documents, and mortgage dates.
+    /// The backend will verify payment, save the application, update status, and attach the provided documents.
+    /// </remarks>
+    /// <param name="dto">The patent mortgage application details, including file ID, RRR, deed of mortgage, supporting documents, and dates.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentMortgageApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PatentMortgageApplication([FromBody] PatentMortgageDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentMortgageApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent mortgage application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent mortgage application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            // Optionally log ex
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns all attachments, new mortgagee, and old mortgagor details for a patent mortgage application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns mortgage attachments and mortgagee/mortgagor details.<br/>
+    /// 404: Not found if no mortgage application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentMortgageDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentMortgageDetails([FromQuery] string fileId)
+    {
+        var result = await fileService.GetPatentMortgageDetailsAsync(fileId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No mortgage application found for this file."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent mortgage application.
+    /// </summary>
+    /// <remarks>
+    /// The examiner reviews the mortgage application, enters a reason, and chooses to approve or refuse.
+    /// If approved, the system updates the mortgage status and applicant info. If refused, status is updated and applicant info remains unchanged.
+    /// </remarks>
+    /// <param name="dto">Mortgage decision details including file ID, application ID, approval flag, reason, and new mortgagee info.</param>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item>200: Success, returns decision result and message.</item>
+    /// <item>404: Not found if file or application does not exist.</item>
+    /// <item>500: Internal server error.</item>
+    /// </list>
+    /// </returns>
+    [HttpPost("mortgage-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> MortgageDecision([FromBody] PatentMortgageDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentMortgageDecisionAsync(
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMortgagee);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
 
     [HttpPost("ExaminePatentDesign")]
     public async Task<IActionResult> ExaminePatentDesign([FromQuery] string fileId, [FromQuery] string userId, [FromQuery] ApplicationStatuses status)
