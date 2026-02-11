@@ -145,7 +145,7 @@ public class FileServices
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
 
-        await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
+        //await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
 
         // Record payment and performance metrics
         await RecordPaymentAndPerformance(file, application, paymentInfo, userName, userId);
@@ -1277,14 +1277,14 @@ public class FileServices
             StatusHistory =
             [
                 new ApplicationHistory
-            {
-                beforeStatus = ApplicationStatuses.None,
-                afterStatus = ApplicationStatuses.AwaitingCertification,
-                Date = DateTime.Now,
-                Message = "Certificate application initiated, awaiting payment",
-                User = username,
-                UserId = user.Id
-            }
+                {
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingCertification,
+                    Date = DateTime.Now,
+                    Message = "Certificate application initiated, awaiting payment",
+                    User = username,
+                    UserId = user.Id
+                }
             ]
         };
 
@@ -1295,7 +1295,8 @@ public class FileServices
             filter,
             Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Set("ApplicationHistory.0.CertificatePaymentId", rrr),
-                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification)
+                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingCertification),
+                Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.AwaitingCertification)
             )
         );
 
@@ -3113,12 +3114,15 @@ public class FileServices
         var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateReceipt);
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateAck);
+        var cIndex = file.ApplicationHistory.FindIndex(x => x.ApplicationType == FormApplicationTypes.Certification);
         var newLetters = file.ApplicationHistory[0].ApplicationLetters;
         var result = await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, fileId),
             Builders<Filling>.Update.Combine([
                 Builders<Filling>.Update.Set(x => x.ApplicationHistory[0].ApplicationLetters, newLetters),
                      Builders<Filling>.Update.Set(x => x.ApplicationHistory[0].CertificatePaymentId, rrr),
                      Builders<Filling>.Update.Set(x => x.ApplicationHistory[0].CurrentStatus,
+                         ApplicationStatuses.AwaitingCertificateConfirmation),
+                     Builders<Filling>.Update.Set(x => x.ApplicationHistory[cIndex].CurrentStatus,
                          ApplicationStatuses.AwaitingCertificateConfirmation),
                      Builders<Filling>.Update.Set(x => x.FileStatus,
                          ApplicationStatuses.AwaitingCertificateConfirmation),
@@ -5867,7 +5871,7 @@ public class FileServices
                         CorrespondencePhone = fileInfo.Correspondence?.phone,
                         RepresentationUrl = repAttachment?.url.FirstOrDefault(),
                         Disclaimer = fileInfo.TrademarkDisclaimer,
-
+                        TrademarkType = fileInfo.TrademarkType
 
                     };
                     break;
@@ -6066,22 +6070,31 @@ public class FileServices
                 break;
 
             case ClericalUpdateTypes.ApplicantAddress:
-                clerical.OldApplicantAddress = file.applicants[0].Address;
-                clerical.NewApplicantAddress = updateData.ApplicantAddress;
-                if(!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
+                clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
+                clerical.NewApplicantAddresses = new List<string> { updateData.ApplicantAddress };
+
+                if (!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
                 {
-                    clerical.OldApplicantEmail = file.applicants[0].Email;
-                    clerical.NewApplicantEmail = updateData.ApplicantEmail;
+                    clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
+                    clerical.NewApplicantEmails = new List<string> { updateData.ApplicantEmail };
                 }
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantPhone))
                 {
-                    clerical.OldApplicantPhone = file.applicants[0].Phone;
-                    clerical.NewApplicantPhone = updateData.ApplicantPhone;
+                    clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
+                    clerical.NewApplicantPhones = new List<string> { updateData.ApplicantPhone };
                 }
+                
+                break;
+            case ClericalUpdateTypes.TrademarkType:
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
                 {
-                    clerical.OldApplicantNationality = file.applicants[0].country;
-                    clerical.NewApplicantNationality = updateData.ApplicantNationality;
+                    clerical.OldApplicantNationalities = file.applicants.Select(a => a.country).ToList();
+                    clerical.NewApplicantNationalities = new List<string> { updateData.ApplicantNationality };
+                }
+                if (updateData.TrademarkType is not null)
+                {
+                    clerical.OldTrademarkType = file.TrademarkType;
+                    clerical.NewTrademarkType = updateData.TrademarkType;
                 }
                 break;
 
@@ -6114,10 +6127,19 @@ public class FileServices
                     file.TitleOfTradeMark;
 
                 clerical.NewFileTitle = updateData.FileTitle;
+
                 clerical.OldRepresentationUrl =
                     file.Attachments?.FirstOrDefault(a => a.name == "representation")?.url?.FirstOrDefault();
+                
                 clerical.NewRepresentationUrl = representationUrl;
+                
+                if (updateData.TrademarkLogo.HasValue)
+                {
+                    clerical.OldTrademarkLogo = file.TrademarkLogo?.ToString();
+                    clerical.NewTrademarkLogo = updateData.TrademarkLogo.Value.ToString();
+                }
                 break;
+            
             case ClericalUpdateTypes.DesignInformation:
                 clerical.OldFileTitle = file.TitleOfDesign;
                 clerical.NewFileTitle = updateData.TitleOfDesign;
@@ -6126,6 +6148,7 @@ public class FileServices
                 clerical.OldDesignType = file.DesignType;
                 clerical.NewDesignType = updateData.DesignType;
                 break;
+            
             case ClericalUpdateTypes.CreatorInformation:
                 clerical.OldDesignCreators = file.DesignCreators?.Select(c => new ApplicantInfo
                 {
@@ -6196,7 +6219,6 @@ public class FileServices
                     }
                 }
                 break;
-
 
             case ClericalUpdateTypes.AddApplicant:
 
@@ -6315,27 +6337,35 @@ public class FileServices
                     break;
 
                 case "ApplicantAddress":
-                    for (int i = 0; i < file.applicants.Count; i++)
+                    if(clerical.NewApplicantAddresses?.Any() == true)
                     {
-                        if (i < clerical.NewApplicantAddresses?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantAddresses[i]))
-                            file.applicants[i].Address = clerical.NewApplicantAddresses[i];
+                        for (int i = 0; i < clerical.NewApplicantAddresses.Count && i < file.applicants.Count; i++) 
+                        { 
+                            if (i < clerical.NewApplicantAddresses?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantAddresses[i]))
+                                file.applicants[i].Address = clerical.NewApplicantAddresses[i];
 
-                        if (i < clerical.NewApplicantEmails?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantEmails[i]))
-                            file.applicants[i].Email = clerical.NewApplicantEmails[i];
+                            if (i < clerical.NewApplicantEmails?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantEmails[i]))
+                                file.applicants[i].Email = clerical.NewApplicantEmails[i];
 
-                        if (i < clerical.NewApplicantPhones?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantPhones[i]))
-                            file.applicants[i].Phone = clerical.NewApplicantPhones[i];
+                            if (i < clerical.NewApplicantPhones?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantPhones[i]))
+                                file.applicants[i].Phone = clerical.NewApplicantPhones[i];
 
-                        if (i < clerical.NewApplicantNationalities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
-                            file.applicants[i].country = clerical.NewApplicantNationalities[i];
+                            if (i < clerical.NewApplicantNationalities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
+                                file.applicants[i].country = clerical.NewApplicantNationalities[i];
 
-                        if (i < clerical.NewApplicantStates?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantStates[i]))
-                            file.applicants[i].State = clerical.NewApplicantStates[i];
+                            if (i < clerical.NewApplicantStates?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantStates[i]))
+                                file.applicants[i].State = clerical.NewApplicantStates[i];
 
-                        if (i < clerical.NewApplicantCities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantCities[i]))
-                            file.applicants[i].city = clerical.NewApplicantCities[i];
+                            if (i < clerical.NewApplicantCities?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantCities[i]))
+                                file.applicants[i].city = clerical.NewApplicantCities[i];
+                        }
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
-                    updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    else if (!string.IsNullOrWhiteSpace(clerical.NewApplicantAddress) && file.applicants.Count > 0)
+                    {
+                        file.applicants[0].Address = clerical.NewApplicantAddress;
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    }
                     break;
 
                 case "FileClass":
@@ -6377,6 +6407,73 @@ public class FileServices
                     if (hasCorrespondence)
                         updates.Add(Builders<Filling>.Update.Set(f => f.Correspondence, correspondence));
 
+                    break;
+                case "TrademarkType":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality))
+                    {
+                        for (int i = 0; i < clerical.NewApplicantNationalities.Count && i < file.applicants.Count; i++)
+                            if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
+                                file.applicants[i].country = clerical.NewApplicantNationalities[i];
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    }
+                    else if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality) && file.applicants.Count > 0)
+                    {
+                        file.applicants[0].country = clerical.NewApplicantNationality;
+                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
+                    }
+                    if (clerical.NewTrademarkType is not null)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkType, clerical.NewTrademarkType));
+
+                        // Update FileId prefix based on TrademarkType
+                        var fileIdParts = file.FileId?.Split('/');
+                        if (fileIdParts is { Length: >= 1 })
+                        {
+                            // TradeMarkType.Foreign = 1, TradeMarkType.Local = 0
+                            var newPrefix = clerical.NewTrademarkType == TradeMarkType.Foreign ? "F" : "NG";
+
+                            if (fileIdParts[0] != newPrefix)
+                            {
+                                fileIdParts[0] = newPrefix;
+                                var updatedFileId = string.Join("/", fileIdParts);
+                                updates.Add(Builders<Filling>.Update.Set(f => f.FileId, updatedFileId));
+                            }
+                        }
+                    }
+                    break;
+                case "FileTitle":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
+                    {
+                        switch (file.Type)
+                        {
+                            case FileTypes.Design:
+                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfDesign, clerical.NewFileTitle));
+                                break;
+                            case FileTypes.Patent:
+                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfInvention, clerical.NewFileTitle));
+                                break;
+                            case FileTypes.TradeMark:
+                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
+                                break;
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(clerical.NewTrademarkLogo) &&
+                        Enum.TryParse<TradeMarkLogo>(clerical.NewTrademarkLogo, out var logo))
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, logo));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(clerical.NewRepresentationUrl))
+                    {
+                        var repIdx = file.Attachments.FindIndex(a => a.name == "representation");
+                        if (repIdx >= 0)
+                            file.Attachments[repIdx].url = new List<string> { clerical.NewRepresentationUrl };
+                        else
+                            file.Attachments.Add(new AttachmentType { name = "representation", url = new List<string> { clerical.NewRepresentationUrl } });
+
+                        updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
+                    }
                     break;
             }
 
@@ -6422,8 +6519,6 @@ public class FileServices
             return false;
         }
     }
-
-
 
     //Get existing clerical update application
     public async Task<ClericalUpdateDetailsDto> GetClericalUpdateApp(string fileId, string appId)

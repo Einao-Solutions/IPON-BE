@@ -10,8 +10,6 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
      //string nairaSymbol = "\u20A6";
         private Filling model { get; set; } = model;
         //private string url { get; set; } = url;
-
-
         public void Compose(IDocumentContainer container)
         {
             container.Page(page =>
@@ -144,32 +142,77 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                         });
                         if (clerical != null)
                         {
-                            var excludedKeys = new[] { "id", "UpdateType", "filingdate", "paymentrrr" };
-                            if (clerical != null)
-                            {
-                                var clericalProps = clerical.GetType().GetProperties();
-                                foreach (var prop in clericalProps)
-                                {
-                                    if (excludedKeys.Contains(prop.Name, StringComparer.OrdinalIgnoreCase))
-                                        continue;
+                            var excludedKeys = new[] { "id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved",  };
+                            var clericalProps = clerical.GetType().GetProperties();
 
-                                    var value = prop.GetValue(clerical);
-                                    if (value != null)
+                            // Group Old/New pairs
+                            var oldProps = clericalProps.Where(p => p.Name.StartsWith("Old") && !excludedKeys.Contains(p.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+
+                            foreach (var oldProp in oldProps)
+                            {
+                                var newPropName = "New" + oldProp.Name.Substring(3);
+                                var newProp = clericalProps.FirstOrDefault(p => p.Name == newPropName);
+
+                                var oldValue = oldProp.GetValue(clerical);
+                                var newValue = newProp?.GetValue(clerical);
+
+                                // Skip if both old and new are null
+                                if (oldValue == null && newValue == null)
+                                    continue;
+
+                                var fieldName = FormatPropertyName(oldProp.Name.Substring(3)); // Remove "Old" prefix
+
+                                // Check if this is a URL property that should display as an image
+                                bool isImageUrl = oldProp.Name.EndsWith("Url", StringComparison.OrdinalIgnoreCase) &&
+                                                  (oldProp.Name.Contains("Representation") || oldProp.Name.Contains("Attachment"));
+
+                                table.Cell().Element(Block).Column(c =>
+                                {
+                                    c.Item().Text($"Old {fieldName}:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                    if (isImageUrl && oldValue is string oldUrl && !string.IsNullOrEmpty(oldUrl))
                                     {
-                                        table.Cell().Element(Block).Column(c =>
+                                        try
                                         {
-                                            c.Item().Text(FormatPropertyName(prop.Name) + ":").FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                                        });
-                                        table.Cell().Element(Block).Column(c =>
+                                            using var httpClient = new HttpClient();
+                                            var imageBytes = httpClient.GetByteArrayAsync(oldUrl).GetAwaiter().GetResult();
+                                            c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
+                                        }
+                                        catch
                                         {
-                                            c.Item().Text(value.ToString()).FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                                        });
+                                            c.Item().Text(oldUrl).FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                        }
                                     }
-                                }
+                                    else
+                                    {
+                                        c.Item().Text(FormatValue(oldValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    }
+                                });
+
+                                table.Cell().Element(Block).Column(c =>
+                                {
+                                    c.Item().Text($"New {fieldName}:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                    if (isImageUrl && newValue is string newUrl && !string.IsNullOrEmpty(newUrl))
+                                    {
+                                        try
+                                        {
+                                            using var httpClient = new HttpClient();
+                                            var imageBytes = httpClient.GetByteArrayAsync(newUrl).GetAwaiter().GetResult();
+                                            c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
+                                        }
+                                        catch
+                                        {
+                                            c.Item().Text(newUrl).FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        c.Item().Text(FormatValue(newValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    }
+                                });
                             }
                         }
                     });
-                    // Assignee Information Section
+                    // Applicant Section
                     column.Item().Table(table =>
                     {
                         table.ColumnsDefinition(columns =>
@@ -281,15 +324,30 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                 " $1"
             );
         }
-        //private void GetQrCode(IContainer container)
-        //{
-        //    using (QRCodeGenerator qrGenerator = new QRCodeGenerator())
-        //    using (QRCodeData qrCodeData = qrGenerator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q))
-        //    using (PngByteQRCode qrCode = new PngByteQRCode(qrCodeData))
-        //    {
-        //        byte[] qrCodeImage = qrCode.GetGraphic(20);
-        //        container.Image(qrCodeImage).FitArea();
-        //    }
-        //}
+        private string? FormatValue(object? value)
+        {
+            if (value == null)
+                return null;
+
+            // Handle arrays/lists
+            if (value is System.Collections.IEnumerable enumerable && value is not string)
+            {
+                var items = enumerable.Cast<object>().Select(x => x?.ToString()).Where(x => !string.IsNullOrEmpty(x));
+                var result = string.Join(", ", items);
+                return string.IsNullOrEmpty(result) ? null : result;
+            }
+
+            return value.ToString();
+        }
+    //private void GetQrCode(IContainer container)
+    //{
+    //    using (QRCodeGenerator qrGenerator = new QRCodeGenerator())
+    //    using (QRCodeData qrCodeData = qrGenerator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q))
+    //    using (PngByteQRCode qrCode = new PngByteQRCode(qrCodeData))
+    //    {
+    //        byte[] qrCodeImage = qrCode.GetGraphic(20);
+    //        container.Image(qrCodeImage).FitArea();
+    //    }
+    //}
 
 }

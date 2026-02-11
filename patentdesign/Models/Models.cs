@@ -221,6 +221,8 @@ public record ClericalUpdate
     public string UpdateType { get; set; }
     public DateTime FilingDate { get; set; }
     public string? PaymentRRR { get; set; } = string.Empty;
+    public TradeMarkType? OldTrademarkType { get; set; }
+    public TradeMarkType? NewTrademarkType { get; set; }
     public string? OldTrademarkLogo { get; set; }
     public string? NewTrademarkLogo { get; set; }
     public string? OldApplicantName { get; set; }
@@ -253,8 +255,8 @@ public record ClericalUpdate
     public string? OldCorrespondenceState { get; set; }
     public string? OldPatentAbstract { get; set; }
     public string? NewPatentAbstract { get; set; }
-    public PatentApplicationTypes OldPatentApplicationType { get; set; }
-    public PatentApplicationTypes NewPatentApplicationType { get; set; }
+    public PatentApplicationTypes? OldPatentApplicationType { get; set; }
+    public PatentApplicationTypes? NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
     public string? NewRepresentationUrl { get; set; }
     public string? OldPowerOfAttorneyUrl { get; set; }
