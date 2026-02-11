@@ -3892,7 +3892,8 @@ public class FileServices
                 PatentType = fileInfo.PatentType,
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,
+                FileOrigin = fileInfo.FileOrigin,// NEW: include all attachments for CTC
+                Attachments = fileInfo.Attachments ?? new List<AttachmentType>()
             };
 
             return result;

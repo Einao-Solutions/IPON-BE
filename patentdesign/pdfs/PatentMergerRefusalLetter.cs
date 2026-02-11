@@ -104,7 +104,7 @@ namespace patentdesign.pdfs
                 if (mergerRecordal != null)
                 {
                     // OLD OWNER
-                    TwoColumnSection(col, "MERGER (OLD OWNER) INFORMATION", new[]
+                    TwoColumnSection(col, "MERGER INFORMATION", new[]
                     {
                         ("Name:",        F(mergerRecordal.OldMergerName)),
                         ("Email:",       F(mergerRecordal.OldMergerEmail)),
@@ -116,7 +116,7 @@ namespace patentdesign.pdfs
                     });
 
                     // NEW OWNER
-                    TwoColumnSection(col, "MERGER (NEW OWNER) INFORMATION", new[]
+                    TwoColumnSection(col, "MERGER INFORMATION", new[]
                     {
                         ("Name:",        F(mergerRecordal.Name)),
                         ("Email:",       F(mergerRecordal.Email)),
@@ -129,7 +129,7 @@ namespace patentdesign.pdfs
                 }
                 else
                 {
-                    TwoColumnSection(col, "MERGER (OLD OWNER) INFORMATION", new[]
+                    TwoColumnSection(col, "MERGER INFORMATION", new[]
                     {
                         ("Name:",        "N/A"),
                         ("Email:",       "N/A"),
@@ -140,7 +140,7 @@ namespace patentdesign.pdfs
                         ("Nationality:", "N/A")
                     });
 
-                    TwoColumnSection(col, "MERGER (NEW OWNER) INFORMATION", new[]
+                    TwoColumnSection(col, "MERGER INFORMATION", new[]
                     {
                         ("Name:",        "N/A"),
                         ("Email:",       "N/A"),
