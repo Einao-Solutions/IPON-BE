@@ -1821,6 +1821,7 @@ public class FileServices
         {
             fileHistory.PaymentId = rrr;
         }
+        fileHistory.Applicants = newFile.applicants;    
         newFile.ApplicationHistory = [fileHistory];
         newFile.FileStatus = ApplicationStatuses.AwaitingPayment;
         await CreateFileAsync(newFile);
