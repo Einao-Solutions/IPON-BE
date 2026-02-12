@@ -438,8 +438,7 @@ public record ApplicationInfo
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
-  
-
+    public List<ApplicantInfo>? Applicants { get; set; }
 }
 
 
