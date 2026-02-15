@@ -448,6 +448,139 @@ public class LettersServices
             case ApplicationLetters.PatentMergerRefusalLetter:
                 var patentMergerRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await PatentMergerRefusal(patentMergerRefFile, applicationId);
+            case ApplicationLetters.PatentAssignmentReceipt:
+                var assignmentFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (assignmentFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var assignmentApp = assignmentFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (assignmentApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var assignmentRemitaResponse = await GetPaymentData(assignmentFile.Comment, assignmentApp.PaymentId);
+                if (assignmentRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var assignmentReceiptModel = new Receipt()
+                {
+                    rrr = assignmentRemitaResponse?.rrr ?? "-",
+                    Amount = assignmentRemitaResponse?.amount.ToString() ?? "",
+                    Date = assignmentRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = assignmentFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.PatentAssignment,
+                    FileId = assignmentFile.FileId,
+                    Title = assignmentFile.TitleOfInvention,
+                    Category = assignmentFile.Type.ToString(),
+                    PaymentFor = "Patent Assignment"
+                };
+                return await PatentAssignmentReceipt(assignmentReceiptModel, assignmentFile);
+
+            case ApplicationLetters.PatentLicenseReceipt:
+                var licenseFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (licenseFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var licenseApp = licenseFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (licenseApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var licenseRemitaResponse = await GetPaymentData(licenseFile.Comment, licenseApp.PaymentId);
+                if (licenseRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var licenseReceiptModel = new Receipt()
+                {
+                    rrr = licenseRemitaResponse?.rrr ?? "-",
+                    Amount = licenseRemitaResponse?.amount.ToString() ?? "",
+                    Date = licenseRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = licenseFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.PatentLicense,
+                    FileId = licenseFile.FileId,
+                    Title = licenseFile.TitleOfInvention,
+                    Category = licenseFile.Type.ToString(),
+                    PaymentFor = "Patent License"
+                };
+                return await PatentLicenseReceipt(licenseReceiptModel, licenseFile);
+
+            case ApplicationLetters.PatentMortgageReceipt:
+                var mortgageFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (mortgageFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var mortgageApp = mortgageFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (mortgageApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var mortgageRemitaResponse = await GetPaymentData(mortgageFile.Comment, mortgageApp.PaymentId);
+                if (mortgageRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var mortgageReceiptModel = new Receipt()
+                {
+                    rrr = mortgageRemitaResponse?.rrr ?? "-",
+                    Amount = mortgageRemitaResponse?.amount.ToString() ?? "",
+                    Date = mortgageRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = mortgageFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.PatentMortgage,
+                    FileId = mortgageFile.FileId,
+                    Title = mortgageFile.TitleOfInvention,
+                    Category = mortgageFile.Type.ToString(),
+                    PaymentFor = "Patent Mortgage"
+                };
+                return await PatentMortgageReceipt(mortgageReceiptModel, mortgageFile);
+
+            case ApplicationLetters.PatentMergerReceipt:
+                var mergedFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (mergedFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var mergerApp = mergedFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (mergerApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var mergerRemitaResponse = await GetPaymentData(mergedFile.Comment, mergerApp.PaymentId);
+                if (mergerRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var mergerReceiptModel = new Receipt()
+                {
+                    rrr = mergerRemitaResponse?.rrr ?? "-",
+                    Amount = mergerRemitaResponse?.amount.ToString() ?? "",
+                    Date = mergerRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = mergedFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.PatentMerger,
+                    FileId = mergedFile.FileId,
+                    Title = mergedFile.TitleOfInvention,
+                    Category = mergedFile.Type.ToString(),
+                    PaymentFor = "Patent Merger"
+                };
+                return await PatentMergerReceipt(mergerReceiptModel, mergedFile);
+
+
             default:
                 return new Dictionary<string, object>() { };
         }
@@ -567,6 +700,7 @@ public class LettersServices
                     {
                         // PATENT POST-REG: use patent assignment letters
                         documents.Add(ApplicationLetters.PatentAssignmentAcknowlegement);
+                        documents.Add(ApplicationLetters.PatentAssignmentReceipt);
 
                         if (app.CurrentStatus == ApplicationStatuses.Rejected)
                         {
@@ -590,6 +724,7 @@ public class LettersServices
                     {
                         // PATENT POST-REG: license letters
                         documents.Add(ApplicationLetters.PatentLicenseAcknowledgement);
+                        documents.Add(ApplicationLetters.PatentLicenseReceipt);
 
                         if (app.CurrentStatus == ApplicationStatuses.Rejected)
                         {
@@ -604,6 +739,7 @@ public class LettersServices
                     {
                         // PATENT POST-REG: mortgage letters
                         documents.Add(ApplicationLetters.PatentMortgageAcknowledgement);
+                        documents.Add(ApplicationLetters.PatentMergerReceipt);
 
                         if (app.CurrentStatus == ApplicationStatuses.Rejected)
                         {
@@ -628,6 +764,7 @@ public class LettersServices
                     {
                         // PATENT POST-REG: merger letters
                         documents.Add(ApplicationLetters.PatentMergerAcknowledgement);
+                        documents.Add(ApplicationLetters.PatentMergerReceipt);
 
                         if (app.CurrentStatus == ApplicationStatuses.Rejected)
                         {
@@ -2446,7 +2583,6 @@ public class LettersServices
         return ReturnDocument(bytes);
     }
 
-
     private async Task<Dictionary<string, object>> PatentMortgageRefusal(Filling file, string applicationId)
     {
         if (file == null)
@@ -2514,6 +2650,30 @@ public class LettersServices
         };
 
         var bytes = new PatentMergerRefusalLetter(file, "uri", receipt, app).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> PatentAssignmentReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new PatentAssignmentReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> PatentLicenseReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new PatentLicenseReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> PatentMortgageReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new PatentMortgageReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> PatentMergerReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new PatentMergerReceipt(data, "uri", fileData).GeneratePdf();
         return ReturnDocument(bytes);
     }
 

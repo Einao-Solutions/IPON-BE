@@ -13,6 +13,7 @@ namespace patentdesign.Dtos.Request
         public string? ApplicantNationality { get; set; }
         public string? ApplicantAddress { get; set; }
         public string? ApplicantState { get; set; }
+        public string? ApplicantCity { get; set; }
         public string? FileId { get; set; }
         public string? FileType { get; set; }
         public string? FileOrigin { get; set; }
