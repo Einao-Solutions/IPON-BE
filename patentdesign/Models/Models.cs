@@ -805,7 +805,8 @@ public enum ApplicationLetters
     PublicationStatusUpdateAcknowledgement, PublicationStatusUpdateReceipt, PublicationStatusUpdateApproval, PublicationStatusUpdateRefusal,
     ChangeOfNameCert, ChangeOfAddressCert, WithdrawalRequestAcknowledgement, WithdrawalRequestReceipt, WithdrawalRequestApproval, WithdrawalRequestRefusal,
     PatentAssignmentAcknowlegement, PatentLicenseAcknowledgement, PatentMortgageAcknowledgement, PatentMergerAcknowledgement, PatentCtcAcknowledgement, PatentAmendmentAcknowledgement,
-    PatentAssignmentRefusalLetter, PatentLicenseRefusalLetter, PatentMortgageRefusalLetter, PatentMergerRefusalLetter, PatentCtcRefusalLetter, PatentAmendmentRefusalLetter
+    PatentAssignmentRefusalLetter, PatentLicenseRefusalLetter, PatentMortgageRefusalLetter, PatentMergerRefusalLetter, PatentCtcRefusalLetter, PatentAmendmentRefusalLetter,
+    PatentAssignmentReceipt, PatentLicenseReceipt, PatentMortgageReceipt, PatentMergerReceipt, PatentCtcReceipt, PatentAmendmentReceipt,
 
 }
 public class SearchInfo
