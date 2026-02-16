@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Bogus.DataSets;
 using Microsoft.Extensions.Options;
+using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Utils;
@@ -224,6 +225,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.ClericalUpdateServiceID;
                 serviceFee = _paymentInfo.ClericalUpdateServiceFee;
                 break;
+            case PaymentTypes.DesignClericalUpdate:
+                amount = _paymentInfo.DesignClericalUpdateCost;
+                serviceId = _paymentInfo.DesignClericalUpdateServiceID;
+                serviceFee = _paymentInfo.DesignClericalUpdateServiceFee;
+                break;
             case PaymentTypes.StatusSearch:
                 amount = _paymentInfo.StatusSearchCost;
                 serviceId = _paymentInfo.StatusSearchServiceId;
@@ -258,6 +264,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 amount = _paymentInfo.WithdrawalCost;
                 serviceId = _paymentInfo.WithdrawalServiceID;
                 serviceFee = _paymentInfo.WithdrawalServiceFee;
+                break;
+            case PaymentTypes.Appeal:
+                amount += _paymentInfo.AppealCost;
+                serviceId = _paymentInfo.AppealServiceID;
+                serviceFee = _paymentInfo.AppealServiceFee;
                 break;
         }
 

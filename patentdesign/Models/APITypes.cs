@@ -1,6 +1,7 @@
 ﻿using MongoDB.Bson.Serialization.Attributes;
+using patentdesign.Models;
 
-namespace patentdesign.Models;
+namespace patentdesign.Enums;
 
     public record NewCorrespondenceType
     {
@@ -143,7 +144,7 @@ namespace patentdesign.Models;
     public record UserUpdateReq
     {
         public string userId { get; set; }
-        public List<UserRoles> newRoles { get; set; }
+        public List<Roles> newRoles { get; set; }
     }
 
     public record ReAssignType()
@@ -161,7 +162,7 @@ namespace patentdesign.Models;
     public record GetUsersRequest
     {
         public string? name { get; set; }
-        public List<UserRoles>? Roles { get; set; }
+        public List<Roles>? Roles { get; set; }
         public int? skip { get; set; } = 0;
         public int? take { get; set; } = 10;
         

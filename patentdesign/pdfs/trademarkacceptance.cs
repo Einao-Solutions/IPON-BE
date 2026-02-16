@@ -1,9 +1,11 @@
 using Microsoft.IdentityModel.Tokens;
 using patentdesign.Models;
+using PDFtoImage;
 using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using PDFtoImage;
 
 namespace patentdesign
 {
@@ -73,10 +75,16 @@ namespace patentdesign
                     column.Item().Height(10);
                     column.Item().AlignCenter().Text("TRADEMARK ACCEPTANCE LETTER").FontColor(Colors.Green.Darken3).FontFamily(Fonts.TimesNewRoman).FontSize(16).ExtraBold();
                     column.Item().Height(25);
-                    var date = model.DateCreated;
-                    var payDay = model.ApplicationHistory
+                    var date = model.FilingDate ?? model.DateCreated;
+                    var exDate = model?.ApplicationHistory?[0].StatusHistory
+                        .FirstOrDefault(a => a.afterStatus == ApplicationStatuses.Publication);
+                    bool isRejected = model?.ApplicationHistory?[0].StatusHistory?.Any(s => s.afterStatus == ApplicationStatuses.Rejected) ?? false;
+                    var appeal = model?.ApplicationHistory?.FirstOrDefault(d =>
+                        d.ApplicationType == FormApplicationTypes.AppealRequest);
+                    var appealDate = appeal?.StatusHistory.FirstOrDefault(f=> f.afterStatus == ApplicationStatuses.Approved);
+                    var payDay = model?.ApplicationHistory?
                         .FirstOrDefault(s => s.CurrentStatus == ApplicationStatuses.Active)?.ApplicationDate;
-                    var rrr = model.ApplicationHistory[0].PaymentId;
+                    var rrr = model?.ApplicationHistory?[0].PaymentId;
                     //File Information Section
                     column.Item().Table(table =>
                     {
@@ -151,23 +159,34 @@ namespace patentdesign
                         });
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Representation of Trademark:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
+                            if ((model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
                                 model.Attachments.FirstOrDefault(e => e.name == "representation") != null &&
                                 image != null && image.Length > 0)
                             {
                                 try
                                 {
-                                    var img = Image.FromBinaryData(image);
-                                    c.Item().Height(100).AlignCenter().Image(img).FitArea();
+                                    byte[] imageBytes = image;
+                                    var representation = model.Attachments.First(e => e.name == "representation");
+
+                                    // Convert PDF to image if needed
+                                    if (representation.url[0].EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        using var pdfStream = new MemoryStream(image);
+                                        using var imageStream = new MemoryStream();
+                                        PDFtoImage.Conversion.SavePng(imageStream, pdfStream, page: 0, options: new RenderOptions { Dpi = 150 });
+                                        imageBytes = imageStream.ToArray();
+                                    }
+
+                                    c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
                                 }
                                 catch
                                 {
-                                    c.Item().Text("Invalid image data").FontSize(12).FontColor(Colors.Red.Medium);
+                                    c.Item().Text("Unable to display representation").FontSize(12).FontColor(Colors.Red.Medium);
                                 }
                             }
                             else
                             {
-                                c.Item().Text(model.TrademarkLogo).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                c.Item().Text(model.TrademarkLogo?.ToString() ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             }
                         });
                         table.Cell().Element(Block).Column(c => {
@@ -205,8 +224,12 @@ namespace patentdesign
                             c.Item().Text("EXAMINATION DATE:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
                         });
                         table.Cell().Element(Block).Column(c => {
-                            c.Item().Text(model.ApplicationHistory.LastOrDefault()?.StatusHistory.LastOrDefault().Date.ToString("dd/MM/yyyy")).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            var dateStr = isRejected 
+                                ? (appealDate?.Date != default ? appealDate.Date.ToString("dd/MM/yyyy") : "N/A")
+                                : (exDate?.Date != default ? exDate.Date.ToString("dd/MM/yyyy") : "N/A");
+                            c.Item().Text(dateStr).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
+
 
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("EXAMINING OFFICER:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();

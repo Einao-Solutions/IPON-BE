@@ -1,4 +1,5 @@
-﻿using patentdesign.Models;
+﻿using patentdesign.Enums;
+using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request
 {
@@ -24,15 +25,21 @@ namespace patentdesign.Dtos.Request
     {
         public string? FileId { get; set; }
         public string? rrr { get; set; }
+        public string? OldName { get; set; }
         public string? Name { get; set; }
+        public string? OldEmail { get; set; }
         public string? Email { get; set; }
+        public string? OldPhone { get; set; }
         public string? Phone { get; set; }
         public string? MergerDate { get; set; }
+        public string? OldNationality { get; set; }
         public string? Nationality { get; set; }
+        public string? OldAddress { get; set; }
         public string? Address { get; set; }
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
+        public string? userId { get; set; }
     }
     public class RegisteredUserDto
     {
@@ -51,12 +58,15 @@ namespace patentdesign.Dtos.Request
     {
         public string? FileId { get; set; }
         public string? rrr { get; set; }
+        public string? OldName { get; set; }
         public string? NewName { get; set; }
         public string? ChangeType { get; set; }
+        public string? OldAddress { get; set; }
         public string? NewAddress { get; set; }
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
+        public string? userId { get; set; } 
     }
     public class TreatRecordalDto
     {
@@ -75,6 +85,7 @@ namespace patentdesign.Dtos.Request
         public int? MissedYearsCount { get; set; }
         public int? LateYearsCount { get; set; }
         public FileTypes? FileTypes { get; set; }
+        public string? ApplicantName { get; set; }
     }
     public class  AssignmentAppDto
     {
@@ -84,10 +95,16 @@ namespace patentdesign.Dtos.Request
         public IFormFile? AuthorizationLetter { get; set; }
         public string? AssignmentDeedUrl { get; set; }
         public string? AuthorizationLetterUrl { get; set; }
+        public string? AssignorName { get; set; }
         public string? AssigneeName { get; set; }
+        public string? AssignorPhone { get; set; }
         public string? AssigneePhone { get; set; }
+        public string? AssignorEmail { get; set; }
         public string? AssigneeEmail { get; set; }
+        public string? AssignorAddress { get; set; }
         public string? AssigneeAddress { get; set; }
+        public string? AssignorNationality { get; set; }
         public string? AssigneeNationality { get; set; }
+        public string? userId { get; set; }
     }
 }

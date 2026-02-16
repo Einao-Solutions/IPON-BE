@@ -1,3 +1,4 @@
+using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request;
@@ -9,5 +10,5 @@ public class UpdatePaymentDto
     public string? ApplicationId { get; set; }
     public string? User { get; set; }
     public string? OldPaymentId { get; set; } 
-    
+    public FormApplicationTypes Type { get; set; }
 }

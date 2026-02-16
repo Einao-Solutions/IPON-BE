@@ -1,12 +1,17 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net.Http;
 using System.Security.Authentication;
 using System.Text.Json;
+using System.Threading.Tasks;
 using CloudinaryDotNet;
 using Microsoft.Extensions.Configuration.Xml;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.pdfs;
 using patentdesign.Utils;
@@ -500,6 +505,10 @@ public class LettersServices
                             ApplicationLetters.NewApplicationCertificate,
                             ApplicationLetters.NewApplicationCertificateReceipt
                         });
+                        if (file.Type == FileTypes.Patent)
+                        {
+                            documents.Remove(ApplicationLetters.NewApplicationCertificate);
+                        }
                     }
                     break;
 
@@ -1334,6 +1343,7 @@ public class LettersServices
         }
 
         var data = new mergerAck(fileData, images, applicationId).GeneratePdf();
+
         return ReturnDocument(data);
     }
     public async Task<Dictionary<string, object>> MergerReceipt(Filling file, string appId)
@@ -1388,9 +1398,16 @@ public class LettersServices
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
-            representation != null && representation.url?[0] != "NULL")
+        representation != null && representation.url?[0] != "NULL")
         {
-            images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+            try
+            {
+                images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+            }
+            catch (Exception)
+            {
+                images = [];
+            }
         }
         var data = new ChangeOfNameAck(file, images, applicationId).GeneratePdf();
         return ReturnDocument(data);
@@ -1518,9 +1535,18 @@ public class LettersServices
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
-            representation != null && representation.url?[0] != "NULL")
+        representation != null && representation.url?[0] != "NULL")
         {
-            images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+            try
+            {
+                using var httpClient = new HttpClient();
+                images = await httpClient.GetByteArrayAsync(representation.url[0]);
+            }
+            catch (HttpRequestException ex)
+            {
+                Console.WriteLine($"Failed to fetch representation image: {ex.Message}");
+                images = [];
+            }
         }
 
         var data = new ClericalUpdateAck(file, images, applicationId).GeneratePdf();

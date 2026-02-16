@@ -5,8 +5,32 @@ using System.Net.Mail;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
+using Org.BouncyCastle.Asn1.Cms;
+using patentdesign.Enums;
 
 namespace patentdesign.Models;
+public class AppUser
+{
+    [BsonId]
+    public string Id { get; set; }
+    public string? CreatorId { get; set; }
+    public string FirstName { get; set; } = "";
+    public string LastName { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string PhoneNumber { get; set; } = "";
+    public string Address { get; set; } = "";
+    public string Nationality { get; set; } = "";
+    public NigerianStates? State { get; set; } = NigerianStates.None;
+    public string PasswordHash { get; set; } = "";
+    public List<Roles> UserRoles { get; set; } = new();
+    public bool isVerified { get; set; } = false;
+    public string? Signature { get; set; }
+    public AccountType? AccountType { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime? LastUpdatedAt { get; set; }
+    public List<string>? Files { get; set; } = new();
+    public List<string>? VerificationDocs { get; set; }
+}
 
 public record DesignForm
 {
@@ -107,14 +131,10 @@ public record FileSummary
     public string id { get; set; }
     public string? title { get; set; }
     public ApplicationStatuses fileStatus { get; set; }
-    
-
-    public string FileId {
-        get;
-        set;
-    }
+    public string FileId { get; set; }
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
+    public int? TrademarkClass { get; set; }
 }
 
 public record FileApplicationSummary
@@ -201,6 +221,8 @@ public record ClericalUpdate
     public string UpdateType { get; set; }
     public DateTime FilingDate { get; set; }
     public string? PaymentRRR { get; set; } = string.Empty;
+    public TradeMarkType? OldTrademarkType { get; set; }
+    public TradeMarkType? NewTrademarkType { get; set; }
     public string? OldTrademarkLogo { get; set; }
     public string? NewTrademarkLogo { get; set; }
     public string? OldApplicantName { get; set; }
@@ -221,6 +243,8 @@ public record ClericalUpdate
     public string? NewFileTitle { get; set; }
     public string? OldCorrespondenceName {get; set; }
     public string? NewCorrespondenceName { get; set; }
+    public string? NewCorrespondenceNationality { get; set; } 
+    public string? NewCorrespondenceState { get; set; }
     public string? OldCorrespondenceAddress { get; set; }
     public string? NewCorrespondenceAddress { get; set; }
     public string? OldCorrespondenceEmail { get; set; }
@@ -228,14 +252,11 @@ public record ClericalUpdate
     public string? OldCorrespondencePhone { get; set; }
     public string? NewCorrespondencePhone { get; set; }
     public string? OldCorrespondenceNationality { get; set; }
-    public string? NewCorrespondenceNationality { get; set; }
     public string? OldCorrespondenceState { get; set; }
-    public string? NewCorrespondenceState { get; set; }
     public string? OldPatentAbstract { get; set; }
     public string? NewPatentAbstract { get; set; }
-
-    public PatentApplicationTypes OldPatentApplicationType { get; set; }
-    public PatentApplicationTypes NewPatentApplicationType { get; set; }
+    public PatentApplicationTypes? OldPatentApplicationType { get; set; }
+    public PatentApplicationTypes? NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
     public string? NewRepresentationUrl { get; set; }
     public string? OldPowerOfAttorneyUrl { get; set; }
@@ -285,6 +306,31 @@ public record ClericalUpdate
     public List<PriorityInfo>? NewFirstPriorityInfo { get; set; }
     public List<PriorityInfo>? OldPriorityInfo { get; set; }
     public List<PriorityInfo>? NewPriorityInfo { get; set; }
+    public bool? IsAmendment { get; set; } = false;
+    public DateTime? DateTreated { get; set; }
+    public string? Reason { get; set; }
+    public bool? IsApproved { get; set; } = false;
+
+    //design specs
+    public string? OldNoveltyStatement { get; set; }
+    public string? NewNoveltyStatement { get; set; }
+    public DesignTypes? OldDesignType { get; set; }
+    public DesignTypes? NewDesignType { get; set; }
+    public List<ApplicantInfo>? OldDesignCreators { get; set; }
+    public List<ApplicantInfo>? NewDesignCreators { get; set; }
+    public List<string>? OldDesignCreatorNames { get; set; }
+    public List<string>? NewDesignCreatorNames { get; set; }
+    public List<string>? OldDesignCreatorPhones { get; set; }
+    public List<string>? NewDesignCreatorPhones { get; set; }
+    public List<string>? OldDesignCreatorAddresses { get; set; }
+    public List<string>? NewDesignCreatorAddresses { get; set; }    
+    public List<string>? OldDesignCreatorEmails { get; set; }
+    public List<string>? NewDesignCreatorEmails { get; set; }
+    public List<string>? OldDesignCreatorNationalities { get; set; }
+    public List<string>? NewDesignCreatorNationalities { get; set; }
+    public List<string>? OldDesignAttachmentUrls { get; set; }
+    public List<string>? NewDesignAttachmentUrls { get; set; }
+
 }
 
 public record Appeal
@@ -305,11 +351,16 @@ public record PostRegistrationApp
     public string? DateTreated { get; set; } = "";
     public string? Reason { get; set; } = null;
     public string? Name { get; set; }
+    public string? OldName { get; set; } = String.Empty;
     public string? Email { get; set; }
+    public string? OldEmail { get; set; } = String.Empty;
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
+    public string? OldAddress { get; set; } = String.Empty;
     public string? Phone { get; set; }
+    public string? OldPhone { get; set; } = String.Empty;
     public string? Nationality { get; set; }
+    public string? OldNationality { get; set; } = String.Empty;
     public string? documentUrl { get; set; }
     public string? document2Url { get; set; }
     public string? receiptUrl { get; set; }
@@ -323,10 +374,15 @@ public record Assignee
 {
     [BsonId]
     public string Id { get; set; }
+    public string? AssignorName { get; set; }
     public string Name { get; set; } = "";
     public string? Address { get; set; } = "";
+    public string? AssignorAddress { get; set; }
     public string? Email { get; set; } = "";
+    public string? AssignorEmail { get; set; }
     public string? Phone { get; set; } = "";
+    public string? AssignorPhone { get; set; }
+    public string? AssignorNationality { get; set; }
     public string Nationality { get; set; } = "";
     public string? rrr { get; set; } = null;
     public string FileId { get; set; }
@@ -384,8 +440,7 @@ public record ApplicationInfo
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
-  
-
+    public List<ApplicantInfo>? Applicants { get; set; }
 }
 
 
@@ -682,7 +737,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification
 }
 public enum ApplicationLetters
 {
@@ -802,7 +857,7 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, Amendment
+    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval
 }
 
 public record AssignmentCertificateType
@@ -843,7 +898,7 @@ public enum PaymentTypes
 {
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
-    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition
+    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal
 }
 
 
@@ -1135,6 +1190,11 @@ public record PaymentInfo
     public string? ClericalUpdateServiceFee { get; set; }
     public string? ClericalUpdateServiceID { get;set; }
 
+    //design clerical update
+    public string? DesignClericalUpdateCost { get; set; }
+    public string? DesignClericalUpdateServiceFee { get; set; }
+    public string? DesignClericalUpdateServiceID { get; set; }
+
     // Status Search
     public string StatusSearchCost { get; set; } = string.Empty;
     public string StatusSearchServiceFee { get; set; } = string.Empty;
@@ -1163,6 +1223,10 @@ public record PaymentInfo
     public string OppositionServiceFee { get; set; }
     public string OppositionServiceID { get; set; }
 
+    //appeal
+    public string AppealCost { get; set; }
+    public string AppealServiceFee { get; set; }
+    public string AppealServiceID { get; set; }
 }
 
 public record PaymentRecord
@@ -1446,4 +1510,17 @@ public record Opposition
     public DateTime? ApplicantNotifiedDate { get; set; }
     public DateTime? ResolvedDate { get; set; }
     public bool? Paid { get; set; } = false;
+}
+
+public class StatusChangeLog
+{
+    public string id { get; set; } = Guid.NewGuid().ToString();
+    public string FileId { get; set; }
+    public ApplicationStatuses PreviousStatus { get; set; }
+    public ApplicationStatuses NewStatus { get; set; }
+    public string Reason { get; set; }
+    public string ChangedBy { get; set; }
+    public string ChangedById { get; set; }
+    public DateTime DateChanged { get; set; } = DateTime.Now;
+    public bool IsSuccessful { get; set; } = false;
 }

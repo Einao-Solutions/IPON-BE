@@ -1,12 +1,15 @@
 using Azure.Core;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
+//[Authorize]
 [ApiController]
 [Route("api/files")]
 public class FilesController(FileServices fileService) : ControllerBase
@@ -21,7 +24,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<Filling?>> GetFile(string id)
     {
-        return await fileService.GetFileAsync(id); 
+        return await fileService.GetFileAsync(id);
     }
 
     [HttpDelete("{id}")]
@@ -52,9 +55,9 @@ public class FilesController(FileServices fileService) : ControllerBase
 
 
     [HttpGet("CertificatePayment")]
-    public async Task<ActionResult> LoadCertificatePaymentDetails([FromQuery] string id)
+    public async Task<ActionResult> LoadCertificatePaymentDetails([FromQuery] string id, [FromQuery] string userId)
     {
-        var result = await fileService.GetCertificatePaymentCost(id);
+        var result = await fileService.GetCertificatePaymentCost(id, userId);
         return Ok(result);
     }
 
@@ -276,23 +279,23 @@ public class FilesController(FileServices fileService) : ControllerBase
         return BadRequest("BURST ");
     }
 
-    [HttpPost("UpdateCorThis")]
-    public async Task<IActionResult> UpdateCorThis([FromQuery] string id, [FromQuery] string userId)
-    {
-        var stats = await fileService.UpdateCorThis(id, userId);
-        if (stats != null)
-            return Ok(stats);
-        else return BadRequest();
-    }
+    //[HttpPost("UpdateCorThis")]
+    //public async Task<IActionResult> UpdateCorThis([FromQuery] string id, [FromQuery] string userId)
+    //{
+    //    var stats = await fileService.UpdateCorThis(id, userId);
+    //    if (stats != null)
+    //        return Ok(stats);
+    //    else return BadRequest();
+    //}
 
-    [HttpPost("UpdateCorAll")]
-    public async Task<IActionResult> UpdateCorAll([FromQuery] string id, [FromQuery] string userId, [FromQuery] string creatorAccount)
-    {
-        var stats = await fileService.UpdateCorAll(id, userId, creatorAccount);
-        if (stats != null)
-            return Ok(stats);
-        else return BadRequest();
-    }
+    //[HttpPost("UpdateCorAll")]
+    //public async Task<IActionResult> UpdateCorAll([FromQuery] string id, [FromQuery] string userId, [FromQuery] string creatorAccount)
+    //{
+    //    var stats = await fileService.UpdateCorAll(id, userId, creatorAccount);
+    //    if (stats != null)
+    //        return Ok(stats);
+    //    else return BadRequest();
+    //}
 
     [HttpPost("DownloadAllPayments")]
     public async Task DownloadAllPayments()
@@ -453,7 +456,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(result);
     }
-
+    
     [HttpGet("GetAvailabilitySearch")]
     public async Task<IActionResult> GetMarkAvailability([FromQuery] string title, [FromQuery] int? classNo, [FromQuery] string type)
     {
@@ -529,7 +532,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         {
             return NoContent();
         }
-        
+
         return Ok(res);
     }
 
@@ -710,9 +713,9 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
     [HttpGet("GetRenewalCost")]
-    public async Task<IActionResult> GetRenewalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    public async Task<IActionResult> GetRenewalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] string userId)
     {
-        var res = await fileService.RenewalCost(fileId, fileType);
+        var res = await fileService.RenewalCost(fileId, fileType, userId);
         if (res == null)
         {
             return NoContent();
@@ -796,28 +799,38 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-    [HttpGet("GetClericalUpdateCost")]
-    public async Task<IActionResult> GetClericalUpdateCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] string updateType)
+    [HttpPost("GetClericalUpdateCost")]
+    public async Task<IActionResult> GetClericalUpdateCost([FromBody] GetClericalCostDto dto)
     {
-        var res = await fileService.GetClericalUpdateCost(fileId, fileType, updateType);
+        var res = await fileService.GetClericalUpdateCost(dto);
         if (res == null)
         {
-            return NoContent();
+            return BadRequest(new {message = "Failed to Get Cost"});
         }
         return Ok(res);
     }
     [HttpPost("ClericalUpdate")]
-    public async Task<IActionResult> ClericalUpdate([FromForm]ClericalUpdateDto clericalUpdate)
+    public async Task<IActionResult> ClericalUpdate([FromForm] ClericalUpdateDto clericalUpdate)
     {
         var res = await fileService.ClericalUpdate(clericalUpdate);
-        if (res == false)
+        if (res == "Failed")
         {
-            return NoContent();
+            return BadRequest(new {message = "Failed to Save Application"});
         }
         return Ok(res);
     }
+    [HttpPost("ConfirmClericalUpdate")]
+    public async Task<IActionResult> ConfirmClericalUpdate([FromQuery] string fileId, [FromQuery] string clericalId)
+    {
+        var res = await fileService.ApplyClericalUpdateToFile(fileId, clericalId);
+        if (res == false)
+        {
+            return BadRequest(new { message = "Failed to Confirm Clerical Update" });
+        }
+        return Ok(new { message = "Clerical update confirmed"});
+    }
     [HttpPost("UpdateRecordalStatus")]
-    public async Task<IActionResult> UpdateRecordalStatus([FromQuery]string fileId,[FromQuery] string rrr)
+    public async Task<IActionResult> UpdateRecordalStatus([FromQuery] string fileId, [FromQuery] string rrr)
     {
         var res = await fileService.UpdateRecordalStatus(fileId, rrr);
         if (res == false)
@@ -827,7 +840,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
     [HttpPost("UpdateCertificatePaymentStatus")]
-    public async Task<IActionResult> UpdateCertificatePaymentStatus([FromQuery]string fileId, [FromQuery]string rrr)
+    public async Task<IActionResult> UpdateCertificatePaymentStatus([FromQuery] string fileId, [FromQuery] string rrr)
     {
         var res = await fileService.UpdateCertificatePaymentStatus(fileId, rrr);
         if (res == false)
@@ -838,7 +851,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     [HttpGet("GetClericalUpdateApp")]
-    public async Task<IActionResult> GetClericalUpdateApp([FromQuery] string fileId,[FromQuery] string appId)
+    public async Task<IActionResult> GetClericalUpdateApp([FromQuery] string fileId, [FromQuery] string appId)
     {
         var res = await fileService.GetClericalUpdateApp(fileId, appId);
         if (res == null)
@@ -943,7 +956,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     [HttpPost("appeal-module")]
-    public async Task<IActionResult> AppealModule([FromForm]AppealDto appeal)
+    public async Task<IActionResult> AppealModule([FromForm] AppealDto appeal)
     {
         var result = await fileService.UploadAppealFiles(appeal);
 
@@ -1034,5 +1047,28 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-        
+
+    [HttpPost("approve-amendment")]
+    public async Task<IActionResult> ApproveAmendment([FromBody] AmendmentDto dto)
+    {
+        var res = await fileService.ApproveAmendmentAsync(dto);
+        if (res == false)
+        {
+            Console.WriteLine("Failed to approve amendment");
+            return NotFound();
+        }
+        return Ok(res);
+
+    }
+
+    [HttpPost("ExaminePatentDesign")]
+    public async Task<IActionResult> ExaminePatentDesign([FromQuery] string fileId, [FromQuery] string userId, [FromQuery] ApplicationStatuses status)
+    {
+        var res = await fileService.ExaminePatentDesign(fileId, userId, status);
+        if (res == false)
+        {
+            return BadRequest("Failed to examine patent/design");
+        }
+        return Ok(res);
+    }
 }

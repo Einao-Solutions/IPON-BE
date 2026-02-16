@@ -1,4 +1,5 @@
-﻿using patentdesign.Models;using QuestPDF.Fluent;
+﻿using patentdesign.Models;
+using QuestPDF.Fluent;
 using QuestPDF.Infrastructure;
 
 public class OtherAck(OtherPaymentModel other):IDocument

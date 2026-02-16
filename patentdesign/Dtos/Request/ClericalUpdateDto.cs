@@ -1,10 +1,11 @@
-﻿using patentdesign.Models;
+﻿using patentdesign.Enums;
+using patentdesign.Models;
 
 namespace patentdesign.Dtos.Request
 {
     public class ClericalUpdateDto
     {
-        public string? UpdateType { get; set; }
+        public ClericalUpdateTypes UpdateType { get; set; }
         public string? FileId { get; set; }
         public string? PaymentRRR { get; set; }
         public ApplicationStatuses? FileStatus { get; set; }
@@ -20,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public string? ClassDescription { get; set; }
         public string? FileTitle { get; set; }
         public FileTypes FileType { get; set; }
+        public TradeMarkType? TrademarkType { get; set; }
         public IFormFile? Representation { get; set; }
         public TradeMarkLogo? TrademarkLogo { get; set; } 
         public string? WordMark { get; set; } = string.Empty;
@@ -79,6 +81,17 @@ namespace patentdesign.Dtos.Request
         public List<PriorityInfo>? OldPriorityInfo { get; set; }
         public List<PriorityInfo>? NewPriorityInfo { get; set; }
         public string? PatentAbstract { get; set; }
+        //design specs
+        public string? TitleOfDesign { get; set; }
+        public DesignTypes? DesignType { get; set; }
+        public List<ApplicantInfo>? DesignCreators { get; set; }
+        public string? NoveltyStatement { get; set; }
+        public ApplicantInfo? OldApplicantInfo { get; set; }
+        public ApplicantInfo? NewApplicantInfo { get; set; }
+        public List<string>? ExistingDesignAttachments { get; set; }
+        public List<IFormFile>? DesignAttachments { get; set; }
+        public bool ReplaceDesignAttachments { get; set; }
+        public List<string>? RemoveDesignAttachmentUrls { get; set; }
     }
 
     public class ClericalUpdateDetailsDto
@@ -98,5 +111,21 @@ namespace patentdesign.Dtos.Request
         public string? NewValue4 { get; set; }
         public string? NewRepresentation { get; set; }
         public string? NewPowerOfAttorneyUrl { get; set; }
+        public bool? IsAmendment { get; set; }
     }   
+
+    public class AmendmentDto
+    {
+        public string fileId { get; set; }
+        public string appId { get; set; }
+        public string reason { get; set; }
+    }
+
+    public class GetClericalCostDto
+    {
+        public FileTypes? FileType { get; set; }
+        public string? UserId { get; set; }
+        public string? FileNumber { get; set; }
+        public ClericalUpdateTypes UpdateType { get; set; }
+    }
 }
