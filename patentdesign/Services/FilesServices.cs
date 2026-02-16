@@ -145,7 +145,7 @@ public class FileServices
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
 
-        //await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
+     
 
         // Record payment and performance metrics
         await RecordPaymentAndPerformance(file, application, paymentInfo, userName, userId);
@@ -211,10 +211,13 @@ public class FileServices
                     paymentDate, userName, userId, "Payment Successful");
                 break;
         }
+        await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
+
     }
 
     private async Task ProcessNewApplication(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
+        Console.WriteLine($"Processing new application...{file.FileId}");
         file.FileStatus = ApplicationStatuses.AwaitingSearch;
         file.FileId = await GenerateNewFileId(file);
 
@@ -222,9 +225,10 @@ public class FileServices
             ApplicationLetters.NewApplicationReceipt,
         ApplicationLetters.NewApplicationAcknowledgement
         ];
-
+        Console.WriteLine($"Generated new file ID: {file.FileId}");
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
             paymentDate, userName, userId, "Payment Successful, awaiting search");
+
     }
     public async Task<bool> ExaminePatentDesign(string fileId, string userId, ApplicationStatuses status)
     {
@@ -348,6 +352,7 @@ public class FileServices
 
     private async Task<string> GenerateNewFileId(Filling file)
     {
+        Console.WriteLine("Generating new file number...");
         var segments = (file.FileId ?? string.Empty).Split('/');
         var max = Math.Max(segments.Length - 1, 0);
 
@@ -357,7 +362,7 @@ public class FileServices
             ?? throw new Exception("Counter not found for file type.");
 
         var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-
+        Console.WriteLine($"Generated new file number: {newId}");
         var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
         await _countersCollection.FindOneAndUpdateAsync(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
