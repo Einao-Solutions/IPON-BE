@@ -855,11 +855,14 @@ public class FilesController(FileServices fileService) : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetPatentCtcCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    public async Task<IActionResult> GetPatentCtcCost(
+    [FromQuery] string fileId,
+    [FromQuery] FileTypes fileType,
+    [FromQuery] int numberOfAttachments = 1) // NEW PARAMETER with default value
     {
         try
         {
-            var res = await fileService.PatentCtcCost(fileId, fileType);
+            var res = await fileService.PatentCtcCost(fileId, fileType, numberOfAttachments);
             if (res == null)
             {
                 return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
@@ -1535,7 +1538,6 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     #endregion
-
 
 
     #region

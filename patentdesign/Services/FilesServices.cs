@@ -3860,11 +3860,20 @@ public class FileServices
         }
     }
 
-    public async Task<RecordalDto> PatentCtcCost(string fileId, FileTypes fileType)
+
+    // Service method
+    public async Task<RecordalDto> PatentCtcCost(string fileId, FileTypes fileType, int numberOfAttachments = 1)
     {
         try
         {
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentCtc, fileType, "", null, null, null);
+
+            // MULTIPLY the cost by number of attachments
+            // var finalAmount = data.Item1 * numberOfAttachments;
+            // Parse the string amount to decimal, multiply, then convert back to string
+            decimal baseAmount = decimal.Parse(data.Item1);
+            decimal finalAmount = baseAmount * numberOfAttachments;
+            string finalAmountStr = finalAmount.ToString();
 
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
@@ -3878,13 +3887,14 @@ public class FileServices
 
             var applicant = fileInfo.applicants[0];
 
+            // Generate RRR with the FINAL (multiplied) amount
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent CTC",
+                finalAmountStr, data.Item3, data.Item2, "Patent CTC",
                 applicant.Name, applicant.Email, applicant.Phone);
 
             var result = new RecordalDto
             {
-                Amount = data.Item1,
+                Amount = finalAmountStr, // Return the multiplied amount
                 rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
@@ -3897,7 +3907,7 @@ public class FileServices
                 PatentType = fileInfo.PatentType,
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,// NEW: include all attachments for CTC
+                FileOrigin = fileInfo.FileOrigin,
                 Attachments = fileInfo.Attachments ?? new List<AttachmentType>()
             };
 
@@ -8866,5 +8876,7 @@ public class FileServices
     }
 
     #endregion
+
+
 
 }
