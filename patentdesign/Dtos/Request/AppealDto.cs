@@ -14,4 +14,5 @@ public class TreatAppealDto
     public string? ApplicationId { get; set; }
     public string? Reason { get; set; }
     public bool IsApproved { get; set; } = false;
+    public string? UserId { get; set; }
 }
