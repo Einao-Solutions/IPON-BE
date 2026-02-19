@@ -30,7 +30,7 @@ public class AppUser
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
-    
+    public string? Name { get; set; } 
 }
 
 public record DesignForm

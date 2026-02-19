@@ -70,7 +70,8 @@ namespace patentdesign.Services
                     AccountType = AccountType.Individual,
                     PasswordHash = hashedPassword,
                     UserRoles = new List<Roles> { Roles.User },
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Name = req.FirstName + " " + req.LastName,
                 };
 
                 await _users.InsertOneAsync(user);
@@ -357,6 +358,52 @@ namespace patentdesign.Services
                 throw;
             }
         }
+        public async Task<bool> UpdateUserProfile(ProfileDto dto)
+        {
+            try
+            {
+                var user = await _users.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+                if (user == null) throw new KeyNotFoundException("User not found");
 
+                var updateDefinitions = new List<UpdateDefinition<AppUser>>();
+
+                if (!string.IsNullOrEmpty(dto.FirstName))
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.FirstName, dto.FirstName));
+
+                if (!string.IsNullOrEmpty(dto.LastName))
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.LastName, dto.LastName));
+
+                if (!string.IsNullOrEmpty(dto.PhoneNumber))
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.PhoneNumber, dto.PhoneNumber));
+
+                if (dto.AccountType is not null)
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.AccountType, dto.AccountType));
+
+                if (!string.IsNullOrEmpty(dto.Address))
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Address, dto.Address));
+
+                if (!string.IsNullOrEmpty(dto.Email))
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Email, dto.Email));
+
+                if (!string.IsNullOrEmpty(dto.Nationality))
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Nationality, dto.Nationality));
+
+                if (dto.State is not null)
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.State, dto.State));
+
+                if (updateDefinitions.Count == 0)
+                    return false;
+
+                var combinedUpdate = Builders<AppUser>.Update.Combine(updateDefinitions);
+                var filter = Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId);
+                var result = await _users.UpdateOneAsync(filter, combinedUpdate);
+
+                return result.ModifiedCount > 0;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
     }
 }
