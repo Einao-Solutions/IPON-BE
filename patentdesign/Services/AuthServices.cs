@@ -364,9 +364,10 @@ namespace patentdesign.Services
             {
                 var user = await _users.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
                 if (user == null) throw new KeyNotFoundException("User not found");
-
+                var fullName = dto?.FirstName + " " + dto?.LastName;
                 var updateDefinitions = new List<UpdateDefinition<AppUser>>();
 
+                
                 if (!string.IsNullOrEmpty(dto.FirstName))
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.FirstName, dto.FirstName));
 
@@ -378,7 +379,7 @@ namespace patentdesign.Services
 
                 if (dto.AccountType is not null)
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.AccountType, dto.AccountType));
-
+                
                 if (!string.IsNullOrEmpty(dto.Address))
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Address, dto.Address));
 
@@ -391,14 +392,51 @@ namespace patentdesign.Services
                 if (dto.State is not null)
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.State, dto.State));
 
+                if (dto.AccountType is not AccountType.Corporate)
+                {
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Name, fullName));
+                }
+                else
+                {
+                    updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Name, dto.Name));
+                }
                 if (updateDefinitions.Count == 0)
                     return false;
+
+                updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.LastUpdatedAt, DateTime.Now));
 
                 var combinedUpdate = Builders<AppUser>.Update.Combine(updateDefinitions);
                 var filter = Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId);
                 var result = await _users.UpdateOneAsync(filter, combinedUpdate);
 
                 return result.ModifiedCount > 0;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+        public async Task<ProfileDto> GetUser(string userId)
+        {
+            try
+            {
+                var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync() ?? 
+                    throw new KeyNotFoundException("User not found");
+
+                var userDeets = new ProfileDto
+                {
+                    AccountType = user.AccountType,
+                    Address = user.Address,
+                    Email = user.Email,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    Nationality = user.Nationality,
+                    PhoneNumber = user.PhoneNumber,
+                    State = user.State,
+                    Name = user.FirstName +" "+ user.LastName,
+                    UserRoles = user.UserRoles
+                };
+                return userDeets;
             }
             catch (Exception)
             {
