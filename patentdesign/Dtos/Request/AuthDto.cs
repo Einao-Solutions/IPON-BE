@@ -37,7 +37,8 @@ namespace patentdesign.Dtos.Request
         public string? PhoneNumber { get; set; }
         public List<Roles>? UserRoles { get; set; }
         public AccountType? AccountType { get; set; }
-        public DateTime CreatedAt { get; set; } 
+        public DateTime? CreatedAt { get; set; } 
+        public DateTime? LastUpdatedAt {  get; set; }
     }
     public class ChangePasswordDto
     {

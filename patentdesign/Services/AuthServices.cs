@@ -132,7 +132,8 @@ namespace patentdesign.Services
                     PhoneNumber = user.PhoneNumber,
                     AccountType = user.AccountType,
                     CreatedAt = user.CreatedAt,
-                    CreatorId = user.CreatorId
+                    CreatorId = user.CreatorId,
+                    LastUpdatedAt = user?.LastUpdatedAt,
                     
                 };
                 var token = GenerateJwtToken(user);
