@@ -86,6 +86,7 @@ namespace patentdesign.Dtos.Request
         public string fileId { get; set; }
         public string appId { get; set; }
         public string reason { get; set; }
+        public string? userId { get; set; }
     }                       
     public class RenewalAppDto
     {

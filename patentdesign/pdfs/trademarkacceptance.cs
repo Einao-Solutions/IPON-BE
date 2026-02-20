@@ -1,9 +1,11 @@
 using Microsoft.IdentityModel.Tokens;
 using patentdesign.Models;
+using PDFtoImage;
 using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using PDFtoImage;
 
 namespace patentdesign
 {
@@ -157,23 +159,34 @@ namespace patentdesign
                         });
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Representation of Trademark:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
+                            if ((model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
                                 model.Attachments.FirstOrDefault(e => e.name == "representation") != null &&
                                 image != null && image.Length > 0)
                             {
                                 try
                                 {
-                                    var img = Image.FromBinaryData(image);
-                                    c.Item().Height(100).AlignCenter().Image(img).FitArea();
+                                    byte[] imageBytes = image;
+                                    var representation = model.Attachments.First(e => e.name == "representation");
+
+                                    // Convert PDF to image if needed
+                                    if (representation.url[0].EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        using var pdfStream = new MemoryStream(image);
+                                        using var imageStream = new MemoryStream();
+                                        PDFtoImage.Conversion.SavePng(imageStream, pdfStream, page: 0, options: new RenderOptions { Dpi = 150 });
+                                        imageBytes = imageStream.ToArray();
+                                    }
+
+                                    c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
                                 }
                                 catch
                                 {
-                                    c.Item().Text("Invalid image data").FontSize(12).FontColor(Colors.Red.Medium);
+                                    c.Item().Text("Unable to display representation").FontSize(12).FontColor(Colors.Red.Medium);
                                 }
                             }
                             else
                             {
-                                c.Item().Text(model.TrademarkLogo).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                c.Item().Text(model.TrademarkLogo?.ToString() ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             }
                         });
                         table.Cell().Element(Block).Column(c => {

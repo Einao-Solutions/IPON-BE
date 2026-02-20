@@ -30,6 +30,7 @@ public class AppUser
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
+    public string? Name { get; set; } 
 }
 
 public record DesignForm
@@ -515,7 +516,34 @@ public record PerformanceMarker
     public DesignTypes? designType { get; set; }
     public TradeMarkType? tradeMarkType { get; set; }
 }
-
+public record StaffPerformance
+{
+    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public ApplicationStatuses? BeforeStatus { get; set; }
+    public ApplicationStatuses? AfterStatus { get; set; }
+    public string? Reason { get; set; }
+    public DateTime? Date { get; set; }
+    public string? AppUserId { get; set; }
+    public Roles? OfficeUnit { get; set; }
+    public string? FileNumber { get; set; }
+    public FileTypes? FileType { get; set; }
+    
+}
+//public record Statistics
+//{
+//    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+//    public string? ApplicantCountry { get; set; }
+//    public string? ApplicantName { get; set; }
+//    public AccountType? AccountType { get; set; }
+//    public int? FileClass { get; set; }
+//    public DateTime? Date { get; set; }
+//    public FileTypes? Type { get; set; }
+//    public TradeMarkType? TradeMarkType { get; set; }
+//    public PatentTypes? PatentType { get; set; }
+//    public DesignTypes? DesignType { get; set; }
+//    public FormApplicationTypes? ApplicationType { get; set; }
+//}
 public enum PerformanceType {Staff,Application}
 
 public record OtherPaymentModel
