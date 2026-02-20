@@ -6563,73 +6563,7 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
                     }
                     break;
-                case "TrademarkType":
-                    if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality))
-                    {
-                        for (int i = 0; i < clerical.NewApplicantNationalities.Count && i < file.applicants.Count; i++)
-                            if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationalities[i]))
-                                file.applicants[i].country = clerical.NewApplicantNationalities[i];
-                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
-                    }
-                    else if (!string.IsNullOrWhiteSpace(clerical.NewApplicantNationality) && file.applicants.Count > 0)
-                    {
-                        file.applicants[0].country = clerical.NewApplicantNationality;
-                        updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
-                    }
-                    if (clerical.NewTrademarkType is not null)
-                    {
-                        updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkType, clerical.NewTrademarkType));
 
-                        // Update FileId prefix based on TrademarkType
-                        var fileIdParts = file.FileId?.Split('/');
-                        if (fileIdParts is { Length: >= 1 })
-                        {
-                            // TradeMarkType.Foreign = 1, TradeMarkType.Local = 0
-                            var newPrefix = clerical.NewTrademarkType == TradeMarkType.Foreign ? "F" : "NG";
-
-                            if (fileIdParts[0] != newPrefix)
-                            {
-                                fileIdParts[0] = newPrefix;
-                                var updatedFileId = string.Join("/", fileIdParts);
-                                updates.Add(Builders<Filling>.Update.Set(f => f.FileId, updatedFileId));
-                            }
-                        }
-                    }
-                    break;
-                case "FileTitle":
-                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
-                    {
-                        switch (file.Type)
-                        {
-                            case FileTypes.Design:
-                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfDesign, clerical.NewFileTitle));
-                                break;
-                            case FileTypes.Patent:
-                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfInvention, clerical.NewFileTitle));
-                                break;
-                            case FileTypes.TradeMark:
-                                updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
-                                break;
-                        }
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(clerical.NewTrademarkLogo) &&
-                        Enum.TryParse<TradeMarkLogo>(clerical.NewTrademarkLogo, out var logo))
-                    {
-                        updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkLogo, logo));
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(clerical.NewRepresentationUrl))
-                    {
-                        var repIdx = file.Attachments.FindIndex(a => a.name == "representation");
-                        if (repIdx >= 0)
-                            file.Attachments[repIdx].url = new List<string> { clerical.NewRepresentationUrl };
-                        else
-                            file.Attachments.Add(new AttachmentType { name = "representation", url = new List<string> { clerical.NewRepresentationUrl } });
-
-                        updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
-                    }
-                    break;
             }
 
             if (!updates.Any())
