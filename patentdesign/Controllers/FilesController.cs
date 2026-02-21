@@ -122,12 +122,12 @@ public class FilesController(FileServices fileService) : ControllerBase
         await fileService.GenerateDesignCerts();
     }
 
-    [HttpPost("NewApplicationPayment")]
-    public async Task<ActionResult> NewApplicationPayment([FromBody] UpdateDataType data)
-    {
-        var response = await fileService.NewApplicationPayment(data);
-        return Ok(response);
-    }
+    //[HttpPost("NewApplicationPayment")]
+    //public async Task<ActionResult> NewApplicationPayment([FromBody] UpdateDataType data)
+    //{
+    //    var response = await fileService.NewApplicationPayment(data);
+    //    return Ok(response);
+    //}
 
     [HttpGet("GetRRRCost")]
     public async Task<ActionResult<dynamic>> GetCostFromRRR([FromQuery] string rrr)
@@ -137,12 +137,12 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
 
-    [HttpGet("PaidButNotReflecting")]
-    public async Task<ActionResult<dynamic>> PaidButNotReflecting()
-    {
-        await fileService.PaidButNotReflecting();
-        return Ok("res");
-    }
+    //[HttpGet("PaidButNotReflecting")]
+    //public async Task<ActionResult<dynamic>> PaidButNotReflecting()
+    //{
+    //    await fileService.PaidButNotReflecting();
+    //    return Ok("res");
+    //}
 
     [HttpGet("DesignPDf")]
     public async Task<ActionResult<dynamic>> NewDesignPDF()
