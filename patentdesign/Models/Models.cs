@@ -407,6 +407,7 @@ public record PostRegistrationApp
     public string? OldMergerNationality { get; set; }
     public string? OldMergerState { get; set; }
     public string? OldMergerCity { get; set; }
+    public List<string>? RequestedAttachments { get; set; }
 
 }
 
@@ -774,7 +775,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy,
 }
 public enum ApplicationLetters
 {

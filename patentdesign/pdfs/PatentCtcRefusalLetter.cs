@@ -1,21 +1,18 @@
-﻿using System;
-using System.Linq;
-using patentdesign.Enums;
-using patentdesign.Models;
+﻿using patentdesign.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs
 {
-    public class PatentAssignmentRefusalLetter : IDocument
+    public class PatentCtcRefusalLetter : IDocument
     {
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
         private readonly ApplicationInfo application;
 
-        public PatentAssignmentRefusalLetter(Filling model, string url, Receipt receipt, ApplicationInfo application)
+        public PatentCtcRefusalLetter(Filling model, string url, Receipt receipt, ApplicationInfo application)
         {
             this.model = model;
             this.url = url;
@@ -84,7 +81,7 @@ namespace patentdesign.pdfs
                     .Text("COMMERCIAL LAW DEPARTMENT")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14);
                 col.Item().AlignCenter()
-                    .Text("PATENT ASSIGNMENT REFUSAL LETTER")
+                    .Text("PATENT CTC REFUSAL LETTER")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(16)
                     .FontColor(Colors.Red.Darken2).ExtraBold();
                 col.Item().Height(10);
@@ -100,60 +97,14 @@ namespace patentdesign.pdfs
 
                 // Assignment post-reg data
                 var assignmentRecordal = model.PostRegApplications?
-                    .FirstOrDefault(p => p.RecordalType == "Patent Assignment Recordal");
+                    .FirstOrDefault(p => p.RecordalType == "Patent Certified True Copy");
 
-                if (assignmentRecordal != null)
+                TwoColumnSection(col, "DOCUMENT INFORMATION", new[]
                 {
-                    // ASSIGNOR
-                    TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                    {
-                        ("Name:",        F(assignmentRecordal.OldAssignorName)),
-                        ("Email:",       F(assignmentRecordal.OldAssignorEmail)),
-                        ("Phone:",       F(assignmentRecordal.OldAssignorPhone)),
-                        ("State:",       F(assignmentRecordal.OldAssignorState)),
-                        ("City:",        F(assignmentRecordal.OldAssignorCity)),
-                        ("Address:",     F(assignmentRecordal.OldAssignorAddress)),
-                        ("Nationality:", F(assignmentRecordal.OldAssignorNationality))
-                    });
+                    ("Application Type:", F(date)),
+                    ("Document Type:",       F(receipt.rrr)),
 
-                    // ASSIGNEE
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
-                    {
-                        ("Name:",        F(assignmentRecordal.Name)),
-                        ("Email:",       F(assignmentRecordal.Email)),
-                        ("Phone:",       F(assignmentRecordal.Phone)),
-                        ("State:",       F(assignmentRecordal.State)),
-                        ("City:",        F(assignmentRecordal.City)),
-                        ("Address:",     F(assignmentRecordal.Address)),
-                        ("Nationality:", F(assignmentRecordal.Nationality))
-                    });
-                }
-                else
-                {
-                    // Fallback if no assignment recordal found
-                    TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                    {
-                        ("Name:",        "N/A"),
-                        ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
-                    });
-
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
-                    {
-                        ("Name:",        "N/A"),
-                        ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
-                    });
-                }
-
+                });
 
                 // PATENT INFORMATION
                 col.Item().Element(Header)

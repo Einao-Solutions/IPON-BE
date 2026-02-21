@@ -1644,4 +1644,104 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+
+    #region Patent CTC Post Registration Section
+
+    /// <summary>
+    /// Submits a new patent CTC (Certified True Copy) application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), and a list of attachment IDs to certify.
+    /// The backend will verify payment, save the application, update status, and record which attachments were requested.
+    /// </remarks>
+    /// <param name="dto">The patent CTC application details, including file ID, RRR, attachment IDs, and request date.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentCtcApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> NewPatentCtcApplication([FromBody] PatentCtcDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentCtcApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to create CTC application."));
+
+            return Ok(ApiResponse<bool>.Ok(true, "Patent CTC application created successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns all requested attachments and details for a patent CTC application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns CTC attachments and application details.<br/>
+    /// 404: Not found if no CTC application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentCtcDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentCtcDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetPatentCtcDetailsAsync(fileId);
+            if (details == null)
+                return NotFound(ApiResponse<string>.Fail("CTC application not found."));
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent CTC application.
+    /// </summary>
+    /// <remarks>
+    /// The examiner reviews the CTC request, enters a reason, and chooses to approve or refuse.
+    /// If approved, the certified copies are marked as ready. If refused, the request is rejected.
+    /// </remarks>
+    /// <param name="dto">CTC decision details including file ID, application ID, approval flag, and reason.</param>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item>200: Success, returns decision result and message.</item>
+    /// <item>404: Not found if file or application does not exist.</item>
+    /// <item>500: Internal server error.</item>
+    /// </list>
+    /// </returns>
+    [HttpPost("ctc-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PatentCtcDecision([FromBody] PatentCtcDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentCtcDecisionAsync(dto.FileId, dto.AppId, dto.Approve, dto.Reason);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
 }

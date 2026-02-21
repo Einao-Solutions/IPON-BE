@@ -2,19 +2,16 @@
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
-using System;
-using System.Linq;
-
 
 namespace patentdesign.pdfs
 {
-    public class PatentAssignmentAcknowledgementletter : IDocument
+    public class PatentCtcAcknowledgementLetter: IDocument
     {
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
 
-        public PatentAssignmentAcknowledgementletter(Filling model, string url, Receipt receipt)
+        public PatentCtcAcknowledgementLetter(Filling model, string url, Receipt receipt)
         {
             this.model = model;
             this.url = url;
@@ -79,7 +76,7 @@ namespace patentdesign.pdfs
                 col.Item().AlignCenter().PaddingBottom(10).Text("FEDERAL REPUBLIC OF NIGERIA").FontFamily(Fonts.TimesNewRoman).FontSize(20).Bold();
                 col.Item().AlignCenter().Text("FEDERAL MINISTRY OF INDUSTRY, TRADE AND INVESTMENT").FontFamily(Fonts.TimesNewRoman).FontSize(14);
                 col.Item().AlignCenter().PaddingBottom(10).Text("COMMERCIAL LAW DEPARTMENT").FontFamily(Fonts.TimesNewRoman).FontSize(14);
-                col.Item().AlignCenter().Text("PATENT ASSIGNMENT ACKNOWLEDGEMENT LETTER").FontFamily(Fonts.TimesNewRoman).FontSize(16).FontColor(Colors.Green.Darken3).ExtraBold();
+                col.Item().AlignCenter().Text("PATENT CTC ACKNOWLEDGEMENT LETTER").FontFamily(Fonts.TimesNewRoman).FontSize(16).FontColor(Colors.Green.Darken3).ExtraBold();
                 col.Item().Height(10);
 
                 // PAYMENT INFORMATION
@@ -92,66 +89,17 @@ namespace patentdesign.pdfs
                 });
 
                 // -------------------------------------------------------
-                // ASSIGNMENT DATA FROM PostRegApplications
+                // CTC DATA FROM PostRegApplications
                 // -------------------------------------------------------
-                var assignmentRecordal = model.PostRegApplications?
-                    .FirstOrDefault(p => p.RecordalType == "Patent Assignment Recordal");
+                var ctcRecordal = model.PostRegApplications?
+                    .FirstOrDefault(p => p.RecordalType == "Patent Certified True Copy");
 
-                // -------------------------------------------------------
-                // ASSIGNOR INFORMATION (from old assignor fields)
-                // -------------------------------------------------------
-                if (assignmentRecordal != null)
+                TwoColumnSection(col, "DOCUMENT INFORMATION", new[]
                 {
-                    TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                    {
-                        ("Name:",        F(assignmentRecordal.OldAssignorName)),
-                        ("Email:",       F(assignmentRecordal.OldAssignorEmail)),
-                        ("Phone:",       F(assignmentRecordal.OldAssignorPhone)),
-                        ("State:",       F(assignmentRecordal.OldAssignorState)),
-                        ("City:",        F(assignmentRecordal.OldAssignorCity)),
-                        ("Address:",     F(assignmentRecordal.OldAssignorAddress)),
-                        ("Nationality:", F(assignmentRecordal.OldAssignorNationality))
-                    });
+                    ("Application Type:", F(date)),
+                    ("Document Type:",       F(receipt.rrr)),
 
-                    // ---------------------------------------------------
-                    // ASSIGNEE INFORMATION (new owner in this recordal)
-                    // ---------------------------------------------------
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
-                    {
-                        ("Name:",        F(assignmentRecordal.Name)),
-                        ("Email:",       F(assignmentRecordal.Email)),
-                        ("Phone:",       F(assignmentRecordal.Phone)),
-                        ("State:",       F(assignmentRecordal.State)),
-                        ("City:",        F(assignmentRecordal.City)),
-                        ("Address:",     F(assignmentRecordal.Address)),
-                        ("Nationality:", F(assignmentRecordal.Nationality))
-                    });
-                }
-                else
-                {
-                    // Fallback if no assignment recordal found
-                    TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                    {
-                        ("Name:",        "N/A"),
-                        ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
-                    });
-
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
-                    {
-                        ("Name:",        "N/A"),
-                        ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
-                    });
-                }
+                });
 
                 // PATENT INFORMATION
                 col.Item().Element(Header)
@@ -216,6 +164,5 @@ namespace patentdesign.pdfs
                 WriteText(c2.Item(), value);
             });
         }
-
     }
 }
