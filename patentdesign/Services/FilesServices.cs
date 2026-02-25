@@ -192,7 +192,7 @@ public class FileServices
             case FormApplicationTypes.ChangeOfName:
             case FormApplicationTypes.ChangeOfAddress:
                 await ProcessChangeData(file, application, paymentDate, userName, userId);
-                break;
+                return;
 
             case FormApplicationTypes.ClericalUpdate:
                 await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
@@ -315,6 +315,7 @@ public class FileServices
             appId = application.id,
             reason = "Auto approved",
             fileId = file.FileId,
+            userId = userId
         });
 
         if (!approved)
@@ -4386,10 +4387,11 @@ public class FileServices
                     ? "Change of Applicant Name"
                     : "Change of Applicant Address",
                 DateTreated = "",
-                OldName = applicant.Name,
-                Name = newData.NewName,
-                OldAddress = applicant.Address,
-                Address = newData.NewAddress
+                OldName = newData.ChangeType == "Name" ? applicant.Name : null,
+                Name = newData.ChangeType == "Name" ? newData.NewName : null,
+                OldAddress = newData.ChangeType == "Address" ? applicant.Address : null,
+                Address = newData.ChangeType == "Address" ? newData.NewAddress : null
+
             };
 
             var update = Builders<Filling>.Update
@@ -4499,11 +4501,22 @@ public class FileServices
         try
         {
             Console.WriteLine($"Approving data change for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
+            Console.WriteLine(JsonSerializer.Serialize(recordalApp, new JsonSerializerOptions { WriteIndented = true }));
             var file = await _fillingCollection
                  .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
                  .FirstOrDefaultAsync();
 
-            if (file == null) return false;
+            if (file == null) throw new KeyNotFoundException("File not found");
+            var user = await _userCollection.Find(u => u.Id == recordalApp.userId).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                user = await _userCollection
+                    .Find(u => u.CreatorId == recordalApp.userId)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (user == null)
+                throw new KeyNotFoundException("Unauthorized user");
 
             // Update post reg
             var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
@@ -4514,20 +4527,18 @@ public class FileServices
             // Update Application Status
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
-            app.CurrentStatus = ApplicationStatuses.Approved;
+            app.CurrentStatus = ApplicationStatuses.AutoApproved;
 
-            // Update Applicant
-            var applicant = file.applicants?.FirstOrDefault();
-            if (applicant == null) return false;
+            file.applicants ??= new List<ApplicantInfo>();
+            var applicant = file.applicants.FirstOrDefault();
 
-            if (recordal.Name == null)
+            if (recordal.RecordalType == "Change of Applicant Address")
             {
                 applicant.Address = recordal.Address;
             }
-            else
+            else if (recordal.RecordalType == "Change of Applicant Name")
             {
                 applicant.Name = recordal.Name;
-
             }
 
             var update = Builders<Filling>.Update
@@ -4539,6 +4550,18 @@ public class FileServices
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
             );
+            var perform = new PerformanceDto
+            {
+                AfterStatus = ApplicationStatuses.Approved,
+                BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
+                ApplicationType = app.ApplicationType,
+                AppUserId = recordalApp.userId,
+                Date = DateTime.Now,
+                FileNumber = recordalApp.fileId,
+                FileType = file.Type,
+                OfficeUnit = Roles.TrademarkCertification,
+                Reason = recordalApp.reason,
+            };
 
             return true;
 
@@ -5594,7 +5617,7 @@ public class FileServices
                 .FirstOrDefaultAsync();
 
             if (file == null)
-                throw new Exception("File Not Found");
+                throw new KeyNotFoundException("File Not Found");
 
             // Check if this exact clerical update already exists (idempotency)
             var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
@@ -5945,6 +5968,7 @@ public class FileServices
 
             if (file == null)
                 throw new KeyNotFoundException("File not found");
+            var isTrademark = file.Type == FileTypes.TradeMark;
 
             file.applicants ??= new List<ApplicantInfo>();
             file.ClericalUpdates ??= new List<ClericalUpdate>();
@@ -6142,12 +6166,19 @@ public class FileServices
                 clerical.DateTreated = DateTime.Now;
                 app.CurrentStatus = ApplicationStatuses.AutoApproved;
 
-                if (file.FileStatus == ApplicationStatuses.AwaitingExaminer || file.FileStatus == ApplicationStatuses.Re_conduct)
+                if (isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer || file.FileStatus == ApplicationStatuses.Re_conduct))
+                {
                     file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingSearch;
+                    updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingSearch));
+                }
+                else if(!isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer))
+                {
+                    file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingExaminer;
+                    updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingExaminer));
+                }
 
                 updates.Add(Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory));
                 updates.Add(Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates));
-                updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingSearch));
             }
             else
             {
