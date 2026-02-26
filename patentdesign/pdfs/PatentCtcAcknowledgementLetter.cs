@@ -10,12 +10,14 @@ namespace patentdesign.pdfs
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
+        private readonly string appId;
 
-        public PatentCtcAcknowledgementLetter(Filling model, string url, Receipt receipt)
+        public PatentCtcAcknowledgementLetter(Filling model, string url, Receipt receipt, string appId)
         {
             this.model = model;
             this.url = url;
             this.receipt = receipt;
+            this.appId = appId;
         }
 
         public void Compose(IDocumentContainer container)
@@ -92,14 +94,20 @@ namespace patentdesign.pdfs
                 // CTC DATA FROM PostRegApplications
                 // -------------------------------------------------------
                 var ctcRecordal = model.PostRegApplications?
-                    .FirstOrDefault(p => p.RecordalType == "Patent Certified True Copy");
+                    .FirstOrDefault(p => p.RecordalType == "Patent Certified True Copy" && p.Id == appId);
 
-                TwoColumnSection(col, "DOCUMENT INFORMATION", new[]
+                if (ctcRecordal != null)
                 {
-                    ("Application Type:", F(date)),
-                    ("Document Type:",       F(receipt.rrr)),
-
-                });
+                    DisplayCtcInformation(col, ctcRecordal);
+                }
+                else
+                {
+                    TwoColumnSection(col, "DOCUMENT INFORMATION", new[]
+                    {
+                        ("Application Type:", "Certified True Copy"),
+                        ("Status:", "CTC application record not found"),
+                    });
+                }
 
                 // PATENT INFORMATION
                 col.Item().Element(Header)
@@ -153,6 +161,45 @@ namespace patentdesign.pdfs
                     }
                 });
             }
+        }
+
+        private void DisplayCtcInformation(ColumnDescriptor col, PostRegistrationApp ctcRecordal)
+        {
+            col.Item().Element(Header).Text("DOCUMENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+            // Show requested attachments/documents
+            if (ctcRecordal.RequestedAttachments != null && ctcRecordal.RequestedAttachments.Any())
+            {
+                var documentTypes = ctcRecordal.RequestedAttachments.Select(GetDocumentTypeName);
+                FullWidthBox(col, "Application Type:", "Certified True Copy");
+                FullWidthBox(col, "Document Type", string.Join(", ", documentTypes));
+            }
+            else
+            {
+                FullWidthBox(col, "Requested Documents:", "All available patent documents");
+                FullWidthBox(col, "Document Type:", "Complete patent file certification");
+            }
+        }
+
+        private string GetDocumentTypeName(string attachmentId)
+        {
+            // Convert attachment IDs to readable document names
+            return attachmentId?.ToLower() switch
+            {
+                "patent_specification" => "Patent Specification",
+                "patent_claims" => "Patent Claims", 
+                "patent_drawings" => "Patent Drawings",
+                "priority_documents" => "Priority Documents",
+                "assignment_deed" => "Assignment Deed",
+                "power_of_attorney" => "Power of Attorney",
+                "patent_abstract" => "Patent Abstract",
+                "inventor_declaration" => "Inventor Declaration",
+                "application_form" => "Application Form",
+                "search_report" => "Search Report",
+                "examination_report" => "Examination Report",
+                "patent_certificate" => "Patent Certificate",
+                _ => attachmentId ?? "Patent Document"
+            };
         }
 
         private static void FullWidthBox(ColumnDescriptor col, string label, string value)

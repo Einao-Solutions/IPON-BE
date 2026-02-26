@@ -2,6 +2,7 @@
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using System.Text.Json;
 
 namespace patentdesign.pdfs
 {
@@ -11,12 +12,14 @@ namespace patentdesign.pdfs
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
+        private readonly string appId;
 
-        public PatentAmendmentAcknowledgementLetter(Filling model, string url, Receipt receipt)
+        public PatentAmendmentAcknowledgementLetter(Filling model, string url, Receipt receipt, string appId)
         {
             this.model = model;
             this.url = url;
             this.receipt = receipt;
+            this.appId = appId;
         }
 
         public void Compose(IDocumentContainer container)
@@ -90,28 +93,36 @@ namespace patentdesign.pdfs
                 });
 
                 // -------------------------------------------------------
-                // CTC DATA FROM PostRegApplications
+                // AMENDMENT DATA FROM PostRegApplications
                 // -------------------------------------------------------
-                var ctcRecordal = model.PostRegApplications?
-                    .FirstOrDefault(p => p.RecordalType == "Patent Certified True Copy");
+                var amendmentRecordal = model.PostRegApplications?
+                    .FirstOrDefault(p => p.RecordalType == "Patent Amendment" && p.Id == appId);
 
-                TwoColumnSection(col, "AMENDED INFORMATION", new[]
+                if (amendmentRecordal != null)
                 {
-                    ("Update Type:", F(date)),
-                    ("Old:",       F(receipt.rrr)),
-                    ("New:",       F(receipt.rrr)),
-
-                });
+                    DisplayAmendmentInformation(col, amendmentRecordal);
+                }
+                else
+                {
+                    TwoColumnSection(col, "AMENDED INFORMATION", new[]
+                    {
+                        ("Update Type:", "N/A"),
+                        ("Status:", "Amendment record not found"),
+                    });
+                }
 
                 // APPLICANT INFORMATION
                 col.Item().Element(Header).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                 if (model.applicants != null && model.applicants.Count > 0)
                 {
-                    foreach (var applicant in model.applicants)
+                    for (int i = 0; i < model.applicants.Count; i++)
                     {
+                        var applicant = model.applicants[i];
+                        var applicantNumber = GetApplicantNumberDisplay(i + 1);
+
                         TwoColumnSection(col, string.Empty, new[]
                         {
-                            ("Name:",         F(applicant?.Name)),
+                            ($"{applicantNumber} APPLICANT:", F(applicant?.Name)),
                             ("Email:",        F(applicant?.Email)),
                             ("Phone number:", F(applicant?.Phone)),
                             ("State:",        F(applicant?.State)),
@@ -124,7 +135,7 @@ namespace patentdesign.pdfs
                 {
                     TwoColumnSection(col, string.Empty, new[]
                     {
-                        ("Name:",         "N/A"),
+                        ("FIRST APPLICANT:", "N/A"),
                         ("Email:",        "N/A"),
                         ("Phone number:", "N/A"),
                         ("State:",        "N/A"),
@@ -185,6 +196,281 @@ namespace patentdesign.pdfs
                     }
                 });
             }
+        }
+
+        private void DisplayAmendmentInformation(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            col.Item().Element(Header).Text("AMENDED INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+            // Always show the amendment type
+            FullWidthBox(col, "Amendment Type:", GetAmendmentTypeDisplay(amendment.AmendmentType));
+
+            try
+            {
+                switch (amendment.AmendmentType)
+                {
+                    case "ApplicantName":
+                        DisplayApplicantNameChanges(col, amendment);
+                        break;
+                    case "ApplicantAddress":
+                        DisplayApplicantAddressChanges(col, amendment);
+                        break;
+                    case "FileTitle":
+                        DisplayFileTitleChanges(col, amendment);
+                        break;
+                    case "CorrespondenceInformation":
+                        DisplayCorrespondenceChanges(col, amendment);
+                        break;
+                    case "EditInventors":
+                        DisplayInventorChanges(col, amendment);
+                        break;
+                    case "PriorityInfo":
+                        DisplayPriorityChanges(col, amendment);
+                        break;
+                    case "AddAndRemoveApplicant":
+                        DisplayApplicantManagementChanges(col, amendment);
+                        break;
+                    default:
+                        FullWidthBox(col, "Changes:", "Amendment details available upon approval");
+                        break;
+                }
+            }
+            catch (Exception)
+            {
+                FullWidthBox(col, "Changes:", "Amendment details will be processed upon approval");
+            }
+        }
+
+        private string GetAmendmentTypeDisplay(string amendmentType)
+        {
+            return amendmentType switch
+            {
+                "ApplicantName" => "Applicant Name Amendment",
+                "ApplicantAddress" => "Applicant Address Amendment", 
+                "FileTitle" => "Patent Title & Abstract Amendment",
+                "CorrespondenceInformation" => "Correspondence Information Amendment",
+                "EditInventors" => "Inventor Information Amendment",
+                "PriorityInfo" => "Priority Information Amendment",
+                "AddAndRemoveApplicant" => "Add/Remove Applicants Amendment",
+                _ => amendmentType ?? "Unknown Amendment Type"
+            };
+        }
+
+        private void DisplayApplicantNameChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.OldDataJson) && !string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var oldNames = JsonSerializer.Deserialize<List<string>>(amendment.OldDataJson);
+                    var newNames = JsonSerializer.Deserialize<List<string>>(amendment.NewDataJson);
+
+                    FullWidthBox(col, "Old Names:", string.Join(", ", oldNames ?? new List<string>()));
+                    FullWidthBox(col, "New Names:", string.Join(", ", newNames ?? new List<string>()));
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Name amendment details available");
+                }
+            }
+        }
+
+        private void DisplayApplicantAddressChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.OldDataJson) && !string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var oldData = JsonSerializer.Deserialize<JsonElement>(amendment.OldDataJson);
+                    var newData = JsonSerializer.Deserialize<JsonElement>(amendment.NewDataJson);
+
+                    if (oldData.TryGetProperty("Addresses", out var oldAddresses) && newData.TryGetProperty("Addresses", out var newAddresses))
+                    {
+                        var oldAddressList = JsonSerializer.Deserialize<List<string>>(oldAddresses.GetRawText());
+                        var newAddressList = JsonSerializer.Deserialize<List<string>>(newAddresses.GetRawText());
+
+                        FullWidthBox(col, "Old Addresses:", string.Join("; ", oldAddressList ?? new List<string>()));
+                        FullWidthBox(col, "New Addresses:", string.Join("; ", newAddressList ?? new List<string>()));
+                    }
+
+                    if (oldData.TryGetProperty("Emails", out var oldEmails) && newData.TryGetProperty("Emails", out var newEmails))
+                    {
+                        var oldEmailList = JsonSerializer.Deserialize<List<string>>(oldEmails.GetRawText());
+                        var newEmailList = JsonSerializer.Deserialize<List<string>>(newEmails.GetRawText());
+
+                        FullWidthBox(col, "Old Emails:", string.Join(", ", oldEmailList ?? new List<string>()));
+                        FullWidthBox(col, "New Emails:", string.Join(", ", newEmailList ?? new List<string>()));
+                    }
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Address amendment details available");
+                }
+            }
+        }
+
+        private void DisplayFileTitleChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.OldDataJson) && !string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var oldData = JsonSerializer.Deserialize<JsonElement>(amendment.OldDataJson);
+                    var newData = JsonSerializer.Deserialize<JsonElement>(amendment.NewDataJson);
+
+                    if (oldData.TryGetProperty("Title", out var oldTitle) && newData.TryGetProperty("Title", out var newTitle))
+                    {
+                        FullWidthBox(col, "Old Title:", oldTitle.GetString() ?? "N/A");
+                        FullWidthBox(col, "New Title:", newTitle.GetString() ?? "N/A");
+                    }
+
+                    if (oldData.TryGetProperty("Abstract", out var oldAbstract) && newData.TryGetProperty("Abstract", out var newAbstract))
+                    {
+                        FullWidthBox(col, "Old Abstract:", oldAbstract.GetString() ?? "N/A");
+                        FullWidthBox(col, "New Abstract:", newAbstract.GetString() ?? "N/A");
+                    }
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Title amendment details available");
+                }
+            }
+        }
+
+        private void DisplayCorrespondenceChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.OldDataJson) && !string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var oldData = JsonSerializer.Deserialize<JsonElement>(amendment.OldDataJson);
+                    var newData = JsonSerializer.Deserialize<JsonElement>(amendment.NewDataJson);
+
+                    var fields = new[] { "Name", "Address", "Email", "Phone", "State", "Nationality" };
+
+                    foreach (var field in fields)
+                    {
+                        if (oldData.TryGetProperty(field, out var oldValue) && newData.TryGetProperty(field, out var newValue))
+                        {
+                            var oldStr = oldValue.ValueKind == JsonValueKind.Null ? "N/A" : oldValue.GetString();
+                            var newStr = newValue.ValueKind == JsonValueKind.Null ? "N/A" : newValue.GetString();
+
+                            if (oldStr != newStr)
+                            {
+                                TwoColumnSection(col, string.Empty, new[]
+                                {
+                                    ($"Old {field}:", oldStr ?? "N/A"),
+                                    ($"New {field}:", newStr ?? "N/A")
+                                });
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Correspondence amendment details available");
+                }
+            }
+        }
+
+        private void DisplayInventorChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var newInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.NewDataJson);
+                    FullWidthBox(col, "Updated Inventors:", string.Join(", ", newInventors?.Select(i => i.Name) ?? new List<string>()));
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Inventor amendment details available");
+                }
+            }
+        }
+
+        private void DisplayPriorityChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var newData = JsonSerializer.Deserialize<JsonElement>(amendment.NewDataJson);
+
+                    if (newData.TryGetProperty("FirstPriorityInfo", out var firstPriority))
+                    {
+                        var firstPriorityList = JsonSerializer.Deserialize<List<PriorityInfo>>(firstPriority.GetRawText());
+                        if (firstPriorityList?.Any() == true)
+                        {
+                            FullWidthBox(col, "First Priority:", string.Join(", ", firstPriorityList.Select(p => $"{p.number} ({p.Country})")));
+                        }
+                    }
+
+                    if (newData.TryGetProperty("PriorityInfo", out var priority))
+                    {
+                        var priorityList = JsonSerializer.Deserialize<List<PriorityInfo>>(priority.GetRawText());
+                        if (priorityList?.Any() == true)
+                        {
+                            FullWidthBox(col, "Priority Claims:", string.Join(", ", priorityList.Select(p => $"{p.number} ({p.Country})")));
+                        }
+                    }
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Priority amendment details available");
+                }
+            }
+        }
+
+        private void DisplayApplicantManagementChanges(ColumnDescriptor col, PostRegistrationApp amendment)
+        {
+            if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+            {
+                try
+                {
+                    var newData = JsonSerializer.Deserialize<JsonElement>(amendment.NewDataJson);
+
+                    if (newData.TryGetProperty("EditedApplicants", out var edited))
+                    {
+                        var editedList = JsonSerializer.Deserialize<List<ApplicantInfo>>(edited.GetRawText());
+                        if (editedList?.Any() == true)
+                        {
+                            FullWidthBox(col, "Edited Applicants:", string.Join(", ", editedList.Select(a => a.Name)));
+                        }
+                    }
+
+                    if (newData.TryGetProperty("NewApplicants", out var newApps))
+                    {
+                        var newAppList = JsonSerializer.Deserialize<List<ApplicantInfo>>(newApps.GetRawText());
+                        if (newAppList?.Any() == true)
+                        {
+                            FullWidthBox(col, "New Applicants:", string.Join(", ", newAppList.Select(a => a.Name)));
+                        }
+                    }
+                }
+                catch
+                {
+                    FullWidthBox(col, "Changes:", "Applicant management amendment details available");
+                }
+            }
+        }
+
+        private string GetApplicantNumberDisplay(int number)
+        {
+            return number switch
+            {
+                1 => "FIRST",
+                2 => "SECOND", 
+                3 => "THIRD",
+                4 => "FOURTH",
+                5 => "FIFTH",
+                6 => "SIXTH",
+                7 => "SEVENTH",
+                8 => "EIGHTH", 
+                9 => "NINTH",
+                10 => "TENTH",
+                _ => $"{number}TH"
+            };
         }
 
         private static void FullWidthBox(ColumnDescriptor col, string label, string value)
