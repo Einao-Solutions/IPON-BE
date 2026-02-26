@@ -42,6 +42,7 @@ using static System.Net.WebRequestMethods;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace patentdesign.Services;
+
 public class FileServices
 {
     private static IMongoCollection<Filling> _fillingCollection;
@@ -54,13 +55,13 @@ public class FileServices
     private static IMongoCollection<StaffPerformance> _performanceCollection;
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
-    
+
 
     private PaymentUtils _remitaPaymentUtils;
     private MongoClient _mongoClient;
     private FinanceService _financeService;
     private PaymentService _paymentService;
-    
+
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
@@ -97,7 +98,7 @@ public class FileServices
         _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
 
     }
-    
+
     public async Task<Filling?> GetFileAsync(string id)
     {
         try
@@ -286,7 +287,7 @@ public class FileServices
                     OfficeUnit = isPatent ? Roles.PatentExaminer : Roles.DesignExaminer
                 };
             }
-            else if(status is ApplicationStatuses.Active)
+            else if (status is ApplicationStatuses.Active)
             {
                 statusHistory = new ApplicationHistory
                 {
@@ -311,7 +312,7 @@ public class FileServices
                     OfficeUnit = isPatent ? Roles.PatentCertification : Roles.DesignCertification
                 };
             }
-               
+
             // Apply updates to database
             var updates = Builders<Filling>.Update.Combine([
                 Builders<Filling>.Update.Set(f => f.FileStatus, status),
@@ -429,7 +430,7 @@ public class FileServices
         FormApplicationTypes.Assignment => $"{fileType} Assignment Application",
         _ => "Application"
     };
-   
+
     public async Task GenerateRandom()
     {
         var random = _fillingCollection.Find(x => x.Type == FileTypes.Design && x.FileStatus == ApplicationStatuses.Active)
@@ -846,7 +847,8 @@ public class FileServices
         {
             ApplicationDate = DateTime.Now,
             CurrentStatus = ApplicationStatuses.AwaitingSearch,
-            ExpiryDate = null, ApplicationType = FormApplicationTypes.LicenseRenewal,
+            ExpiryDate = null,
+            ApplicationType = FormApplicationTypes.LicenseRenewal,
             ApplicationLetters = new List<ApplicationLetters>() { ApplicationLetters.RenewalReceipt, ApplicationLetters.RenewalAck },
             PaymentId = data.paymentId,
             id = applicationId,
@@ -1655,7 +1657,8 @@ public class FileServices
                 var novurl = await UploadAttachment([nov]);
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "nov", url = novurl
+                    name = "nov",
+                    url = novurl
                 });
             }
 
@@ -1665,7 +1668,8 @@ public class FileServices
                 var form2url = await UploadAttachment([form2]);
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "form2", url = form2url
+                    name = "form2",
+                    url = form2url
                 });
             }
 
@@ -1675,7 +1679,8 @@ public class FileServices
                 var priorityDocurl = await UploadAttachment([priorityDoc]);
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "pdoc", url = priorityDocurl
+                    name = "pdoc",
+                    url = priorityDocurl
                 });
             }
         }
@@ -1747,7 +1752,7 @@ public class FileServices
                     url = otherUrls
                 });
             }
-        } 
+        }
 
 
         if (newFile.Type is FileTypes.TradeMark)
@@ -1759,7 +1764,8 @@ public class FileServices
 
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "representation", url = repurl
+                    name = "representation",
+                    url = repurl
                 });
             }
 
@@ -1769,7 +1775,8 @@ public class FileServices
                 var form2url = await UploadAttachment([form2]);
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "form2", url = form2url
+                    name = "form2",
+                    url = form2url
                 });
             }
 
@@ -1779,7 +1786,8 @@ public class FileServices
                 var priorityDocurl = await UploadAttachment([other1]);
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "other1", url = priorityDocurl
+                    name = "other1",
+                    url = priorityDocurl
                 });
             }
 
@@ -1789,7 +1797,8 @@ public class FileServices
                 var other2url = await UploadAttachment([other2]);
                 newFile.Attachments.Add(new AttachmentType()
                 {
-                    name = "other2", url = other2url
+                    name = "other2",
+                    url = other2url
                 });
             }
         }
@@ -1836,7 +1845,7 @@ public class FileServices
         {
             fileHistory.PaymentId = rrr;
         }
-        fileHistory.Applicants = newFile.applicants;    
+        fileHistory.Applicants = newFile.applicants;
         newFile.ApplicationHistory = [fileHistory];
         newFile.FileStatus = ApplicationStatuses.AwaitingPayment;
         await CreateFileAsync(newFile);
@@ -2173,7 +2182,7 @@ public class FileServices
                 };
             }
 
-                    var result = await _fillingCollection.Aggregate<BsonDocument>(pipeline).ToListAsync();
+            var result = await _fillingCollection.Aggregate<BsonDocument>(pipeline).ToListAsync();
             List<FileStatsRes> stats_mapped = [];
             result.ForEach(e => stats_mapped.Add(BsonSerializer.Deserialize<FileStatsRes>(e)));
             return stats_mapped;
@@ -2862,8 +2871,11 @@ public class FileServices
             }
             operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ApplicationLetters", letters));
         }
-        if (req is { beforeStatus: ApplicationStatuses.RejectedByExaminer or ApplicationStatuses.Rejected,
-            applicationType: FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal })
+        if (req is
+            {
+                beforeStatus: ApplicationStatuses.RejectedByExaminer or ApplicationStatuses.Rejected,
+                applicationType: FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal
+            })
         {
             var file = await GetFileAsync(req.fileId);
             var letters = file.ApplicationHistory.FirstOrDefault(x => x.id == req.applicationId).ApplicationLetters;
@@ -3197,7 +3209,7 @@ public class FileServices
             {
                 ReturnDocument = ReturnDocument.After
             };
-            
+
             var result = await _fillingCollection.FindOneAndUpdateAsync(filter, update, options);
 
             if (result == null)
@@ -3218,7 +3230,8 @@ public class FileServices
     }
 
 
-    private async Task<string?> saveAck(OtherPaymentModel data) {
+    private async Task<string?> saveAck(OtherPaymentModel data)
+    {
         var trustedFileName = Path.GetRandomFileName();
         trustedFileName = trustedFileName.Split(".")[0] + $".pdf";
         var uri = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
@@ -3870,12 +3883,10 @@ public class FileServices
         }
     }
 
-    public async Task<RecordalDto> PatentCtcCost(string fileId, FileTypes fileType)
+    public async Task<RecordalDto> PatentCtcCost(string fileId, FileTypes fileType, int numberOfAttachments = 1)
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentCtc, fileType, "", null, null, null);
-
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
@@ -3888,16 +3899,25 @@ public class FileServices
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent CTC",
-                applicant.Name, applicant.Email, applicant.Phone);
+            // ✅ Check if there is already a pending/created CTC application
+            //var existingApp = fileInfo.ApplicationHistory?
+            //    .FirstOrDefault(a =>
+            //        a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy &&
+            //        !string.IsNullOrWhiteSpace(a.PaymentId));
 
-            var result = new RecordalDto
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId) &&
+                    (a.CurrentStatus == ApplicationStatuses.Approved ||
+                     a.CurrentStatus == ApplicationStatuses.AwaitingRecordalProcess));
+
+
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
                 ApplicantEmail = applicant.Email,
                 ApplicantAddress = applicant.Address,
                 ApplicantNationality = applicant.country,
@@ -3907,11 +3927,36 @@ public class FileServices
                 PatentType = fileInfo.PatentType,
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
-                FileOrigin = fileInfo.FileOrigin,// NEW: include all attachments for CTC
+                FileOrigin = fileInfo.FileOrigin,
                 Attachments = fileInfo.Attachments ?? new List<AttachmentType>()
             };
 
-            return result;
+            if (existingApp != null)
+            {
+                // Do NOT generate a new RRR; just tell the frontend an app already exists
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            // Normal cost + RRR generation path
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentCtc, fileType, "", null, null, null);
+
+            // MULTIPLY the cost by number of attachments
+            decimal baseAmount = decimal.Parse(data.Item1);
+            decimal finalAmount = baseAmount * numberOfAttachments;
+            string finalAmountStr = finalAmount.ToString();
+
+            // Generate RRR with the FINAL (multiplied) amount
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                finalAmountStr, data.Item3, data.Item2, "Patent CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = finalAmountStr; // Return the multiplied amount
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception ex)
         {
@@ -3924,8 +3969,6 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAmendment, fileType, "", null, null, null);
-
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
@@ -3938,16 +3981,17 @@ public class FileServices
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Patent Amendment",
-                applicant.Name, applicant.Email, applicant.Phone);
+            // ✅ Check if there is already a pending/created amendment application
+            //var existingApp = fileInfo.ApplicationHistory?
+            //    .FirstOrDefault(a =>
+            //        a.ApplicationType == FormApplicationTypes.Amendment &&
+            //        !string.IsNullOrWhiteSpace(a.PaymentId));
 
-            var result = new RecordalDto
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
+                ApplicantName = applicant.Name,
                 ApplicantEmail = applicant.Email,
                 ApplicantAddress = applicant.Address,
                 ApplicantPhone = applicant.Phone,
@@ -3958,9 +4002,35 @@ public class FileServices
                 PatentApplicationType = fileInfo.PatentApplicationType,
                 TitleOfInvention = fileInfo.TitleOfInvention,
                 FileOrigin = fileInfo.FileOrigin,
+
+                Applicants = fileInfo.applicants,
+                Inventors = fileInfo.Inventors,
+                PriorityInfo = fileInfo.PriorityInfo,
+                FirstPriorityInfo = fileInfo.FirstPriorityInfo,
+                PatentAbstract = fileInfo.PatentAbstract,
+                Correspondence = fileInfo.Correspondence,
             };
 
-            return result;
+            //if (existingApp != null)
+            //{
+            //    // Do NOT generate a new RRR; just tell the frontend an app already exists
+            //    dto.HasExistingApplication = true;
+            //    dto.ExistingApplicationId = existingApp.id;
+            //    dto.ExistingRRR = existingApp.PaymentId;
+            //    return dto;
+            //}
+
+            // Normal cost + RRR generation path
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.PatentAmendment, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Patent Amendment",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception ex)
         {
@@ -4095,7 +4165,7 @@ public class FileServices
                 FileOrigin = fileInfo.FileOrigin,
                 TitleOfInvention = fileInfo.TitleOfInvention,
                 ServiceFee = data.Item3,
-                Applicants = fileInfo.applicants, 
+                Applicants = fileInfo.applicants,
                 Inventors = fileInfo.Inventors,
                 CorrespondenceName = fileInfo.Correspondence?.name,
                 CorrespondenceAddress = fileInfo.Correspondence?.address,
@@ -4141,7 +4211,7 @@ public class FileServices
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfInvention ?? "",
                 ApplicantName = applicant.Name,
-               // TrademarkClass = fileInfo.TrademarkClass
+                // TrademarkClass = fileInfo.TrademarkClass
             };
 
             return mergeCost;
@@ -4490,7 +4560,7 @@ public class FileServices
                 : applicant?.Name ?? "Unknown";
         try
         {
-            
+
             // Create ApplicationInfo for ApplicationHistory
             var mergerHistory = new ApplicationInfo
             {
@@ -4710,7 +4780,7 @@ public class FileServices
             ?? await _userCollection
                 .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
                 .FirstOrDefaultAsync();
-        var userName = user != null 
+        var userName = user != null
             ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
             : applicant?.Name ?? "Unknown";
 
@@ -4848,7 +4918,8 @@ public class FileServices
                 TradeMarkClass = f.TrademarkClass,
                 TrademarkType = f.TrademarkType,
                 FileApplicant = f.applicants[0].Name ?? string.Empty,
-                FilingDate =  f.FilingDate.ToString() ?? f.ApplicationHistory[0].ApplicationDate.ToString(),                TradeMarkLogo = f.TrademarkLogo,
+                FilingDate = f.FilingDate.ToString() ?? f.ApplicationHistory[0].ApplicationDate.ToString(),
+                TradeMarkLogo = f.TrademarkLogo,
                 FileStatus = f.FileStatus,
                 FileTypes = f.Type,
                 PatentApplicationType = f.PatentApplicationType.ToString() ?? string.Empty,
@@ -5445,7 +5516,7 @@ public class FileServices
                 {
                     Date = DateTime.Now,
                     beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.RequestWithdrawal,    
+                    afterStatus = ApplicationStatuses.RequestWithdrawal,
                     Message = "Withdrawal Request Submitted",
                     User = applicant?.Name,
                     UserId = file.CreatorAccount
@@ -5912,9 +5983,9 @@ public class FileServices
                 default:
                     throw new Exception("Failed to get cost");
             }
-           
+
             var applicant = fileInfo.applicants[0];
-            if (applicant == null)throw new Exception("No applicant found for the file.");
+            if (applicant == null) throw new Exception("No applicant found for the file.");
             string paymentId = null;
             if (!search)
             {
@@ -5925,12 +5996,12 @@ public class FileServices
             else
             {
                 paymentId = "Free";
-                
+
             }
 
-            
+
             Console.WriteLine("amount: " + data.Item1);
-            
+
             var repAttachment = fileInfo?.Attachments
                     .FirstOrDefault(a => a.name == "representation" && a.url != null && a.url.Count > 0);
             var updateCost = new ClericalUpdateDto();
@@ -5965,7 +6036,7 @@ public class FileServices
                     break;
                 case FileTypes.Design:
                     var designs = fileInfo.Attachments.FirstOrDefault(d => d.name == "designs");
-                    
+
                     updateCost = new ClericalUpdateDto
                     {
                         Cost = search ? "0" : data.Item1,
@@ -5998,7 +6069,7 @@ public class FileServices
                 default:
                     throw new Exception("Invalid file type for clerical update.");
             }
-            
+
             return updateCost;
         }
         catch (Exception up)
@@ -6047,7 +6118,7 @@ public class FileServices
             var isAmendment =
                 file.FileStatus == ApplicationStatuses.Publication ||
                 file.FileStatus == ApplicationStatuses.AwaitingCertification;
-           
+
             var appHistoryId = Guid.NewGuid().ToString();
 
             var appHistory = new ApplicationInfo
@@ -6171,7 +6242,7 @@ public class FileServices
                     clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
                     clerical.NewApplicantPhones = new List<string> { updateData.ApplicantPhone };
                 }
-                
+
                 break;
             case ClericalUpdateTypes.TrademarkType:
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
@@ -6218,16 +6289,16 @@ public class FileServices
 
                 clerical.OldRepresentationUrl =
                     file.Attachments?.FirstOrDefault(a => a.name == "representation")?.url?.FirstOrDefault();
-                
+
                 clerical.NewRepresentationUrl = representationUrl;
-                
+
                 if (updateData.TrademarkLogo.HasValue)
                 {
                     clerical.OldTrademarkLogo = file.TrademarkLogo?.ToString();
                     clerical.NewTrademarkLogo = updateData.TrademarkLogo.Value.ToString();
                 }
                 break;
-            
+
             case ClericalUpdateTypes.DesignInformation:
                 clerical.OldFileTitle = file.TitleOfDesign;
                 clerical.NewFileTitle = updateData.TitleOfDesign;
@@ -6236,7 +6307,7 @@ public class FileServices
                 clerical.OldDesignType = file.DesignType;
                 clerical.NewDesignType = updateData.DesignType;
                 break;
-            
+
             case ClericalUpdateTypes.CreatorInformation:
                 clerical.OldDesignCreators = file.DesignCreators?.Select(c => new ApplicantInfo
                 {
@@ -6425,10 +6496,10 @@ public class FileServices
                     break;
 
                 case "ApplicantAddress":
-                    if(clerical.NewApplicantAddresses?.Any() == true)
+                    if (clerical.NewApplicantAddresses?.Any() == true)
                     {
-                        for (int i = 0; i < clerical.NewApplicantAddresses.Count && i < file.applicants.Count; i++) 
-                        { 
+                        for (int i = 0; i < clerical.NewApplicantAddresses.Count && i < file.applicants.Count; i++)
+                        {
                             if (i < clerical.NewApplicantAddresses?.Count && !string.IsNullOrWhiteSpace(clerical.NewApplicantAddresses[i]))
                                 file.applicants[i].Address = clerical.NewApplicantAddresses[i];
 
@@ -6611,7 +6682,7 @@ public class FileServices
 
     //Get existing clerical update application
     public async Task<ClericalUpdateDetailsDto> GetClericalUpdateApp(string fileId, string appId)
-    {   
+    {
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
@@ -6624,7 +6695,7 @@ public class FileServices
         var update = new ClericalUpdateDetailsDto
         {
             UpdateType = clerical.UpdateType,
-            PaymentId =  clerical.PaymentRRR
+            PaymentId = clerical.PaymentRRR
         };
         switch (clerical.UpdateType)
         {
@@ -6661,12 +6732,12 @@ public class FileServices
             case "FileTitle":
                 update.OldValue = clerical?.OldFileTitle;
                 update.NewValue = clerical?.NewFileTitle;
-                
+
                 update.OldValue2 = clerical?.OldTrademarkLogo;
                 update.NewValue2 = clerical?.NewTrademarkLogo;
                 update.OldRepresentation = clerical?.OldRepresentationUrl;
                 if (update.OldRepresentation != null)
-                { 
+                {
                     update.NewRepresentation = clerical?.NewRepresentationUrl;
                 }
                 break;
@@ -6688,7 +6759,7 @@ public class FileServices
             if (remita != null && remita.status != "00") return false;
             var recordal = file.ApplicationHistory?.FirstOrDefault(a => a.PaymentId == rrr);
             Console.WriteLine(recordal);
-            if (recordal == null )
+            if (recordal == null)
                 return false;
             var payment = new PaymentRecord
             {
@@ -6716,10 +6787,10 @@ public class FileServices
                 recordal.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 recordal.StatusHistory[0].afterStatus = ApplicationStatuses.AwaitingRecordalProcess;
             }
-                
+
             recordal.StatusHistory[0].beforeStatus = ApplicationStatuses.AwaitingPayment;
-            
-            
+
+
 
             var update = Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory);
 
@@ -6789,25 +6860,25 @@ public class FileServices
 
     public async Task<FileApplicationsDto> GetApplicationsByFile(string fileId)
     {
-    try
-    {
-        var file = await _fillingCollection
-            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
-            .FirstOrDefaultAsync();
-        string? fileTitle = "";
-        if (file.Type == FileTypes.TradeMark)
+        try
         {
-            fileTitle = file.TitleOfTradeMark;
-        }
-        else if (file.Type == FileTypes.Patent)
-        {
-            fileTitle = file.TitleOfInvention;
-        }
-        else
-        {
-            fileTitle = file.TitleOfDesign;
-        }
-        var apps = file.ApplicationHistory.ToList();
+            var file = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            string? fileTitle = "";
+            if (file.Type == FileTypes.TradeMark)
+            {
+                fileTitle = file.TitleOfTradeMark;
+            }
+            else if (file.Type == FileTypes.Patent)
+            {
+                fileTitle = file.TitleOfInvention;
+            }
+            else
+            {
+                fileTitle = file.TitleOfDesign;
+            }
+            var apps = file.ApplicationHistory.ToList();
 
             CertificateAppDto cert = new CertificateAppDto
             {
@@ -6818,20 +6889,20 @@ public class FileServices
                 ApplicationDate = apps[0].ApplicationDate
             };
 
-        var result = new FileApplicationsDto
+            var result = new FileApplicationsDto
+            {
+                FileTitle = fileTitle ?? "",
+                Applications = apps,
+                CertificateApp = cert
+            };
+            return result;
+        }
+        catch (Exception ex)
         {
-            FileTitle = fileTitle?? "",
-            Applications = apps,
-            CertificateApp = cert
-        };
-        return result;
+            _log.LogError(ex, $"Error at GetPaymentIds for FileId: {fileId}");
+            throw;
+        }
     }
-    catch (Exception ex)
-    {
-        _log.LogError(ex, $"Error at GetPaymentIds for FileId: {fileId}");
-        throw;
-    }
-}
     public async Task<bool> UpdatePaymentId(UpdatePaymentDto dto)
     {
         try
@@ -6980,10 +7051,11 @@ public class FileServices
         }
 
         if (dto.Applicants?.Any() == true)
-            MergeList(existing.applicants, dto.Applicants, x => x.id, (e, u) => {
+            MergeList(existing.applicants, dto.Applicants, x => x.id, (e, u) =>
+            {
                 if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
                 if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country;
-                if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city; 
+                if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city;
                 if (!string.IsNullOrWhiteSpace(u.Phone)) e.Phone = u.Phone;
                 if (!string.IsNullOrWhiteSpace(u.Email)) e.Email = u.Email;
                 if (!string.IsNullOrWhiteSpace(u.Address)) e.Address = u.Address;
@@ -6991,7 +7063,8 @@ public class FileServices
             });
 
         if (dto.Inventors?.Any() == true)
-            MergeList(existing.Inventors, dto.Inventors, x => x.id, (e, u) => {
+            MergeList(existing.Inventors, dto.Inventors, x => x.id, (e, u) =>
+            {
                 if (!string.IsNullOrWhiteSpace(u.Name)) e.Name = u.Name;
                 if (!string.IsNullOrWhiteSpace(u.country)) e.country = u.country;
                 if (!string.IsNullOrWhiteSpace(u.city)) e.city = u.city;
@@ -7002,7 +7075,8 @@ public class FileServices
             });
 
         if (dto.FirstPriorityInfo?.Any() == true)
-            MergeList(existing.FirstPriorityInfo, dto.FirstPriorityInfo, x => x.id, (e, u) => {
+            MergeList(existing.FirstPriorityInfo, dto.FirstPriorityInfo, x => x.id, (e, u) =>
+            {
                 if (!string.IsNullOrWhiteSpace(u.Country)) e.Country = u.Country;
                 if (!string.IsNullOrWhiteSpace(u.Date)) e.Date = u.Date;
                 if (!string.IsNullOrWhiteSpace(u.number)) e.number = u.number;
@@ -7225,7 +7299,7 @@ public class FileServices
     }
 
     public async Task<FileTypes?> GetFileTypeByFileIdAsync(string fileId)
-    { 
+    {
         var filing = await _fillingCollection
             .Find(f => f.FileId == fileId)
             .FirstOrDefaultAsync();
@@ -7328,7 +7402,7 @@ public class FileServices
             file.FileStatus = ApplicationStatuses.AppealRequest;
             var finalUpdate = Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Set(f => f.Attachments, attachments),
-                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AppealRequest), 
+                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AppealRequest),
                 Builders<Filling>.Update.Push(f => f.ApplicationHistory, appHistory),
                 Builders<Filling>.Update.Push(f => f.Appeals, appeal)
             );
@@ -7368,7 +7442,7 @@ public class FileServices
     {
         try
         {
-            Console.WriteLine("appeal: "+req);
+            Console.WriteLine("appeal: " + req);
             var file = await _fillingCollection.Find(f => f.FileId == req.FileNumber).FirstOrDefaultAsync();
             if (file == null) throw new Exception("File not found");
             var user = await _userCollection.Find(u => u.Id == req.UserId).FirstOrDefaultAsync();
@@ -7391,7 +7465,7 @@ public class FileServices
                 appeal.DateTreated = DateTime.Now;
                 file.FileStatus = ApplicationStatuses.Rejected;
             }
-            
+
             var finalUpdate = Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Set(f => f.FileStatus, file.FileStatus),
                 Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory),
@@ -7423,7 +7497,7 @@ public class FileServices
             throw;
         }
     }
-    
+
     public async Task<FileAttachmentDto?> GetAllPatentAndDesignAttachmentsAsync(string fileId)
     {
         var file = await _fillingCollection
@@ -7919,7 +7993,7 @@ public class FileServices
     #endregion
 
     #region 
-    
+
     //Patent License Post Registration Section
     public async Task<bool> NewPatentLicenseApplication(PatentLicenseDto dto)
     {
@@ -8117,7 +8191,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentLicenseDecisionAsync( string fileId, string appId, bool approve, string reason, ApplicantInfo newLicensee = null)
+    public async Task<(bool Success, string Message)> PatentLicenseDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newLicensee = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -8353,7 +8427,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentMortgageDecisionAsync( string fileId, string appId, bool approve, string reason, ApplicantInfo newMortgagee = null)
+    public async Task<(bool Success, string Message)> PatentMortgageDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newMortgagee = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -8477,17 +8551,17 @@ public class FileServices
             FieldToChange = "Patent Merger Application",
             NewValue = "",
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = dto.MergerRequestDate ?? DateTime.Now,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = dto.MergerRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
             }
-        }
         };
 
         // Recordal info
@@ -8586,12 +8660,12 @@ public class FileServices
             SupportingDocumentAttachments = supportingDocumentAttachments,
             NewMergedParty = newMergedParty,
             OldMergerParty = oldMergerParty,
-            filingDate =  filingDate
+            filingDate = filingDate
 
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentMergerDecisionAsync( string fileId, string appId, bool approve, string reason, ApplicantInfo newMergedParty = null)
+    public async Task<(bool Success, string Message)> PatentMergerDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newMergedParty = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -8621,6 +8695,732 @@ public class FileServices
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
         return (true, approve ? "Merger approved" : "Merger refused");
+    }
+
+    #endregion
+
+    // Patent Ctc Post Registration Section
+
+    #region
+
+    public async Task<bool> NewPatentCtcApplication(PatentCtcDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Validate that requested attachments exist
+        var requestedAttachments = new List<string>();
+        foreach (var attachmentId in dto.AttachmentIds)
+        {
+            var attachment = file.Attachments?.FirstOrDefault(a => a.name == attachmentId);
+            if (attachment != null)
+            {
+                requestedAttachments.Add(attachment.name);
+            }
+        }
+
+        if (requestedAttachments.Count == 0)
+        {
+            throw new Exception("None of the requested attachments were found in the file.");
+        }
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting CTC processing"
+            : "CTC application submitted, awaiting payment";
+
+        // Application history
+        var ctcHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+            CurrentStatus = status,
+            ApplicationDate = dto.CtcRequestDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Certified True Copy Application",
+            NewValue = string.Join(", ", requestedAttachments), // Store requested attachment IDs
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.CtcRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
+            }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = ctcHistory.id,
+            RecordalType = "Patent Certified True Copy",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            message = $"Certified copies requested for: {string.Join(", ", dto.AttachmentIds)}",
+            RequestedAttachments = requestedAttachments,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, ctcHistory);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetPatentCtcDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch the PostRegApp for CTC
+        var ctcApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent Certified True Copy");
+
+        if (ctcApp == null)
+            return null;
+
+        // ✅ Get the saved attachment names from PostRegistrationApp
+        var requestedAttachmentNames = ctcApp.RequestedAttachments ?? new List<string>();
+
+        // ✅ Match against file.Attachments and return full details
+        //var requestedAttachments = file.Attachments?
+        //    .Where(a => requestedAttachmentNames.Contains(a.name))
+        //    .Select(a => new
+        //    {
+        //        Name = a.name,
+        //        Urls = a.url,
+        //        Count = a.url?.Count ?? 0
+        //    })
+        //    .ToList();
+
+        var requestedAttachments = (file.Attachments ?? new List<AttachmentType>())
+        .Where(a => requestedAttachmentNames.Any(reqName =>
+            string.Equals(reqName?.Trim(), a.name?.Trim(), StringComparison.OrdinalIgnoreCase)))
+        .Select(a => new
+        {
+            Name = a.name,
+            Urls = a.url,
+            Count = a.url?.Count ?? 0
+        })
+        .ToList();
+
+        return new
+        {
+            FileId = file.FileId,
+            RequestedAttachments = requestedAttachments,
+            FilingDate = ctcApp.FilingDate,
+
+        };
+    }
+
+    public async Task<(bool Success, string Message)> PatentCtcDecisionAsync(string fileId, string appId, bool approve, string reason)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        // Find the ApplicationInfo for CTC
+        var ctcApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.FieldToChange == "Patent Certified True Copy Application");
+
+        if (ctcApp == null)
+            return (false, "No CTC application found");
+
+        // Prepare new status history entry
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = ctcApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        ctcApp.StatusHistory.Add(newStatus);
+        ctcApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+
+        // Update the PostRegApp as well
+        var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == appId);
+        if (recordal != null)
+        {
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = reason;
+        }
+
+        // Save changes
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "CTC request approved - certified copies ready" : "CTC request refused");
+    }
+
+    #endregion
+
+    #region
+
+    //Patent Amendment Post Registration Section
+    private PostRegistrationApp CreateAmendmentRecord(Filling file, PatentAmendmentDto dto, string appHistoryId)
+    {
+        var recordal = new PostRegistrationApp
+        {
+            Id = appHistoryId,
+            RecordalType = "Patent Amendment",
+            FileNumber = dto.FileId,
+            rrr = dto.PaymentRRR,
+            dateOfRecordal = (dto.AmendmentRequestDate ?? DateTime.Now).ToString(),
+            FilingDate = DateTime.Now.ToString(),
+            AmendmentType = dto.UpdateType.ToString(),
+            IsAmendment = true,
+            IsApproved = false,
+            DateTreated = ""
+        };
+
+        switch (dto.UpdateType)
+        {
+            case PatentAmendmentTypes.ApplicantName:
+                var oldNames = file.applicants?.Select(a => a.Name).ToList() ?? new List<string>();
+                var newNames = dto.ApplicantNames ?? new List<string>();
+
+                recordal.OldDataJson = JsonSerializer.Serialize(oldNames);
+                recordal.NewDataJson = JsonSerializer.Serialize(newNames);
+                recordal.message = $"Updating {newNames.Count} applicant names";
+                break;
+
+            case PatentAmendmentTypes.ApplicantAddress:
+                var oldAddresses = file.applicants?.Select(a => a.Address).ToList() ?? new List<string>();
+                var oldEmails = file.applicants?.Select(a => a.Email).ToList() ?? new List<string>();
+                var oldPhones = file.applicants?.Select(a => a.Phone).ToList() ?? new List<string>();
+                var oldNationalities = file.applicants?.Select(a => a.country).ToList() ?? new List<string>();
+
+                recordal.OldDataJson = JsonSerializer.Serialize(new
+                {
+                    Addresses = oldAddresses,
+                    Emails = oldEmails,
+                    Phones = oldPhones,
+                    Nationalities = oldNationalities,
+                    States = file.applicants?.Select(a => a.State).ToList() ?? new List<string>(),
+                    Cities = file.applicants?.Select(a => a.city).ToList() ?? new List<string>()
+                });
+
+                recordal.NewDataJson = JsonSerializer.Serialize(new
+                {
+                    Addresses = dto.ApplicantAddresses ?? new List<string>(),
+                    Emails = dto.ApplicantEmails ?? new List<string>(),
+                    Phones = dto.ApplicantPhones ?? new List<string>(),
+                    Nationalities = dto.ApplicantNationalities ?? new List<string>(),
+                    States = dto.ApplicantStates ?? new List<string>(),
+                    Cities = dto.ApplicantCities ?? new List<string>()
+                });
+                recordal.message = "Updating applicant address information";
+                break;
+
+            case PatentAmendmentTypes.FileTitle:
+                recordal.OldDataJson = JsonSerializer.Serialize(new
+                {
+                    Title = file.TitleOfInvention,
+                    Abstract = file.PatentAbstract,
+                    ApplicationType = file.PatentApplicationType?.ToString()
+                });
+
+                recordal.NewDataJson = JsonSerializer.Serialize(new
+                {
+                    Title = dto.FileTitle,
+                    Abstract = dto.PatentAbstract,
+                    ApplicationType = dto.PatentApplicationType
+                });
+                recordal.message = "Updating patent title and abstract";
+                break;
+
+            case PatentAmendmentTypes.CorrespondenceInformation:
+                recordal.OldDataJson = JsonSerializer.Serialize(new
+                {
+                    Name = file.Correspondence?.name,
+                    Address = file.Correspondence?.address,
+                    Email = file.Correspondence?.email,
+                    Phone = file.Correspondence?.phone,
+                    State = file.Correspondence?.state,
+                    Nationality = file.Correspondence?.Nationality
+                });
+
+                recordal.NewDataJson = JsonSerializer.Serialize(new
+                {
+                    Name = dto.CorrespondenceName,
+                    Address = dto.CorrespondenceAddress,
+                    Email = dto.CorrespondenceEmail,
+                    Phone = dto.CorrespondencePhone,
+                    State = dto.CorrespondenceState,
+                    Nationality = dto.CorrespondenceNationality
+                });
+                recordal.message = "Updating correspondence information";
+                break;
+
+            case PatentAmendmentTypes.EditInventors:
+                recordal.OldDataJson = JsonSerializer.Serialize(file.Inventors ?? new List<ApplicantInfo>());
+                recordal.NewDataJson = JsonSerializer.Serialize(dto.NewInventors ?? new List<ApplicantInfo>());
+                recordal.message = "Updating inventor information";
+                break;
+
+            case PatentAmendmentTypes.PriorityInfo:
+                recordal.OldDataJson = JsonSerializer.Serialize(new
+                {
+                    FirstPriorityInfo = file.FirstPriorityInfo ?? new List<PriorityInfo>(),
+                    PriorityInfo = file.PriorityInfo ?? new List<PriorityInfo>()
+                });
+
+                recordal.NewDataJson = JsonSerializer.Serialize(new
+                {
+                    FirstPriorityInfo = dto.FirstPriorityInfo ?? new List<PriorityInfo>(),
+                    PriorityInfo = dto.PriorityInfo ?? new List<PriorityInfo>()
+                });
+                recordal.message = "Updating priority information";
+                break;
+
+            case PatentAmendmentTypes.AddAndRemoveApplicant:
+                recordal.OldDataJson = JsonSerializer.Serialize(file.applicants ?? new List<ApplicantInfo>());
+                recordal.NewDataJson = JsonSerializer.Serialize(new
+                {
+                    EditedApplicants = dto.EditedApplicants ?? new List<ApplicantInfo>(),
+                    NewApplicants = dto.NewApplicants ?? new List<ApplicantInfo>(),
+                    RemoveIds = dto.RemoveApplicantIds ?? new List<string>()
+                });
+                recordal.message = "Adding/Removing applicants";
+                break;
+        }
+
+        return recordal;
+    }
+
+    private void ApplyAmendmentChanges(Filling file, PostRegistrationApp amendment)
+    {
+        switch (amendment.AmendmentType)
+        {
+            case "ApplicantName":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var newNames = JsonSerializer.Deserialize<List<string>>(amendment.NewDataJson);
+                    int updateCount = Math.Min(file.applicants.Count, newNames.Count);
+                    for (int i = 0; i < updateCount; i++)
+                    {
+                        if (!string.IsNullOrWhiteSpace(newNames[i]))
+                        {
+                            Console.WriteLine($"Updating applicant {i}: '{file.applicants[i].Name}' → '{newNames[i]}'");
+                            file.applicants[i].Name = newNames[i];
+                        }
+                    }
+                }
+                break;
+
+            case "ApplicantAddress":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson);
+                    var addresses = JsonSerializer.Deserialize<List<string>>(newData.GetProperty("Addresses").GetRawText());
+                    var emails = JsonSerializer.Deserialize<List<string>>(newData.GetProperty("Emails").GetRawText());
+                    var phones = JsonSerializer.Deserialize<List<string>>(newData.GetProperty("Phones").GetRawText());
+                    var nationalities = JsonSerializer.Deserialize<List<string>>(newData.GetProperty("Nationalities").GetRawText());
+                    var states = JsonSerializer.Deserialize<List<string>>(newData.GetProperty("States").GetRawText());
+                    var cities = JsonSerializer.Deserialize<List<string>>(newData.GetProperty("Cities").GetRawText());
+
+                    int updateCount = Math.Min(file.applicants.Count, addresses.Count);
+                    for (int i = 0; i < updateCount; i++)
+                    {
+                        if (i < addresses.Count && !string.IsNullOrWhiteSpace(addresses[i]))
+                            file.applicants[i].Address = addresses[i];
+                        if (i < emails.Count && !string.IsNullOrWhiteSpace(emails[i]))
+                            file.applicants[i].Email = emails[i];
+                        if (i < phones.Count && !string.IsNullOrWhiteSpace(phones[i]))
+                            file.applicants[i].Phone = phones[i];
+                        if (i < nationalities.Count && !string.IsNullOrWhiteSpace(nationalities[i]))
+                            file.applicants[i].country = nationalities[i];
+                        if (i < states.Count && !string.IsNullOrWhiteSpace(states[i]))
+                            file.applicants[i].State = states[i];
+                        if (i < cities.Count && !string.IsNullOrWhiteSpace(cities[i]))
+                            file.applicants[i].city = cities[i];
+                    }
+                }
+                break;
+
+            case "FileTitle":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson);
+
+                    var titleProp = newData.GetProperty("Title");
+                    if (titleProp.ValueKind != JsonValueKind.Null && !string.IsNullOrWhiteSpace(titleProp.GetString()))
+                        file.TitleOfInvention = titleProp.GetString();
+
+                    var abstractProp = newData.GetProperty("Abstract");
+                    if (abstractProp.ValueKind != JsonValueKind.Null && !string.IsNullOrWhiteSpace(abstractProp.GetString()))
+                        file.PatentAbstract = abstractProp.GetString();
+
+                    var appTypeProp = newData.GetProperty("ApplicationType");
+                    if (appTypeProp.ValueKind != JsonValueKind.Null && !string.IsNullOrWhiteSpace(appTypeProp.GetString()))
+                    {
+                        if (Enum.TryParse<PatentApplicationTypes>(appTypeProp.GetString(), out PatentApplicationTypes appType))
+                            file.PatentApplicationType = appType;
+                    }
+                }
+                break;
+
+            case "CorrespondenceInformation":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    file.Correspondence ??= new CorrespondenceType();
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson);
+
+                    var nameProp = newData.GetProperty("Name");
+                    if (nameProp.ValueKind != JsonValueKind.Null)
+                        file.Correspondence.name = nameProp.GetString();
+
+                    var addressProp = newData.GetProperty("Address");
+                    if (addressProp.ValueKind != JsonValueKind.Null)
+                        file.Correspondence.address = addressProp.GetString();
+
+                    var emailProp = newData.GetProperty("Email");
+                    if (emailProp.ValueKind != JsonValueKind.Null)
+                        file.Correspondence.email = emailProp.GetString();
+
+                    var phoneProp = newData.GetProperty("Phone");
+                    if (phoneProp.ValueKind != JsonValueKind.Null)
+                        file.Correspondence.phone = phoneProp.GetString();
+
+                    var stateProp = newData.GetProperty("State");
+                    if (stateProp.ValueKind != JsonValueKind.Null)
+                        file.Correspondence.state = stateProp.GetString();
+
+                    var nationalityProp = newData.GetProperty("Nationality");
+                    if (nationalityProp.ValueKind != JsonValueKind.Null)
+                        file.Correspondence.Nationality = nationalityProp.GetString();
+                }
+                break;
+
+            case "EditInventors":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var newInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.NewDataJson);
+                    file.Inventors = newInventors ?? new List<ApplicantInfo>();
+                }
+                break;
+
+            case "PriorityInfo":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson);
+
+                    var firstPriorityProp = newData.GetProperty("FirstPriorityInfo");
+                    if (firstPriorityProp.ValueKind != JsonValueKind.Null)
+                    {
+                        var firstPriorityInfo = JsonSerializer.Deserialize<List<PriorityInfo>>(firstPriorityProp.GetRawText());
+                        file.FirstPriorityInfo = firstPriorityInfo ?? new List<PriorityInfo>();
+                    }
+
+                    var priorityProp = newData.GetProperty("PriorityInfo");
+                    if (priorityProp.ValueKind != JsonValueKind.Null)
+                    {
+                        var priorityInfo = JsonSerializer.Deserialize<List<PriorityInfo>>(priorityProp.GetRawText());
+                        file.PriorityInfo = priorityInfo ?? new List<PriorityInfo>();
+                    }
+                }
+                break;
+
+            case "AddAndRemoveApplicant":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson);
+
+                    var editedApplicants = JsonSerializer.Deserialize<List<ApplicantInfo>>(
+                        newData.GetProperty("EditedApplicants").GetRawText());
+                    var newApplicants = JsonSerializer.Deserialize<List<ApplicantInfo>>(
+                        newData.GetProperty("NewApplicants").GetRawText());
+
+                    // Start with edited applicants and add new ones
+                    var finalApplicants = new List<ApplicantInfo>();
+
+                    if (editedApplicants != null)
+                        finalApplicants.AddRange(editedApplicants);
+
+                    if (newApplicants != null)
+                        finalApplicants.AddRange(newApplicants);
+
+                    file.applicants = finalApplicants;
+                }
+                break;
+        }
+    }
+
+    public async Task<bool> NewPatentAmendmentApplication(PatentAmendmentDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting amendment approval"
+            : "Amendment application submitted, awaiting payment";
+
+        var appHistoryId = Guid.NewGuid().ToString();
+
+        // Application history
+        var amendmentHistory = new ApplicationInfo
+        {
+            id = appHistoryId,
+            ApplicationType = FormApplicationTypes.Amendment,
+            CurrentStatus = status,
+            ApplicationDate = dto.AmendmentRequestDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Patent Amendment Application",
+            NewValue = dto.UpdateType.ToString(),
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.AmendmentRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
+            }
+        };
+
+        // Create amendment record
+        var amendmentRecord = CreateAmendmentRecord(file, dto, appHistoryId);
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, amendmentRecord)
+            .Push(f => f.ApplicationHistory, amendmentHistory);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetPatentAmendmentDetailsAsync(string fileId, string appId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch the SPECIFIC PostRegApp for amendment using both RecordalType and Id
+        var amendmentApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Patent Amendment" 
+                              && a.IsAmendment == true 
+                              && a.Id == appId);
+
+        if (amendmentApp == null)
+            return null;
+
+        // Also get the corresponding ApplicationHistory entry
+        var applicationHistory = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Amendment);
+
+        var amendmentDetails = new
+        {
+            FileId = file.FileId,
+            ApplicationId = appId,
+            AmendmentType = amendmentApp.AmendmentType,
+            FilingDate = amendmentApp.FilingDate,
+            Status = applicationHistory?.CurrentStatus,
+            PaymentRRR = applicationHistory?.PaymentId,
+
+            // Current file info
+            AllApplicants = file.applicants?.Select((a, index) => new
+            {
+                Index = index,
+                Id = a.id,
+                Name = a.Name,
+                Address = a.Address,
+                Email = a.Email,
+                Phone = a.Phone,
+                Country = a.country
+            }).ToList(),
+
+            // Amendment changes (before/after comparison)
+            Changes = GetAmendmentChanges(amendmentApp),
+
+            IsApproved = amendmentApp.IsApproved,
+            Reason = amendmentApp.Reason,
+            DateTreated = amendmentApp.DateTreated
+        };
+
+        return amendmentDetails;
+    }
+
+    private object GetAmendmentChanges(PostRegistrationApp amendment)
+    {
+        switch (amendment.AmendmentType)
+        {
+            case "ApplicantName":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldNames = JsonSerializer.Deserialize<List<string>>(amendment.OldDataJson ?? "[]");
+                    var newNames = JsonSerializer.Deserialize<List<string>>(amendment.NewDataJson);
+                    return new { OldNames = oldNames, NewNames = newNames };
+                }
+                return new { Message = "No name changes found" };
+
+            case "ApplicantAddress":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
+                    return new { 
+                        OldAddressData = oldData,
+                        NewAddressData = newData 
+                    };
+                }
+                return new { Message = "No address changes found" };
+
+            case "FileTitle":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
+                    return new { 
+                        OldTitleData = oldData,
+                        NewTitleData = newData 
+                    };
+                }
+                return new { Message = "No title changes found" };
+
+            case "CorrespondenceInformation":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
+                    return new { 
+                        OldCorrespondence = oldData,
+                        NewCorrespondence = newData 
+                    };
+                }
+                return new { Message = "No correspondence changes found" };
+
+            case "EditInventors":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.OldDataJson ?? "[]");
+                    var newInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.NewDataJson ?? "[]");
+                    return new { 
+                        OldInventors = oldInventors,
+                        NewInventors = newInventors 
+                    };
+                }
+                return new { Message = "No inventor changes found" };
+
+            case "PriorityInfo":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
+                    return new { 
+                        OldPriorityData = oldData,
+                        NewPriorityData = newData 
+                    };
+                }
+                return new { Message = "No priority changes found" };
+
+            case "AddAndRemoveApplicant":
+                if (!string.IsNullOrWhiteSpace(amendment.NewDataJson))
+                {
+                    var oldApplicants = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.OldDataJson ?? "[]");
+                    var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
+                    return new { 
+                        OldApplicants = oldApplicants,
+                        NewApplicantData = newData 
+                    };
+                }
+                return new { Message = "No applicant changes found" };
+
+            default:
+                return new { Message = $"Unknown amendment type: {amendment.AmendmentType}" };
+        }
+    }
+
+    public async Task<(bool Success, string Message)> PatentAmendmentDecisionAsync(string fileId, string appId, bool approve, string reason)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        // Find the ApplicationInfo for Amendment
+        var amendmentApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Amendment);
+
+        if (amendmentApp == null)
+            return (false, "No amendment application found");
+
+        // Find the PostRegApp for amendment
+        var amendmentRecord = file.PostRegApplications?
+            .FirstOrDefault(p => p.Id == appId && p.IsAmendment == true);
+
+        if (amendmentRecord == null)
+            return (false, "No amendment record found");
+
+        // Update status
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = amendmentApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        amendmentApp.StatusHistory.Add(newStatus);
+        amendmentApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+        amendmentRecord.IsApproved = approve;
+        amendmentRecord.DateTreated = DateTime.Now.ToString();
+        amendmentRecord.Reason = reason;
+
+        // ✅ Apply changes if approved
+        if (approve)
+        {
+            ApplyAmendmentChanges(file, amendmentRecord);
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Amendment approved and applied" : "Amendment rejected");
     }
 
     #endregion

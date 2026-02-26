@@ -408,6 +408,26 @@ public record PostRegistrationApp
     public string? OldMergerNationality { get; set; }
     public string? OldMergerState { get; set; }
     public string? OldMergerCity { get; set; }
+    public List<string>? RequestedAttachments { get; set; }
+
+    // Amendment identification
+    public string? AmendmentType { get; set; }
+    public bool IsAmendment { get; set; } = false;
+    public bool IsApproved { get; set; } = false;
+
+    // Simple field amendments (for single values)
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
+    public string? OldValue2 { get; set; }
+    public string? NewValue2 { get; set; }
+    public string? OldValue3 { get; set; }
+    public string? NewValue3 { get; set; }
+    public string? OldValue4 { get; set; }
+    public string? NewValue4 { get; set; }
+
+    // Complex field amendments (JSON serialized for lists/objects)
+    public string? OldDataJson { get; set; }
+    public string? NewDataJson { get; set; }
 
 }
 
@@ -802,7 +822,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy,
 }
 public enum ApplicationLetters
 {
@@ -1623,4 +1643,15 @@ public class StatusChangeLog
     public string ChangedById { get; set; }
     public DateTime DateChanged { get; set; } = DateTime.Now;
     public bool IsSuccessful { get; set; } = false;
+}
+
+public enum PatentAmendmentTypes
+{
+    CorrespondenceInformation = 0,
+    ApplicantName = 4,
+    ApplicantAddress = 5,
+    FileTitle = 7,
+    AddAndRemoveApplicant = 10,
+    EditInventors = 11,
+    PriorityInfo = 12
 }

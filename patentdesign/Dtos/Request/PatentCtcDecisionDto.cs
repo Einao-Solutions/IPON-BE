@@ -2,9 +2,10 @@
 
 namespace patentdesign.Dtos.Request
 {
-    public class PatentMortgageDecisionDto
+    public class PatentCtcDecisionDto
     {
-        public string? FileId { get; set; }
+
+        public string?   FileId { get; set; }
 
         public string? AppId { get; set; }
 
@@ -12,6 +13,5 @@ namespace patentdesign.Dtos.Request
 
         public string? Reason { get; set; }
 
-        public ApplicantInfo? NewMortgagee { get; set; }
     }
 }
