@@ -1744,4 +1744,73 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     #endregion
+    /// <summary>
+    /// Submit a new patent amendment application.
+    /// </summary>
+    #region Patent Amendment Post Registration Section
+
+    /// <summary>
+    /// Submit a new patent amendment application.
+    /// </summary>
+    [HttpPost("PatentAmendmentApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PatentAmendmentApplication([FromBody] PatentAmendmentDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentAmendmentApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent amendment application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent amendment application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns amendment details for a specific patent amendment application.
+    /// </summary>
+    [HttpGet("GetPatentAmendmentDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentAmendmentDetails([FromQuery] string fileId, [FromQuery] string appId)
+    {
+        var result = await fileService.GetPatentAmendmentDetailsAsync(fileId, appId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No amendment application found for this file and application ID."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent amendment application.
+    /// </summary>
+    [HttpPost("amendment-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> AmendmentDecision([FromBody] PatentAmendmentDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentAmendmentDecisionAsync(
+                dto.fileId, dto.appId, dto.approve, dto.reason);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
+
 }
