@@ -100,6 +100,7 @@ namespace Tfunctions.pdfs
                             c.Item().Text(receipt.PaymentFor).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                     });
+
                     // Applicant Information Section
                     column.Item().Table(table =>
                     {
