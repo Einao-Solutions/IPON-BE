@@ -16,7 +16,8 @@ namespace patentdesign.Dtos.Request
         public string? ApplicantNationality { get; set; }
         public string? ApplicantEmail { get; set; }
         public string? ApplicantPhone { get; set; }
-
+        public List<ApplicantInfo>? Applicants { get; set; }
+        public List<ApplicantInfo>? Inventors { get; set; }
         public int? FileClass { get; set; }
         public string? ClassDescription { get; set; }
         public string? FileTitle { get; set; }

@@ -6005,6 +6005,29 @@ public class FileServices
                         ExistingDesignAttachments = designs?.url
                     };
                     break;
+                case FileTypes.Patent:
+                    updateCost = new ClericalUpdateDto
+                    {
+                        Cost = data.Item1,
+                        PaymentRRR = paymentId,
+                        FileStatus = fileInfo.FileStatus,
+                        FileId = dto.FileNumber,
+                        FileType = fileInfo.Type,
+                        UpdateType = dto.UpdateType,
+                        PatentType = fileInfo.PatentType,
+                        PatentApplicationType = fileInfo.PatentApplicationType,
+                        FileOrigin = fileInfo.FileOrigin,
+                        TitleOfInvention = fileInfo.TitleOfInvention,
+                        ServiceFee = data.Item3,
+                        Applicants = fileInfo.applicants,
+                        Inventors = fileInfo.Inventors,
+                        CorrespondenceName = fileInfo.Correspondence?.name,
+                        CorrespondenceAddress = fileInfo.Correspondence?.address,
+                        CorrespondenceEmail = fileInfo.Correspondence?.email,
+                        CorrespondencePhone = fileInfo.Correspondence?.phone,
+                        PatentAbstract = fileInfo.PatentAbstract,
+                    };
+                    break;
                 default:
                     throw new Exception("Invalid file type for clerical update.");
             }
