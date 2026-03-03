@@ -5852,13 +5852,16 @@ public class FileServices
             return false;
         }
     }
-    public async Task<Assignee> GetAssignmentApplication(string fileId, string appId)
+    public async Task<AssignmentAppDto> GetAssignmentApplication(string fileId, string appId)
     {
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
         var assignee = file.Assignees?.FirstOrDefault(a => a.Id == appId);
-        if (assignee == null) return null;
+        var assignor = file.ApplicationHistory[0].Applicants[0];
+        Console.WriteLine(JsonSerializer.Serialize(assignor));
+
+        if (assignee == null) throw new KeyNotFoundException("Assignee not found");
 
         var assigneeDetails = new AssignmentAppDto
         {
@@ -5869,16 +5872,16 @@ public class FileServices
             AssigneeAddress = assignee.Address,
             AssigneePhone = assignee.Phone,
             AssigneeNationality = assignee.Nationality,
-            AssignorName = assignee.AssignorName,
-            AssignorEmail = assignee.AssignorEmail,
-            AssignorAddress = assignee.AssignorAddress,
-            AssignorPhone = assignee.AssignorPhone,
-            AssignorNationality = assignee.AssignorNationality,
+            AssignorName = assignee.AssignorName ?? assignor.Name,
+            AssignorEmail = assignee.AssignorEmail ?? assignor.Email,
+            AssignorAddress = assignee.AssignorAddress ?? assignor.Address,
+            AssignorPhone = assignee.AssignorPhone ?? assignor.Phone,
+            AssignorNationality = assignee.AssignorNationality ?? assignor.country,
             AuthorizationLetterUrl = assignee.AuthorizationLetterUrl,
             AssignmentDeedUrl = assignee.AssignmentDeedUrl,
         };
 
-        return assignee;
+        return assigneeDetails;
 
     }
     public async Task<bool> ApproveAssignment(TreatRecordalDto recordalApp)
@@ -6100,7 +6103,6 @@ public class FileServices
 
         try
         {
-
             Console.WriteLine($"Finding file: {updateData.FileId}");
             Console.WriteLine(JsonSerializer.Serialize(updateData));
 
