@@ -424,6 +424,7 @@ public class LettersServices
             case ApplicationLetters.WithdrawalRequestReceipt:
                 var withdrawalReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await WithdrawalRequestReceipt(withdrawalReceiptFile, applicationId);
+
             case ApplicationLetters.PatentAssignmentAcknowlegement:
                 var patentAssignmentAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await PatentAssignmentAcknowledgement(patentAssignmentAckFile, applicationId);
@@ -436,6 +437,10 @@ public class LettersServices
             case ApplicationLetters.PatentMergerAcknowledgement:
                 var patentMergerAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await PatentMergerAcknowledgement(patentMergerAckFile, applicationId);
+            case ApplicationLetters.PatentCtcAcknowledgement:
+                var patentCtcAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await PatentCtcAcknowledgement(patentCtcAckFile, applicationId);
+
             case ApplicationLetters.PatentAssignmentRefusalLetter:
                 var patentAssignmentRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await PatentAssignmentRefusal(patentAssignmentRefFile, applicationId);
@@ -448,6 +453,17 @@ public class LettersServices
             case ApplicationLetters.PatentMergerRefusalLetter:
                 var patentMergerRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await PatentMergerRefusal(patentMergerRefFile, applicationId);
+            case ApplicationLetters.PatentCtcRefusalLetter:
+                var patentCtcRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await PatentCtcRefusal(patentCtcRefFile, applicationId);
+
+            case ApplicationLetters.PatentAmendmentAcknowledgement:
+                var patentAmendmentAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await PatentAmendmentAcknowledgement(patentAmendmentAckFile, applicationId);
+            case ApplicationLetters.PatentAmendmentRefusalLetter:
+                var patentAmendmentRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await PatentAmendmentRefusal(patentAmendmentRefFile, applicationId);
+
             case ApplicationLetters.PatentAssignmentReceipt:
                 var assignmentFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 if (assignmentFile == null)
@@ -580,6 +596,71 @@ public class LettersServices
                 };
                 return await PatentMergerReceipt(mergerReceiptModel, mergedFile);
 
+            case ApplicationLetters.PatentCtcReceipt:
+                var ctcFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (ctcFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var ctcApp = ctcFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (ctcApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var ctcRemitaResponse = await GetPaymentData(ctcFile.Comment, ctcApp.PaymentId);
+                if (ctcRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var ctcReceiptModel = new Receipt()
+                {
+                    rrr = ctcRemitaResponse?.rrr ?? "-",
+                    Amount = ctcRemitaResponse?.amount.ToString() ?? "",
+                    Date = ctcRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = ctcFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.PatentCtc,
+                    FileId = ctcFile.FileId,
+                    Title = ctcFile.TitleOfInvention,
+                    Category = ctcFile.Type.ToString(),
+                    PaymentFor = "Patent CTC"
+                };
+                return await PatentCtcReceipt(ctcReceiptModel, ctcFile);
+
+            case ApplicationLetters.PatentAmendmentReceipt:
+                var amendmentFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (amendmentFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var amendmentApp = amendmentFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (amendmentApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var amendmentRemitaResponse = await GetPaymentData(amendmentFile.Comment, amendmentApp.PaymentId);
+                if (amendmentRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var amendmentReceiptModel = new Receipt()
+                {
+                    rrr = amendmentRemitaResponse?.rrr ?? "-",
+                    Amount = amendmentRemitaResponse?.amount.ToString() ?? "",
+                    Date = amendmentRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = amendmentFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.PatentAmendment,
+                    FileId = amendmentFile.FileId,
+                    Title = amendmentFile.TitleOfInvention,
+                    Category = amendmentFile.Type.ToString(),
+                    PaymentFor = "Patent Amendment"
+                };
+                return await PatentAmendmentReceipt(amendmentReceiptModel, amendmentFile);
 
             default:
                 return new Dictionary<string, object>() { };
@@ -739,7 +820,7 @@ public class LettersServices
                     {
                         // PATENT POST-REG: mortgage letters
                         documents.Add(ApplicationLetters.PatentMortgageAcknowledgement);
-                        documents.Add(ApplicationLetters.PatentMergerReceipt);
+                        documents.Add(ApplicationLetters.PatentMortgageReceipt);
 
                         if (app.CurrentStatus == ApplicationStatuses.Rejected)
                         {
@@ -747,6 +828,36 @@ public class LettersServices
                         }
                     }
                     // If you later add TM or Design mortgage-docs, handle the else branch here.
+                    break;
+
+                case FormApplicationTypes.CertifiedTrueCopy:
+                    if (file.Type == FileTypes.Patent)
+                    {
+                        // PATENT POST-REG: ctc letters
+                        documents.Add(ApplicationLetters.PatentCtcAcknowledgement);
+                        documents.Add(ApplicationLetters.PatentCtcReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.PatentCtcRefusalLetter);
+                        }
+                    }
+                    // If you later add TM or Design ctc-docs, handle the else branch here.
+                    break;
+
+                case FormApplicationTypes.Amendment:
+                    if (file.Type == FileTypes.Patent)
+                    {
+                        // PATENT POST-REG: amendment letters
+                        documents.Add(ApplicationLetters.PatentAmendmentAcknowledgement);
+                        documents.Add(ApplicationLetters.PatentAmendmentReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.PatentAmendmentRefusalLetter);
+                        }
+                    }
+                    // If TM/Design already exists for amendment, add else condition here
                     break;
 
                 case FormApplicationTypes.RegisteredUser:
@@ -2513,6 +2624,41 @@ public class LettersServices
         return ReturnDocument(bytes);
     }
 
+    private async Task<Dictionary<string, object>> PatentCtcAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for merger application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Patent CTC",
+            payType = PaymentTypes.PatentCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfInvention,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new PatentCtcAcknowledgementLetter(file, "uri", receipt, applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
     private async Task<Dictionary<string, object>> PatentAssignmentRefusal(Filling file, string applicationId)
     {
         if (file == null)
@@ -2653,6 +2799,41 @@ public class LettersServices
         return ReturnDocument(bytes);
     }
 
+    private async Task<Dictionary<string, object>> PatentCtcRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for ctc application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Patent CTC",
+            payType = PaymentTypes.PatentCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfInvention,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new PatentCtcRefusalLetter(file, "uri", receipt, app, applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
     public async Task<Dictionary<string, object>> PatentAssignmentReceipt(Receipt data, Filling fileData)
     {
         var bytes = new PatentAssignmentReceipt(data, "uri", fileData).GeneratePdf();
@@ -2674,6 +2855,88 @@ public class LettersServices
     public async Task<Dictionary<string, object>> PatentMergerReceipt(Receipt data, Filling fileData)
     {
         var bytes = new PatentMergerReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> PatentAmendmentAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for amendment application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Patent Amendment",
+            payType = PaymentTypes.PatentAmendment,
+            FileId = file.FileId,
+            Title = file.TitleOfInvention,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new PatentAmendmentAcknowledgementLetter(file, "uri", receipt, applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> PatentAmendmentRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for amendment application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Patent Amendment",
+            payType = PaymentTypes.PatentAmendment,
+            FileId = file.FileId,
+            Title = file.TitleOfInvention,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new PatentAmendmentRefusalLetter(file, "uri", receipt, app, applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> PatentAmendmentReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new PatentAmendmentReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> PatentCtcReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new PatentCtcReceipt(data, "uri", fileData).GeneratePdf();
         return ReturnDocument(bytes);
     }
 
