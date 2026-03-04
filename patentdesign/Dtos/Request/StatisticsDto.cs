@@ -5,6 +5,7 @@ namespace patentdesign.Dtos.Request
 {
     public class PerformanceDto
     {
+        public string? ApplicationId { get; set; }
         public FormApplicationTypes? ApplicationType { get; set; }
         public ApplicationStatuses? BeforeStatus { get; set; }
         public ApplicationStatuses? AfterStatus { get; set; }
