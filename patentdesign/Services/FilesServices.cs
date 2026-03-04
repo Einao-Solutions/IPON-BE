@@ -6082,7 +6082,7 @@ public class FileServices
                 case FileTypes.Patent:
                     updateCost = new ClericalUpdateDto
                     {
-                        Cost = data.Item1,
+                        Cost = search ? "0" : data.Item1,
                         PaymentRRR = paymentId,
                         FileStatus = fileInfo.FileStatus,
                         FileId = dto.FileNumber,
