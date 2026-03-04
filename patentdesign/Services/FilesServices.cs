@@ -1055,81 +1055,18 @@ public class FileServices
             Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", data.AfterStatus)
 
         ];
-        if (data.applicationType is FormApplicationTypes.DataUpdate)
+        var perf = new PerformanceDto
         {
-            if (data.beforeStatus is ApplicationStatuses.AwaitingPayment
-                && data.AfterStatus is ApplicationStatuses.AwaitingSearch)
-            {
-
-                var fil = await _fillingCollection.Find(Builders<Filling>.Filter.And(
-                     Builders<Filling>.Filter.Eq(a => a.Id, data.fileId),
-                     Builders<Filling>.Filter.ElemMatch(a => a.ApplicationHistory, f => f.id == data.applicationId)
-                     )).Limit(1).ToListAsync();
-
-                operations.Add(
-                    Builders<Filling>.Update.AddToSetEach("ApplicationHistory.$.ApplicationLetters", [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck]));
-                saveFinance(remi, "Data Update Application", data.applicationId, data.fileId, fil[0].applicants[0].country, fil[0].Type, fil[0].DesignType, fil[0].PatentType, fil[0].TrademarkType, fil[0].TrademarkClass);
-            }
-
-
-            if (data.AfterStatus is ApplicationStatuses.Approved)
-            {
-                var fil = await _fillingCollection.Find(Builders<Filling>.Filter.And(
-                    Builders<Filling>.Filter.Eq(a => a.Id, data.fileId),
-                    Builders<Filling>.Filter.ElemMatch(a => a.ApplicationHistory, f => f.id == data.applicationId)
-                )).Limit(1).ToListAsync();
-                var appInfo = fil[0].ApplicationHistory.FirstOrDefault(x => x.id == data.applicationId);
-                if (ConstantValues.IsPropertyAttachment(data.fieldToUpdate))
-                {
-                    var newAtt = JsonSerializer.Deserialize<List<AttachmentType>>(appInfo.NewValue);
-                    operations.Add(Builders<Filling>.Update.Set($"Attachments", newAtt));
-                }
-                else
-                {
-                    var mapresult = FileUtils.MapObjToType(data.fieldToUpdate.ToLower(), appInfo.NewValue);
-                    var fieldToChange = data.fieldToUpdate.Substring(0, 1).ToUpper() + data.fieldToUpdate.Substring(1);
-                    if (fieldToChange == "PatentType")
-                    {
-                        // we need the current file ID so we can set it. if it
-                        var strings = data.fileNumber.Split("/");
-                        if (strings.Length is 5 or 6)
-                        {
-                            if (strings[2] is "NC" or "PCT" or "C")
-                            {
-                                if (mapresult.ToString() == PatentTypes.PCT.ToString())
-                                {
-                                    strings[2] = "PCT";
-                                }
-                                else if (mapresult.ToString() == PatentTypes.Conventional.ToString())
-                                {
-
-                                    strings[2] = "C";
-                                }
-                                else if (mapresult.ToString() == PatentTypes.Non_Conventional.ToString())
-                                {
-                                    strings[2] = "NC";
-                                }
-                            }
-
-                            var newFileNumber = string.Join("/", strings);
-                            operations.Add(Builders<Filling>.Update.Set(x => x.FileId, newFileNumber));
-                        }
-                    }
-
-                    if (fieldToChange == "Applicants")
-                    {
-                        fieldToChange = "applicants";
-                    }
-
-                    operations.Add(Builders<Filling>.Update.Set(fieldToChange, mapresult));
-                }
-
-                operations.Add(
-                    Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters",
-                        ApplicationLetters.RecordalCertificate));
-            }
-        }
-
+            ApplicationId = data.applicationId,
+            Reason = data.message,
+            AfterStatus = data.AfterStatus,
+            BeforeStatus = data.beforeStatus,
+            Date = DateTime.Now,
+            ApplicationType = data.applicationType,
+            AppUserId = data.userId,
+            FileNumber = data.fileNumber,
+            FileType = data.FileType
+        };
         if (data.applicationType is FormApplicationTypes.NewApplication)
         {
             operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
@@ -1148,7 +1085,7 @@ public class FileServices
                                 ApplicationLetters.NewApplicationCertificate
                             ]));
                     }
-
+                    //assign RTM
                     if (data.FileType is FileTypes.TradeMark)
                     {
                         var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
@@ -1160,18 +1097,42 @@ public class FileServices
                         operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmNumber.ToString()));
                         await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
                             Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+                        perf.OfficeUnit = Roles.TrademarkCertification;
+                    }
+                    else if (data.FileType is FileTypes.Patent)
+                    {
+                        perf.OfficeUnit = Roles.PatentCertification;
+                    }
+                    else
+                    {
+                        perf.OfficeUnit = Roles.DesignCertification;
                     }
                 }
 
                 operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
             }
-
+            if (data.AfterStatus is ApplicationStatuses.AwaitingCertificateConfirmation)
+            {
+                perf.OfficeUnit = data.FileType is FileTypes.Patent ? Roles.PatentCertification : Roles.DesignCertification;
+            }
             if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
             {
                 var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1)
                     .ToListAsync()).First();
                 operations.Add(Builders<Filling>.Update.Push(
                     "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
+                if (data.FileType is FileTypes.TradeMark) 
+                { 
+                    perf.OfficeUnit = Roles.TrademarkCertification;
+                }
+                else if (data.FileType is FileTypes.Patent)
+                {
+                    perf.OfficeUnit = Roles.PatentCertification;
+                }
+                else
+                {
+                    perf.OfficeUnit = Roles.DesignCertification;
+                }
             }
 
         }
@@ -1208,15 +1169,14 @@ public class FileServices
         if (data.AfterStatus is ApplicationStatuses.Publication)
         {
             operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationAcceptance));
+            perf.OfficeUnit = Roles.TrademarkAcceptance;
         }
 
         var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", data.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == data.applicationId));
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
         var result = await _fillingCollection.FindOneAndUpdateAsync(filter, Builders<Filling>.Update.Combine(operations), options);
-        //SavePerformance(data.beforeStatus == ApplicationStatuses.AwaitingPayment && data.AfterStatus == ApplicationStatuses.AwaitingSearch ?
-        //        PerformanceType.Application : PerformanceType.Staff, data.applicationType, data.beforeStatus, data.AfterStatus,
-        //    DateTime.Now, data.user, result.Id, result.Type, result.PatentType, result.DesignType, result.TrademarkType);
+        SavePerformance(perf);
         return result;
     }
 
