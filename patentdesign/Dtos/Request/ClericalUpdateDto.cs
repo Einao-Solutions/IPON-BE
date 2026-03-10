@@ -5,6 +5,7 @@ namespace patentdesign.Dtos.Request
 {
     public class ClericalUpdateDto
     {
+        public string? UserId { get; set; }
         public ClericalUpdateTypes UpdateType { get; set; }
         public string? FileId { get; set; }
         public string? PaymentRRR { get; set; }

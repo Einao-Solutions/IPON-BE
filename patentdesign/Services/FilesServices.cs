@@ -146,7 +146,7 @@ public class FileServices
         // Update file in database
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
-        
+
         return file;
     }
     private async void SavePayment(RemitaResponseClass pay, PaymentTypes type, string fileId, string appId)
@@ -759,7 +759,7 @@ public class FileServices
         }
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
         var result = await _fillingCollection.FindOneAndUpdateAsync<Filling>(filter, Builders<Filling>.Update.Combine(operations), options);
-        
+
         return result;
     }
 
@@ -1121,8 +1121,8 @@ public class FileServices
                     .ToListAsync()).First();
                 operations.Add(Builders<Filling>.Update.Push(
                     "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
-                if (data.FileType is FileTypes.TradeMark) 
-                { 
+                if (data.FileType is FileTypes.TradeMark)
+                {
                     perf.OfficeUnit = Roles.TrademarkCertification;
                 }
                 else if (data.FileType is FileTypes.Patent)
@@ -6077,7 +6077,6 @@ public class FileServices
 
     public async Task<string> ClericalUpdate(ClericalUpdateDto updateData)
     {
-        Console.WriteLine(updateData);
         if (updateData == null)
             throw new ArgumentNullException(nameof(updateData));
 
@@ -6087,7 +6086,7 @@ public class FileServices
         try
         {
             Console.WriteLine($"Finding file: {updateData.FileId}");
-            Console.WriteLine(JsonSerializer.Serialize(updateData));
+            Console.WriteLine(JsonSerializer.Serialize(updateData, new JsonSerializerOptions { WriteIndented = true }));
 
             var file = await _fillingCollection
                 .Find(f => f.FileId == updateData.FileId)
@@ -6096,15 +6095,18 @@ public class FileServices
             if (file == null)
                 throw new KeyNotFoundException("File Not Found");
 
+            var user = await _userCollection.Find(u => u.Id == updateData.UserId).FirstOrDefaultAsync();
+
             // Check if this exact clerical update already exists (idempotency)
             var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
                 c.PaymentRRR == updateData.PaymentRRR &&
                 c.UpdateType == updateData.UpdateType.ToString() &&
-                c.FilingDate.Date == DateTime.UtcNow.Date
+                c.FilingDate.Date == DateTime.Now.Date
             );
 
             if (existingUpdate != null)
             {
+                Console.WriteLine("Application already exists!");
                 return existingUpdate.Id;
             }
 
@@ -6113,13 +6115,12 @@ public class FileServices
             var isAmendment =
                 file.FileStatus == ApplicationStatuses.Publication ||
                 file.FileStatus == ApplicationStatuses.AwaitingCertification;
-
             var appHistoryId = Guid.NewGuid().ToString();
 
             var appHistory = new ApplicationInfo
             {
                 id = appHistoryId,
-                ApplicationDate = DateTime.UtcNow,
+                ApplicationDate = DateTime.Now,
                 PaymentId = updateData.PaymentRRR,
                 ApplicationType = isAmendment
                     ? FormApplicationTypes.Amendment
@@ -6129,16 +6130,16 @@ public class FileServices
                 [
                     new ApplicationHistory
                     {
-                        Date = DateTime.UtcNow,
+                        Date = DateTime.Now,
                         beforeStatus = ApplicationStatuses.AwaitingPayment,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Clerical Update",
-                        User = applicant?.Name,
-                        UserId = file.CreatorAccount
+                        User = user.Name ?? $"{user.FirstName} {user.LastName}",
+                        UserId = updateData.UserId
                     }
                 ]
             };
-
+            Console.WriteLine("creating clerical record... ");
             var clerical = await CreateClericalUpdateRecord(file, updateData, appHistoryId);
             clerical.IsAmendment = isAmendment;
 
@@ -6169,11 +6170,14 @@ public class FileServices
     ClericalUpdateDto updateData,
     string appHistoryId)
     {
+        var isPatent = file.Type == FileTypes.Patent;
+        var isDesign = file.Type == FileTypes.Design;
+
         var clerical = new ClericalUpdate
         {
             Id = appHistoryId,
             UpdateType = updateData.UpdateType.ToString(),
-            FilingDate = DateTime.UtcNow,
+            FilingDate = DateTime.Now,
             PaymentRRR = updateData.PaymentRRR
         };
 
@@ -6220,22 +6224,22 @@ public class FileServices
         {
             case ClericalUpdateTypes.ApplicantName:
                 clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                clerical.NewApplicantNames = new List<string> { updateData.ApplicantName };
+                clerical.NewApplicantNames = isPatent ? updateData.ApplicantNames : new List<string> { updateData.ApplicantName };
                 break;
 
             case ClericalUpdateTypes.ApplicantAddress:
                 clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                clerical.NewApplicantAddresses = new List<string> { updateData.ApplicantAddress };
+                clerical.NewApplicantAddresses = isPatent ? updateData.ApplicantAddresses : new List<string> { updateData.ApplicantAddress };
 
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
                 {
                     clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.NewApplicantEmails = new List<string> { updateData.ApplicantEmail };
+                    clerical.NewApplicantEmails = isPatent ? updateData.ApplicantEmails : new List<string> { updateData.ApplicantEmail };
                 }
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantPhone))
                 {
                     clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.NewApplicantPhones = new List<string> { updateData.ApplicantPhone };
+                    clerical.NewApplicantPhones = isPatent ? updateData.ApplicantPhones : new List<string> { updateData.ApplicantPhone };
                 }
 
                 break;
@@ -6271,7 +6275,7 @@ public class FileServices
                 clerical.OldPowerOfAttorneyUrl =
                     file.Attachments?.FirstOrDefault(a => a.name == "poa")?.url?.FirstOrDefault();
                 clerical.NewPowerOfAttorneyUrl = poaUrl;
-                clerical.NewAttachmentUrl = otherAttachmentUrl;
+                clerical.NewAttachmentUrl = otherAttachmentUrl ?? null;
                 break;
 
             case ClericalUpdateTypes.FileTitle:
@@ -6292,15 +6296,40 @@ public class FileServices
                     clerical.OldTrademarkLogo = file.TrademarkLogo?.ToString();
                     clerical.NewTrademarkLogo = updateData.TrademarkLogo.Value.ToString();
                 }
+                if (isPatent)
+                {
+                    if (!string.IsNullOrWhiteSpace(updateData.PatentAbstract))
+                    {
+                        clerical.OldPatentAbstract = file.PatentAbstract;
+                        clerical.NewPatentAbstract = updateData.PatentAbstract;
+                    }
+                    if (updateData.PatentApplicationType.HasValue)
+                    {
+                        clerical.OldPatentApplicationType = file.PatentApplicationType;
+                        clerical.NewPatentApplicationType = updateData.PatentApplicationType;
+                    }
+                }
                 break;
 
             case ClericalUpdateTypes.DesignInformation:
-                clerical.OldFileTitle = file.TitleOfDesign;
-                clerical.NewFileTitle = updateData.TitleOfDesign;
-                clerical.OldNoveltyStatement = file.StatementOfNovelty;
-                clerical.NewNoveltyStatement = updateData.NoveltyStatement;
-                clerical.OldDesignType = file.DesignType;
-                clerical.NewDesignType = updateData.DesignType;
+                if (!string.IsNullOrWhiteSpace(updateData.TitleOfDesign))
+                {
+                    clerical.OldFileTitle = file.TitleOfDesign;
+                    clerical.NewFileTitle = updateData.TitleOfDesign;
+                }
+
+                if (!string.IsNullOrWhiteSpace(updateData.NoveltyStatement))
+                {
+                    clerical.OldNoveltyStatement = file.StatementOfNovelty;
+                    clerical.NewNoveltyStatement = updateData.NoveltyStatement;
+                }
+
+                if (updateData.DesignType is not null)
+                {
+                    clerical.OldDesignType = file.DesignType;
+                    clerical.NewDesignType = updateData.DesignType;
+                }
+
                 break;
 
             case ClericalUpdateTypes.CreatorInformation:
@@ -6346,31 +6375,28 @@ public class FileServices
                             updatedCreators.Add(newCreator);
                         }
                     }
+                }
 
-                    // Handle removals if specified
-                    if (updateData.RemoveInventorIds?.Any() == true)
-                    {
-                        updatedCreators.RemoveAll(c => updateData.RemoveInventorIds.Contains(c.id));
-                    }
+                // Handle removals if specified
+                if (updateData.RemoveInventorIds?.Any() == true)
+                {
+                    updatedCreators.RemoveAll(c => updateData.RemoveInventorIds.Contains(c.id));
+                }
 
-                    // ✅ FIX: Use the merged updatedCreators list instead of raw updateData
-                    clerical.NewDesignCreators = updatedCreators;
+                clerical.NewDesignCreators = updatedCreators;
+                clerical.NewDesignCreatorNames = updatedCreators.Select(c => c.Name).ToList();
+                clerical.NewDesignCreatorAddresses = updatedCreators.Select(c => c.Address).ToList();
+                clerical.NewDesignCreatorEmails = updatedCreators.Select(c => c.Email).ToList();
+                clerical.NewDesignCreatorPhones = updatedCreators.Select(c => c.Phone).ToList();
+                clerical.NewDesignCreatorNationalities = updatedCreators.Select(c => c.country).ToList();
 
-                    // For detailed audit trail, store individual field changes
-                    clerical.NewDesignCreatorNames = updatedCreators.Select(c => c.Name).ToList();
-                    clerical.NewDesignCreatorAddresses = updatedCreators.Select(c => c.Address).ToList();
-                    clerical.NewDesignCreatorEmails = updatedCreators.Select(c => c.Email).ToList();
-                    clerical.NewDesignCreatorPhones = updatedCreators.Select(c => c.Phone).ToList();
-                    clerical.NewDesignCreatorNationalities = updatedCreators.Select(c => c.country).ToList();
-
-                    if (file.DesignCreators?.Any() == true)
-                    {
-                        clerical.OldDesignCreatorNames = file.DesignCreators.Select(c => c.Name).ToList();
-                        clerical.OldDesignCreatorAddresses = file.DesignCreators.Select(c => c.Address).ToList();
-                        clerical.OldDesignCreatorEmails = file.DesignCreators.Select(c => c.Email).ToList();
-                        clerical.OldDesignCreatorPhones = file.DesignCreators.Select(c => c.Phone).ToList();
-                        clerical.OldDesignCreatorNationalities = file.DesignCreators.Select(c => c.country).ToList();
-                    }
+                if (file.DesignCreators?.Any() == true)
+                {
+                    clerical.OldDesignCreatorNames = file.DesignCreators.Select(c => c.Name).ToList();
+                    clerical.OldDesignCreatorAddresses = file.DesignCreators.Select(c => c.Address).ToList();
+                    clerical.OldDesignCreatorEmails = file.DesignCreators.Select(c => c.Email).ToList();
+                    clerical.OldDesignCreatorPhones = file.DesignCreators.Select(c => c.Phone).ToList();
+                    clerical.OldDesignCreatorNationalities = file.DesignCreators.Select(c => c.country).ToList();
                 }
                 break;
 
@@ -6427,7 +6453,6 @@ public class FileServices
 
                 break;
         }
-
         return clerical;
     }
 
@@ -6444,8 +6469,9 @@ public class FileServices
 
             if (file == null)
                 throw new KeyNotFoundException("File not found");
+            var isDesign = file.Type == FileTypes.Design;
+            var isPatent = file.Type == FileTypes.Patent;
             var isTrademark = file.Type == FileTypes.TradeMark;
-
             file.applicants ??= new List<ApplicantInfo>();
             file.ClericalUpdates ??= new List<ClericalUpdate>();
             file.ApplicationHistory ??= new List<ApplicationInfo>();
@@ -6490,7 +6516,6 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
                     break;
-
                 case "ApplicantAddress":
                     if (clerical.NewApplicantAddresses?.Any() == true)
                     {
@@ -6522,7 +6547,28 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
                     break;
+                case "CreatorInformation":
+                    if (clerical.NewDesignCreators?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.DesignCreators, clerical.NewDesignCreators));
+                    }
+                    break;
+                case "DesignInformation":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f=> f.TitleOfDesign, clerical.NewFileTitle));
+                    }
 
+                    if (!string.IsNullOrWhiteSpace(clerical.NewNoveltyStatement))
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f=> f.StatementOfNovelty, clerical.NewNoveltyStatement));
+                    }
+
+                    if (clerical.NewDesignType is not null)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f=> f.DesignType, clerical.NewDesignType));
+                    }
+                    break;
                 case "FileClass":
                     if (!string.IsNullOrWhiteSpace(clerical.NewFileClass))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
@@ -6533,7 +6579,6 @@ public class FileServices
                     if (!string.IsNullOrWhiteSpace(clerical.NewDisclaimer))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
                     break;
-
                 case "CorrespondenceInformation":
                     var correspondence = file.Correspondence ?? new CorrespondenceType();
                     var hasCorrespondence = false;
@@ -6606,13 +6651,24 @@ public class FileServices
                                 break;
                             case FileTypes.Patent:
                                 updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfInvention, clerical.NewFileTitle));
+
                                 break;
                             case FileTypes.TradeMark:
                                 updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
                                 break;
                         }
                     }
-
+                    if (isPatent)
+                    {
+                        if (!string.IsNullOrWhiteSpace(clerical.NewPatentAbstract))
+                        {
+                            updates.Add(Builders<Filling>.Update.Set(f => f.PatentAbstract, clerical.NewPatentAbstract));
+                        }
+                        if (clerical.NewPatentApplicationType != null)
+                        {
+                            updates.Add(Builders<Filling>.Update.Set(f => f.PatentApplicationType, clerical.NewPatentApplicationType));
+                        }
+                    }
                     if (!string.IsNullOrWhiteSpace(clerical.NewTrademarkLogo) &&
                         Enum.TryParse<TradeMarkLogo>(clerical.NewTrademarkLogo, out var logo))
                     {
@@ -6627,6 +6683,25 @@ public class FileServices
                         else
                             file.Attachments.Add(new AttachmentType { name = "representation", url = new List<string> { clerical.NewRepresentationUrl } });
 
+                        updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
+                    }
+                    break;
+                case "DesignAttachments":
+                    if (clerical.NewDesignAttachmentUrls?.Any() == true)
+                    {
+                        var designsIdx = file.Attachments.FindIndex(a => a.name == "designs");
+                        if (designsIdx >= 0)
+                        {
+                            file.Attachments[designsIdx].url = clerical.NewDesignAttachmentUrls;
+                        }
+                        else
+                        {
+                            file.Attachments.Add(new AttachmentType
+                            {
+                                name = "designs",
+                                url = clerical.NewDesignAttachmentUrls
+                            });
+                        }
                         updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
                     }
                     break;
@@ -6648,7 +6723,7 @@ public class FileServices
                     file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingSearch;
                     updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingSearch));
                 }
-                else if(!isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer))
+                else if (!isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer))
                 {
                     file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingExaminer;
                     updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingExaminer));
@@ -7584,7 +7659,7 @@ public class FileServices
 
         return true;
     }
-   
+
     public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
     {
         // Fetch the file
@@ -9245,8 +9320,8 @@ public class FileServices
 
         // Fetch the SPECIFIC PostRegApp for amendment using both RecordalType and Id
         var amendmentApp = file.PostRegApplications?
-            .FirstOrDefault(a => a.RecordalType == "Patent Amendment" 
-                              && a.IsAmendment == true 
+            .FirstOrDefault(a => a.RecordalType == "Patent Amendment"
+                              && a.IsAmendment == true
                               && a.Id == appId);
 
         if (amendmentApp == null)
@@ -9306,9 +9381,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldAddressData = oldData,
-                        NewAddressData = newData 
+                        NewAddressData = newData
                     };
                 }
                 return new { Message = "No address changes found" };
@@ -9318,9 +9394,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldTitleData = oldData,
-                        NewTitleData = newData 
+                        NewTitleData = newData
                     };
                 }
                 return new { Message = "No title changes found" };
@@ -9330,9 +9407,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldCorrespondence = oldData,
-                        NewCorrespondence = newData 
+                        NewCorrespondence = newData
                     };
                 }
                 return new { Message = "No correspondence changes found" };
@@ -9342,9 +9420,10 @@ public class FileServices
                 {
                     var oldInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.OldDataJson ?? "[]");
                     var newInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.NewDataJson ?? "[]");
-                    return new { 
+                    return new
+                    {
                         OldInventors = oldInventors,
-                        NewInventors = newInventors 
+                        NewInventors = newInventors
                     };
                 }
                 return new { Message = "No inventor changes found" };
@@ -9354,9 +9433,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldPriorityData = oldData,
-                        NewPriorityData = newData 
+                        NewPriorityData = newData
                     };
                 }
                 return new { Message = "No priority changes found" };
@@ -9366,9 +9446,10 @@ public class FileServices
                 {
                     var oldApplicants = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.OldDataJson ?? "[]");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldApplicants = oldApplicants,
-                        NewApplicantData = newData 
+                        NewApplicantData = newData
                     };
                 }
                 return new { Message = "No applicant changes found" };
