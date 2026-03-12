@@ -1,92 +1,164 @@
-﻿using patentdesign.Models;
+﻿using System;
+using System.Linq;
+using patentdesign.Enums;
+using patentdesign.Models;
+using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 
 namespace Tfunctions.pdfs
 {
-    public class DesignCertificate(Filling model, string expiryDate) : IDocument
+    public class DesignCertificate : IDocument
     {
-        private Filling model { get; set; } = model;
-        private string expiryDate { get; set; } = expiryDate;
+        private readonly Filling model;
+        private readonly string expiryDate;
+        private readonly string qrUrl;
+
+        public DesignCertificate(Filling model, string expiryDate)
+        {
+            this.model = model;
+            this.expiryDate = expiryDate;
+            qrUrl = $"https://portal.iponigeria.com/qr?fileId={model.FileId}";
+        }
+
+        public DocumentMetadata GetMetadata() => DocumentMetadata.Default;
 
         public void Compose(IDocumentContainer container)
         {
             container.Page(page =>
             {
-                page.Margin(5);
+                page.Margin(30);
                 page.Content().Element(ComposeContent);
             });
         }
 
-        void ComposeHeader(IContainer container)
+        private void ComposeContent(IContainer container)
         {
-            var titleStyle = TextStyle.Default.FontSize(20).SemiBold().FontColor(Colors.Blue.Medium);
-            container.Row(row =>
+            var title = string.IsNullOrWhiteSpace(model.TitleOfDesign) ? "-" : model.TitleOfDesign;
+            var applicantName = model.applicants?.Count > 1
+                ? $"{model.applicants[0].Name} et al."
+                : model.applicants?.FirstOrDefault()?.Name ?? "-";
+            var applicantAddress = model.applicants?.FirstOrDefault()?.Address ?? "-";
+            var correspondenceName = model.Correspondence?.name ?? "-";
+            var correspondenceAddress = model.Correspondence?.address ?? "-";
+
+            container.Column(column =>
             {
-                row.RelativeItem().Column(column =>
+                column.Item().Height(60).AlignCenter().Image("assets/logo.png").FitArea();
+                column.Item().Height(10);
+
+                column.Item().AlignCenter().Text("NIGERIA")
+                    .FontSize(20).Bold().FontColor(Colors.Black);
+
+                column.Item().Height(8);
+                column.Item().AlignCenter().Text("Certificate of Registration Of Design")
+                    .FontColor(Colors.Green.Darken4)
+                    .FontSize(20).Bold().FontFamily("Certificate");
+
+                column.Item().Height(8);
+                column.Item().AlignCenter().Text("PATENT AND DESIGN ACT")
+                    .FontSize(15).Bold().FontColor(Colors.Black);
+                column.Item().Height(3);
+                column.Item().AlignCenter().Text("(CAP 344 Laws Of The Federation of Nigeria 1990)")
+                    .FontSize(12).FontColor(Colors.Black).Bold();
+                column.Item().Height(8);
+
+                column.Item().Height(8);
+                column.Item().AlignCenter().Text("Design Representation").FontSize(11).Bold().FontColor(Colors.Black);
+                column.Item().Height(20);
+
+                //column.Item().AlignCenter().Text(ConstantValues.Passage1)
+                //    .FontSize(9);
+
+
+                column.Item().Height(8);
+                column.Item().AlignCenter().Text(ConstantValues.DesignCertificate)
+                    .FontSize(9).Justify();
+
+                column.Item().Height(20);
+                column.Item().AlignCenter().Text(applicantName)
+                    .FontSize(11).Bold().FontColor(Colors.Black);
+                column.Item().Height(8);
+                column.Item().AlignCenter().Text(applicantAddress)
+                    .FontSize(10).FontColor(Colors.Black);
+
+                var approvalDate = model.ApplicationHistory?
+                   .SelectMany(a => a.StatusHistory ?? Enumerable.Empty<ApplicationHistory>())
+                   .FirstOrDefault(s => s.afterStatus == ApplicationStatuses.Active)?.Date;
+
+                column.Item().AlignCenter().Text($"As of the {approvalDate} for {title}").FontSize(11).Bold().FontColor(Colors.Black);
+
+
+                //column.Item().Height(15);
+                //column.Item().AlignCenter().Text($"C/O {correspondenceName}")
+                //    .FontSize(10);
+                //column.Item().AlignCenter().Text(correspondenceAddress)
+                //    .FontSize(10);
+
+
+
+                //column.Item().Height(15);
+               
+                //column.Item().AlignCenter().Text(
+                //    approvalDate.HasValue
+                //        ? $"Dated this {approvalDate.Value:dd MMMM yyyy}"
+                //        : "Dated this -")
+                //    .FontSize(10);
+
+                //column.Item().Height(15);
+                //column.Item().AlignCenter().Text($"In respect of: {title}")
+                //    .FontSize(10);
+
+                column.Item().Height(20);
+                column.Item().AlignCenter().Text(
+                    $"Copyright in this Design will expire on {expiryDate} and may, on application made in the prescribed manner, be extended for two further periods of five years each.")
+                    .FontSize(9).Justify();
+
+                column.Item().Height(30);
+                column.Item().Row(row =>
                 {
-                    column.Item().Text($"Certificate Approved").Style(titleStyle);
-                    column.Item().Text(text =>
+                    row.RelativeItem();
+                    row.ConstantItem(200).Column(col =>
                     {
-                            text.Span("Filing Date: ").SemiBold();
-                            text.Span(model.DateCreated.ToString());
+                        col.Item().AlignCenter().Text("Jane Igwe").FontSize(9);
+                        col.Item().AlignCenter().Text("Registrar of Patents and Designs").FontSize(9);
                     });
-                    row.ConstantItem(100).Height(75).Image("assets/ministry.png").FitArea();
                 });
+
+                var sealingDate = approvalDate ?? model.DateCreated;
+                column.Item().Row(row =>
+                {
+                    row.RelativeItem().Column(col =>
+                    {
+                        col.Item().Text("Sealed at my direction,").FontSize(8);
+                        col.Item().Text(sealingDate != default
+                            ? sealingDate.ToString("dd MMMM yyyy")
+                            : "-").FontSize(8).Italic();
+                        col.Item().Text("The Patent and Design Registry,").FontSize(8);
+                        col.Item().Text("Federal Ministry of Industry, Trade and Investment,").FontSize(8);
+                        col.Item().Text("Federal Capital Territory").FontSize(8);
+                    });
+                    row.ConstantItem(200);
+                });
+
+                //column.Item().Height(20);
+                //column.Item().AlignCenter().Text(
+                //    $"Copyright in this Design will expire on {expiryDate} and may, on application made in the prescribed manner, be extended for two further periods of five years each.")
+                //    .FontSize(9).Justify();
+
+                //column.Item().Height(20);
+                //column.Item().AlignCenter().Element(GetQrCode);
             });
         }
-        
-        void ComposeContent(IContainer container)
+
+        private void GetQrCode(IContainer container)
         {
-            var title = model.Type==FileTypes.Design? model.TitleOfDesign: model.Type==FileTypes.Patent? model.TitleOfInvention:model.TitleOfTradeMark;
-            
-            container.Layers(layers =>
-            {
-                var imagePath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "design_certificate.png");
-                layers.Layer()
-                    .Image(imagePath).FitArea();
-                layers
-                    .PrimaryLayer()
-                    .PaddingHorizontal(40)
-                    .PaddingRight(10)
-                    .PaddingVertical(10)
-                    .Column(column =>
-                    {
-                        column.Item().Height(5);
-                        column.Item().Height(60).AlignCenter().Image("assets/ministry.png").FitArea();
-                        column.Item().Height(40);
-                        // column.Item().AlignCenter().Text("FEDERAL REPUBLIC OF NIGERIA").FontFamily(Fonts.TimesNewRoman).FontSize(18).Bold();
-                        // column.Item().AlignCenter().Text("Patents and Designs Act.").FontFamily(Fonts.TimesNewRoman).FontSize(18).Bold();
-                        // column.Item().AlignCenter().Text("(Cap 344 Laws of the Federation of Nigeria 1990)").FontFamily(Fonts.TimesNewRoman).FontSize(18).Bold();
-                        column.Item().AlignCenter().Text($"Certificate of Registration Design").FontFamily(Fonts.TimesNewRoman).FontSize(18).Bold();
-                        column.Item().Height(20);
-                        column.Item().Height(5);
-                        column.Item().AlignRight().Text(model.FileId).FontSize(12);
-                        column.Item().AlignRight().Text(model.Id).FontSize(12);
-                        column.Item().Height(20);
-                        column.Item().PaddingLeft(70).Text(ConstantValues.DesignCertificate).FontSize(12).Justify();
-                        column.Item().Height(20);
-                        var applicantName = model.applicants.Count > 1 ? model.applicants[0].Name + "et al.":model.applicants[0].Name ;
-                        var applicantAddress = model.applicants[0].Address;
-                        column.Item().PaddingLeft(70).Text(applicantName).FontSize(12);
-                        column.Item().PaddingLeft(70).Text(applicantAddress).FontSize(12);
-                        column.Item().Height(20);
-                        column.Item().PaddingLeft(70).Text($"C/O {model.Correspondence?.name}").FontSize(12);
-                        column.Item().PaddingLeft(70).Text($"C/O {model.Correspondence?.address}").FontSize(12);
-                        column.Item().PaddingLeft(70).Height(20);
-                        column.Item().PaddingLeft(70).Text($"In respect 1. {model.TitleOfDesign}");
-                        column.Item().PaddingLeft(70).Height(10);
-                        column.Item().PaddingLeft(70).Text($"As of the {model.ApplicationHistory[0].StatusHistory.FirstOrDefault(x=>x.afterStatus==ApplicationStatuses.AwaitingSearch)?.Date.ToString("D") ?? model.ApplicationHistory[0].StatusHistory.FirstOrDefault(x=>x.afterStatus==ApplicationStatuses.Active)?.Date.ToString("D") }").FontSize(12);
-                        column.Item().PaddingLeft(70).Text($"Dated this {model.ApplicationHistory[0].StatusHistory.FirstOrDefault(x=>x.afterStatus==ApplicationStatuses.Active)?.Date.ToString("D")}").FontSize(12);
-                        column.Item().Height(130);
-                        column.Item().Height(50).AlignCenter().Image("assets/signature.jpeg").FitArea();
-                        column.Item().AlignCenter().Text("Jane Igwe").Bold();
-                        column.Item().AlignCenter().Text("Registrar Patents and Designs").Bold();
-                        column.Item().Height(30);
-                        column.Item().PaddingLeft(70).Text($"Copyright in this Design will expire on {expiryDate} and may on application made in the prescribe manner, be extended for two further periods of five years each").FontSize(12).Justify();
-                    });
-            });
+            using var qrGenerator = new QRCodeGenerator();
+            using var qrCodeData = qrGenerator.CreateQrCode(qrUrl, QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new PngByteQRCode(qrCodeData);
+            var qrCodeImage = qrCode.GetGraphic(20);
+            container.Image(qrCodeImage).FitArea();
         }
     }
 }
