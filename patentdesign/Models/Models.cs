@@ -30,6 +30,7 @@ public class AppUser
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
+    public string? Name { get; set; } 
 }
 
 public record DesignForm
@@ -407,6 +408,26 @@ public record PostRegistrationApp
     public string? OldMergerNationality { get; set; }
     public string? OldMergerState { get; set; }
     public string? OldMergerCity { get; set; }
+    public List<string>? RequestedAttachments { get; set; }
+
+    // Amendment identification
+    public string? AmendmentType { get; set; }
+    public bool IsAmendment { get; set; } = false;
+    public bool IsApproved { get; set; } = false;
+
+    // Simple field amendments (for single values)
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
+    public string? OldValue2 { get; set; }
+    public string? NewValue2 { get; set; }
+    public string? OldValue3 { get; set; }
+    public string? NewValue3 { get; set; }
+    public string? OldValue4 { get; set; }
+    public string? NewValue4 { get; set; }
+
+    // Complex field amendments (JSON serialized for lists/objects)
+    public string? OldDataJson { get; set; }
+    public string? NewDataJson { get; set; }
 
 }
 
@@ -515,7 +536,34 @@ public record PerformanceMarker
     public DesignTypes? designType { get; set; }
     public TradeMarkType? tradeMarkType { get; set; }
 }
-
+public record StaffPerformance
+{
+    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public ApplicationStatuses? BeforeStatus { get; set; }
+    public ApplicationStatuses? AfterStatus { get; set; }
+    public string? Reason { get; set; }
+    public DateTime? Date { get; set; }
+    public string? AppUserId { get; set; }
+    public Roles? OfficeUnit { get; set; }
+    public string? FileNumber { get; set; }
+    public FileTypes? FileType { get; set; }
+    
+}
+//public record Statistics
+//{
+//    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+//    public string? ApplicantCountry { get; set; }
+//    public string? ApplicantName { get; set; }
+//    public AccountType? AccountType { get; set; }
+//    public int? FileClass { get; set; }
+//    public DateTime? Date { get; set; }
+//    public FileTypes? Type { get; set; }
+//    public TradeMarkType? TradeMarkType { get; set; }
+//    public PatentTypes? PatentType { get; set; }
+//    public DesignTypes? DesignType { get; set; }
+//    public FormApplicationTypes? ApplicationType { get; set; }
+//}
 public enum PerformanceType {Staff,Application}
 
 public record OtherPaymentModel
@@ -774,7 +822,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy,
 }
 public enum ApplicationLetters
 {
@@ -1595,4 +1643,15 @@ public class StatusChangeLog
     public string ChangedById { get; set; }
     public DateTime DateChanged { get; set; } = DateTime.Now;
     public bool IsSuccessful { get; set; } = false;
+}
+
+public enum PatentAmendmentTypes
+{
+    CorrespondenceInformation = 0,
+    ApplicantName = 4,
+    ApplicantAddress = 5,
+    FileTitle = 7,
+    AddAndRemoveApplicant = 10,
+    EditInventors = 11,
+    PriorityInfo = 12
 }

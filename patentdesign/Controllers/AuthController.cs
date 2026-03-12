@@ -58,5 +58,27 @@ namespace patentdesign.Controllers
             }
             return Ok(new { message = "Password changed successfully" });
         }
+        [Authorize]
+        [HttpPost("UpdateProfile")]
+        public async Task<IActionResult> UpdateUserProfileAsync([FromBody] ProfileDto req)
+        {
+            var res = await authServices.UpdateUserProfile(req);
+            if (!res)
+            {
+                return BadRequest("Failed to Update Profile");
+            }
+            return Ok(new { message = "Profile Updated Successfully" });
+        }
+        [HttpGet("GetUser")]
+        public async Task<IActionResult> GetUserById([FromQuery] string userId)
+        {
+            var res = await authServices.GetUser(userId);
+            if(res is null)
+            {
+                return NotFound("Failed to fetch User Details");
+            }
+            return Ok(res);
+        }
+        
     }
 }

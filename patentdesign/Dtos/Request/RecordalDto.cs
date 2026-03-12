@@ -33,6 +33,12 @@ namespace patentdesign.Dtos.Request
 
         // NEW: for CTC – all file attachments
         public List<AttachmentType>? Attachments { get; set; }
+        public List<ApplicantInfo>? Applicants { get; set; }
+        public List<ApplicantInfo>? Inventors { get; set; }
+        public List<PriorityInfo>? PriorityInfo { get; set; }
+        public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+        public string? PatentAbstract { get; set; }
+        public CorrespondenceType? Correspondence { get; set; }
     }
     public class MergerApplicationDto
     {
@@ -86,6 +92,7 @@ namespace patentdesign.Dtos.Request
         public string fileId { get; set; }
         public string appId { get; set; }
         public string reason { get; set; }
+        public string userId { get; set; }
     }                       
     public class RenewalAppDto
     {

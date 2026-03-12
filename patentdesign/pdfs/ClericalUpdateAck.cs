@@ -142,7 +142,7 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                         });
                         if (clerical != null)
                         {
-                            var excludedKeys = new[] { "id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved",  };
+                            var excludedKeys = new[] { "_id","id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved",  };
                             var clericalProps = clerical.GetType().GetProperties();
 
                             // Group Old/New pairs

@@ -122,12 +122,12 @@ public class FilesController(FileServices fileService) : ControllerBase
         await fileService.GenerateDesignCerts();
     }
 
-    [HttpPost("NewApplicationPayment")]
-    public async Task<ActionResult> NewApplicationPayment([FromBody] UpdateDataType data)
-    {
-        var response = await fileService.NewApplicationPayment(data);
-        return Ok(response);
-    }
+    //[HttpPost("NewApplicationPayment")]
+    //public async Task<ActionResult> NewApplicationPayment([FromBody] UpdateDataType data)
+    //{
+    //    var response = await fileService.NewApplicationPayment(data);
+    //    return Ok(response);
+    //}
 
     [HttpGet("GetRRRCost")]
     public async Task<ActionResult<dynamic>> GetCostFromRRR([FromQuery] string rrr)
@@ -137,12 +137,12 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
 
-    [HttpGet("PaidButNotReflecting")]
-    public async Task<ActionResult<dynamic>> PaidButNotReflecting()
-    {
-        await fileService.PaidButNotReflecting();
-        return Ok("res");
-    }
+    //[HttpGet("PaidButNotReflecting")]
+    //public async Task<ActionResult<dynamic>> PaidButNotReflecting()
+    //{
+    //    await fileService.PaidButNotReflecting();
+    //    return Ok("res");
+    //}
 
     [HttpGet("DesignPDf")]
     public async Task<ActionResult<dynamic>> NewDesignPDF()
@@ -855,11 +855,14 @@ public class FilesController(FileServices fileService) : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetPatentCtcCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    public async Task<IActionResult> GetPatentCtcCost(
+    [FromQuery] string fileId,
+    [FromQuery] FileTypes fileType,
+    [FromQuery] int numberOfAttachments = 1) // NEW PARAMETER with default value
     {
         try
         {
-            var res = await fileService.PatentCtcCost(fileId, fileType);
+            var res = await fileService.PatentCtcCost(fileId, fileType, numberOfAttachments);
             if (res == null)
             {
                 return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
@@ -1537,7 +1540,6 @@ public class FilesController(FileServices fileService) : ControllerBase
     #endregion
 
 
-
     #region
 
     //Patent Mortgage Post Registration Section
@@ -1642,4 +1644,173 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+
+    #region Patent CTC Post Registration Section
+
+    /// <summary>
+    /// Submits a new patent CTC (Certified True Copy) application.
+    /// </summary>
+    /// <remarks>
+    /// The frontend must provide the FileId, RRR (Remita payment reference), and a list of attachment IDs to certify.
+    /// The backend will verify payment, save the application, update status, and record which attachments were requested.
+    /// </remarks>
+    /// <param name="dto">The patent CTC application details, including file ID, RRR, attachment IDs, and request date.</param>
+    /// <returns>
+    /// 200: Success, application submitted and saved.<br/>
+    /// 400: Bad request, invalid data or file not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpPost("PatentCtcApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> NewPatentCtcApplication([FromBody] PatentCtcDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentCtcApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to create CTC application."));
+
+            return Ok(ApiResponse<bool>.Ok(true, "Patent CTC application created successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns all requested attachments and details for a patent CTC application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <returns>
+    /// 200: Success, returns CTC attachments and application details.<br/>
+    /// 404: Not found if no CTC application exists for the file.<br/>
+    /// </returns>
+    [HttpGet("GetPatentCtcDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentCtcDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetPatentCtcDetailsAsync(fileId);
+            if (details == null)
+                return NotFound(ApiResponse<string>.Fail("CTC application not found."));
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent CTC application.
+    /// </summary>
+    /// <remarks>
+    /// The examiner reviews the CTC request, enters a reason, and chooses to approve or refuse.
+    /// If approved, the certified copies are marked as ready. If refused, the request is rejected.
+    /// </remarks>
+    /// <param name="dto">CTC decision details including file ID, application ID, approval flag, and reason.</param>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item>200: Success, returns decision result and message.</item>
+    /// <item>404: Not found if file or application does not exist.</item>
+    /// <item>500: Internal server error.</item>
+    /// </list>
+    /// </returns>
+    [HttpPost("ctc-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PatentCtcDecision([FromBody] PatentCtcDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentCtcDecisionAsync(dto.FileId, dto.AppId, dto.Approve, dto.Reason);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
+    /// <summary>
+    /// Submit a new patent amendment application.
+    /// </summary>
+    #region Patent Amendment Post Registration Section
+
+    /// <summary>
+    /// Submit a new patent amendment application.
+    /// </summary>
+    [HttpPost("PatentAmendmentApplication")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PatentAmendmentApplication([FromBody] PatentAmendmentDto dto)
+    {
+        try
+        {
+            var result = await fileService.NewPatentAmendmentApplication(dto);
+            if (!result)
+                return BadRequest(ApiResponse<string>.Fail("Failed to submit patent amendment application."));
+            return Ok(ApiResponse<bool>.Ok(true, "Patent amendment application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    /// <summary>
+    /// Returns amendment details for a specific patent amendment application.
+    /// </summary>
+    [HttpGet("GetPatentAmendmentDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPatentAmendmentDetails([FromQuery] string fileId, [FromQuery] string appId)
+    {
+        var result = await fileService.GetPatentAmendmentDetailsAsync(fileId, appId);
+        if (result == null)
+            return NotFound(ApiResponse<string>.Fail("No amendment application found for this file and application ID."));
+
+        return Ok(ApiResponse<object>.Ok(result));
+    }
+
+    /// <summary>
+    /// Examiner decision on a patent amendment application.
+    /// </summary>
+    [HttpPost("amendment-decision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> AmendmentDecision([FromBody] PatentAmendmentDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.PatentAmendmentDecisionAsync(
+                dto.fileId, dto.appId, dto.approve, dto.reason);
+
+            if (!success)
+                return NotFound(ApiResponse<string>.Fail(message));
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    #endregion
+
 }

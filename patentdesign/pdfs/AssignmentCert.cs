@@ -23,7 +23,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
         private void ComposeContent(IContainer container)
         {
             var app = model.PostRegApplications?.FirstOrDefault(r=>r.Id == applicationId);
-            var applicants = model.applicants.FirstOrDefault();
+            var firstApplicant = model.ApplicationHistory[0].Applicants.FirstOrDefault();
             var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
             var date = postRegApp?.DateTreated;
             var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt",
@@ -32,8 +32,9 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 out var parsedDate)
                 ? parsedDate.ToString("dd MMMM, yyyy")
                 : date;
-            var assignee = model.Assignees.FirstOrDefault(a => a.Id == applicationId);
 
+            var assignee = model.Assignees.FirstOrDefault(a => a.Id == applicationId);
+            var assignor = model.ApplicationHistory[0].Applicants[0]; 
             container.PaddingVertical(5).Column(column =>
             {
                 column.Item().Height(30);
@@ -119,7 +120,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorName ?? applicants.Name)
+                        .Text(assignee.AssignorName ?? assignor.Name)
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
@@ -133,7 +134,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorAddress ?? applicants.Address)
+                        .Text(assignee.AssignorAddress ?? assignor.Address)
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
@@ -147,7 +148,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorPhone ?? applicants.Phone)
+                        .Text(assignee.AssignorPhone ?? assignor.Phone)
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
@@ -161,7 +162,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorEmail ?? applicants.Email)
+                        .Text(assignee.AssignorEmail ?? assignor.Email)
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
