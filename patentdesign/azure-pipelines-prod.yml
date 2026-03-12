@@ -89,11 +89,11 @@ stages:
               Stop-WebAppPool -Name $appPool
           }
 
-          Write-Host "Removing old files in $destination"
-          Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host "Removing old files in $destination (excluding web.config)"
+          Get-ChildItem -Path $destination -Exclude "web.config" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-          Write-Host "Copying new build from $source to $destination"
-          Copy-Item -Path $source -Destination $destination -Recurse -Force
+          Write-Host "Copying new build from $source to $destination (excluding web.config)"
+          Get-ChildItem -Path "$(Pipeline.Workspace)\backend" -Exclude "web.config" | Copy-Item -Destination $destination -Recurse -Force
 
           Write-Host "Starting App Pool: $appPool"
           if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
