@@ -121,7 +121,7 @@ public class FileServices
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
     {
-        var file = await _fillingCollection.Find(d => d.Id == fileId).FirstOrDefaultAsync()
+        var file = await _fillingCollection.Find(d => d.FileId == fileId).FirstOrDefaultAsync()
             ?? throw new KeyNotFoundException("File not found.");
 
         var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId)
@@ -130,7 +130,10 @@ public class FileServices
         // Handle certificate-only path
         if (isCertificate == true)
         {
-            return await HandleCertificateValidation(file, application, userName, userId);
+            //return await HandleCertificateValidation(file, application, userName, userId);
+            Console.WriteLine("Updating certificate app...");
+            var update = await UpdateCertificatePaymentStatus(fileId, application.PaymentId);
+            if (update) return file;
         }
 
         // Validate and get payment info
@@ -1237,7 +1240,7 @@ public class FileServices
         var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(
             data.Item1, data.Item3, data.Item2,
             "Application for Certificate",
-            username, user.Email, user.PhoneNumber);
+            applicant.Name, applicant.Email, applicant.Phone);
 
         if (string.IsNullOrWhiteSpace(rrr))
         {
@@ -1290,7 +1293,8 @@ public class FileServices
             rrr,
             total = data.Item1,
             applicant = applicant.Name,
-            fileId
+            fileId,
+            appId = certApp.id
         };
     }
 
