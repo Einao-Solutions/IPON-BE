@@ -1,277 +1,251 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using patentdesign.Enums;
 using patentdesign.Models;
-using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 
 namespace Tfunctions.pdfs
 {
-    public class RejectionModelDesign(Filling model, string url, byte[] signatureUrl, List<byte[]>images,  string examinerName) : IDocument
+    public class RejectionModelDesign : IDocument
     {
-        private Filling model { get; set; } = model;
-        private string url { get; set; } = url;
-        
-         public void Compose(IDocumentContainer container)
+        private readonly Filling model;
+        private readonly string url;
+        private readonly byte[] signatureUrl;
+        private readonly List<byte[]> images;
+        private readonly string examinerName;
+
+        public RejectionModelDesign(
+            Filling model,
+            string url,
+            byte[] signatureUrl,
+            List<byte[]> images,
+            string examinerName)
+        {
+            this.model = model;
+            this.url = url;
+            this.signatureUrl = signatureUrl ?? Array.Empty<byte>();
+            this.images = images ?? new();
+            this.examinerName = examinerName;
+        }
+
+        public DocumentMetadata GetMetadata() => DocumentMetadata.Default;
+
+        public void Compose(IDocumentContainer container)
         {
             container.Page(page =>
             {
                 page.Margin(30);
                 page.Content().Element(ComposeContent);
-                page.Footer().Row(row =>
-                {
-                    row.RelativeItem().Height(30).AlignRight(). Image("assets/ministry.png").FitArea();
-                });
             });
         }
-        
-        static IContainer Block(IContainer container)
+
+        private void ComposeContent(IContainer container)
         {
-            return container
-                .Border(1)
-                .ShowOnce()
-                .MinWidth(50)
-                .MinHeight(30)
-                .AlignCenter()
-                .AlignMiddle();
-        }  
-        static IContainer SNBlock(IContainer container)
-        {
-            return container
-                .Border(1)
-                .ShowOnce()
-                .MaxWidth(30)
-                .MinHeight(30)
-                .AlignCenter()
-                .AlignMiddle();
-        }  
-        static IContainer HeaderElement(IContainer container)
-        {
-            return container
-                .Border(1)
-                .Background(Colors.Grey.Lighten3)
-                .ShowOnce()
-                .MinWidth(50)
-                .MinHeight(30)
-                .AlignCenter()
-                .AlignMiddle();
-        }
-        static IContainer AttachmentStyle(IContainer container)
-        {
-            return container
-                .ShowOnce()
-                .MaxWidth(80)
-                .AlignCenter()
-                .AlignMiddle();
-        }
-       void ComposeContent(IContainer container)
-        {
-             container
-                .PaddingVertical(10)
-                .Column(column =>
-                {
-                    column.Item().Height(60).AlignCenter(). Image("assets/ministry.png").FitArea();
-                    column.Item().Height(20);
-                    column.Item().AlignCenter().Text("DESIGN REJECTION LETTER").FontFamily(Fonts.TimesNewRoman).FontSize(18).Bold();
-                    column.Item().Height(10);
-                    column.Item().Table(table =>
-                    {
-                        table.ColumnsDefinition(tablecolumns =>
-                        {
-                            tablecolumns.RelativeColumn();
-                            tablecolumns.RelativeColumn();
-                        });
-                        table.Cell().ColumnSpan(2).Element(HeaderElement).Text("Filing Information").Style(TextStyle.Default.SemiBold());
-                        table.Cell().Element(Block).Text("Filing date").Style(TextStyle.Default.SemiBold());
-                        table.Cell().Element(Block).Text(model.DateCreated.ToString());
-                        table.Cell().Element(Block).Text("File Number").Style(TextStyle.Default.SemiBold());
-                        table.Cell().Element(Block).Text(model.FileId);
-                        table.Cell().Element(Block).Text("Payment ID").Style(TextStyle.Default.SemiBold());
-                        table.Cell().Element(Block).Text(model.ApplicationHistory[0].PaymentId);
-                        table.Cell().Element(Block).Text("System ID").Style(TextStyle.Default.SemiBold());
-                        table.Cell().Element(Block).Text(model.Id);
-                    });
-                    column.Item().Text("Title of Design")
-                        .Style(TextStyle.Default.Bold());
-                    column.Item().Text(model.TitleOfDesign).Justify();
-                    column.Item().Text("Statement of Novelty")
-                        .Style(TextStyle.Default.Bold());
-                    column.Item().Text(model.StatementOfNovelty).Justify();
-                    column.Item().Text("Design Type").Bold();
-                    column.Item().Text(model.DesignType.ToString());
-                    column.Item().Table(table =>
-                    {
-                        table.ColumnsDefinition(defs =>
-                        {
-                            defs.ConstantColumn(30);
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                        });
-                        
-                        table.Header(header =>
-                        {
-                            header.Cell().ColumnSpan(6).Element(HeaderElement).Text("Applicants Information").Style(TextStyle.Default.SemiBold());
-                            header.Cell().Element(SNBlock).Text("S/N");
-                            header.Cell().Element(Block).Text("Applicant name");
-                            header.Cell().Element(Block).Text("Country");
-                            header.Cell().Element(Block).Text("Phone number");
-                            header.Cell().Element(Block).Text("Email");
-                            header.Cell().Element(Block).Text("Address");
-                            
-                        });
-                        foreach (var applicant in model.applicants)
-                        {
-                            table.Cell().Element(SNBlock).Text((model.applicants.IndexOf(applicant)+1).ToString());
-                            table.Cell().Element(Block).Text(applicant.Name);
-                            table.Cell().Element(Block).Text(applicant.country);
-                            table.Cell().Element(Block).Text(applicant.Phone);
-                            table.Cell().Element(Block).Text(applicant.Email);
-                            table.Cell().Element(Block).Text(applicant.Address);
-                        }
-                    });
-                    column.Item().Table(table =>
-                    {
-                        table.ColumnsDefinition(defs =>
-                        {
-                            defs.ConstantColumn(30);
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                        });
-                        
-                        table.Header(header =>
-                        {
-                            header.Cell().ColumnSpan(6).Element(HeaderElement).Text("Design Creators").Style(TextStyle.Default.SemiBold());
-                            header.Cell().Element(SNBlock).Text("S/N");
-                            header.Cell().Element(Block).Text("Name");
-                            header.Cell().Element(Block).Text("Country");
-                            header.Cell().Element(Block).Text("Address");
-                            header.Cell().Element(Block).Text("Phone Number");
-                            header.Cell().Element(Block).Text("Email");
-                        });
-                        foreach (var applicant in model.DesignCreators)
-                        {
-                            table.Cell().Element(SNBlock).Text((model.DesignCreators.IndexOf(applicant)+1).ToString());
-                            table.Cell().Element(Block).Text(applicant.Name);
-                            table.Cell().Element(Block).Text(applicant.country);
-                            table.Cell().Element(Block).Text(applicant.Address);
-                            table.Cell().Element(Block).Text(applicant.Phone);
-                            table.Cell().Element(Block).Text(applicant.Email);
-                        }
-                    });
-                    
-                     
-                    column.Item().Table(table =>
-                    {
-                        table.ColumnsDefinition(defs =>
-                        {
-                            defs.ConstantColumn(30);
-                            defs.RelativeColumn();
-                            defs.RelativeColumn();
-                        });
-                        
-                        table.Header(header =>
-                        {
-                            header.Cell().ColumnSpan(3).Element(HeaderElement).Text("Documents Attached").Style(TextStyle.Default.SemiBold());
-                            header.Cell().Element(SNBlock).Text("S/N");
-                            header.Cell().Element(Block).Text("Document Name");
-                            header.Cell().Element(Block).Text("Status");
-                        });
-                        
-                            table.Cell().Element(SNBlock).Text(1.ToString());
-                            table.Cell().Element(Block).Text("Priority Document");
-                            table.Cell().Element(Block).Row(row=>
-                            {
-                                if (model.Attachments.Count(x => x.name=="pdoc")==1)
-                                {
-                                row.AutoItem().PaddingLeft(20).Height(20). Image("assets/checkmark.png").FitArea();
-                                row.RelativeItem().PaddingLeft(5).Element(AttachmentStyle).Text("Attached");
-                                }
-                                else
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/cancel.png").FitArea();
-                                    row.RelativeItem().Element(AttachmentStyle).Text("Not Attached");  
-                                }
-                            });
-                            table.Cell().Element(SNBlock).Text(2.ToString());
-                            table.Cell().Element(Block).Text("Novelty Statement");
-                            table.Cell().Element(Block).Row(row=>
-                            {
-                                if (model.Attachments.Count(x=>x.name=="nov")==1)
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/checkmark.png").FitArea();
-                                    row.RelativeItem().PaddingLeft(5).Element(AttachmentStyle).Text("Attached");
-                                }
-                                else
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/cancel.png").FitArea();
-                                    row.RelativeItem().Element(AttachmentStyle).Text("Not Attached");  
-                                }
-                            });
-                            table.Cell().Element(SNBlock).Text(3.ToString());
-                            table.Cell().Element(Block).Text("Design Representations(s)");
-                            table.Cell().Element(Block).Row(row=>
-                            {
-                                if (model.Attachments.Count(x=>x.name=="designs")>=1)
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/checkmark.png").FitArea();
-                                    row.RelativeItem().PaddingLeft(5).Element(AttachmentStyle).Text("Attached");
-                                }
-                                else
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/cancel.png").FitArea();
-                                    row.RelativeItem().Element(AttachmentStyle).Text("Not Attached");  
-                                }
-                            });
-                            table.Cell().Element(SNBlock).Text(4.ToString());
-                            table.Cell().Element(Block).Text("Power of Attorney");
-                            table.Cell().Element(Block).Row(row=>
-                            {
-                                if (model.Attachments.Count(x=>x.name=="form2")==1)
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/checkmark.png").FitArea();
-                                    row.RelativeItem().PaddingLeft(5).Element(AttachmentStyle).Text("Attached");
-                                }
-                                else
-                                {
-                                    row.AutoItem().PaddingLeft(20).Height(20). Image("assets/cancel.png").FitArea();
-                                    row.RelativeItem().Element(AttachmentStyle).Text("Not Attached");  
-                                }
-                            });
-                            // design drawing
-                    });
-                    column.Item().Text("Design Representations");
-                    
-                    foreach (var image in images)
-                    {
-                        var img = Image.FromBinaryData(image);
-                        column.Item().Height(100).AlignCenter().Image(img).FitArea();
-                    }
-       
-                    column.Item().AlignCenter().Text("YOUR APPLICATION HAS BEEN REJECTED").ExtraBold().FontColor(Colors.Red.Darken2);
-                    column.Item().AlignCenter().Text("PATENT AND DESIGN REGISTRY");
-                    column.Item().AlignCenter().Text("COMMERCIAL LAW DEPARTMENT");
-                    column.Item().AlignCenter().Text("FEDERAL MINISTRY OF INDUSTRY, TRADE AND INVESTMENT");
-                    // var imgSig = Image.FromBinaryData(signatureUrl);
-                    // column.Item().Height(50).AlignCenter().Image(imgSig).FitArea();
-                    // column.Item().AlignCenter().Text(examinerName).Bold();
-                    column.Item().AlignCenter().Height(100).Element(GetQrCode);
-                    column.Spacing(15);
-                });
-        }
-        private void GetQrCode(IContainer container)
-        {
-            using (QRCodeGenerator qrGenerator = new QRCodeGenerator())
-            using (QRCodeData qrCodeData = qrGenerator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q))
-            using (PngByteQRCode qrCode = new PngByteQRCode(qrCodeData))
+            var filingHistory = model.ApplicationHistory?.FirstOrDefault();
+            var filingDate = filingHistory?.ApplicationDate ?? model.FilingDate ?? model.DateCreated;
+            var paymentId = filingHistory?.PaymentId ?? model.ApplicationHistory?.FirstOrDefault()?.PaymentId;
+
+            container.Column(col =>
             {
-                byte[] qrCodeImage = qrCode.GetGraphic(20);
-                container.Image(qrCodeImage).FitArea();
+                col.Item().Height(60).AlignCenter().PaddingBottom(10).Image("assets/logo.png").FitArea();
+                col.Item().AlignCenter().PaddingBottom(10).Text("FEDERAL REPUBLIC OF NIGERIA").FontFamily(Fonts.TimesNewRoman).FontSize(20).Bold();
+                col.Item().AlignCenter().Text("FEDERAL MINISTRY OF INDUSTRY, TRADE AND INVESTMENT").FontFamily(Fonts.TimesNewRoman).FontSize(14);
+                col.Item().AlignCenter().PaddingBottom(10).Text("COMMERCIAL LAW DEPARTMENT").FontFamily(Fonts.TimesNewRoman).FontSize(14);
+                col.Item().AlignCenter().Text("DESIGN REJECTION LETTER").FontFamily(Fonts.TimesNewRoman).FontSize(16).FontColor(Colors.Green.Darken2).ExtraBold();
+                col.Item().Height(10);
+
+                var rejectionStatus = model.ApplicationHistory?
+                    .SelectMany(app => app.StatusHistory ?? Enumerable.Empty<ApplicationHistory>())
+                    .FirstOrDefault(status => status.afterStatus == ApplicationStatuses.Rejected);
+                var rejectionDate = rejectionStatus?.Date ?? model.ApplicationHistory?.FirstOrDefault()?.StatusHistory?.FirstOrDefault()?.Date ?? filingDate;
+
+                TwoColumnSection(col, "FILE INFORMATION", new[]
+                {
+                    ("Filing date:", F(filingDate)),
+                    ("File number:", F(model.FileId)),
+                    ("Rejection Date:", F(rejectionDate)),
+                    ("Payment ID:", F(paymentId))
+                });
+
+                col.Item().Element(Header).Text("DESIGN INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                TwoColumnSection(col, string.Empty, new[]
+                {
+                    ("Title of Industrial Design:", F(model.TitleOfDesign)),
+                    ("File Origin:", F(model.FileOrigin ?? model.FilingCountry)),
+                    ("Design type:", F(model.DesignType)),
+                    ("Representation:", images.Count > 0 ? "Attached" : "Nil"),
+                });
+                FullWidthBox(col, "Statement of Novelty:", F(model.StatementOfNovelty));
+
+                col.Item().Element(Header).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                if (model.applicants != null && model.applicants.Count > 0)
+                {
+                    foreach (var applicant in model.applicants)
+                    {
+                        TwoColumnSection(col, string.Empty, new[]
+                        {
+                            ("Name:", F(applicant?.Name)),
+                            ("Email:", F(applicant?.Email)),
+                            ("Phone number:", F(applicant?.Phone)),
+                            ("State:", F(applicant?.State)),
+                            ("Address:", F(applicant?.Address)),
+                            ("Nationality:", F(applicant?.country))
+                        });
+                    }
+                }
+                else
+                {
+                    TwoColumnSection(col, string.Empty, new[]
+                    {
+                        ("Name:", "N/A"),
+                        ("Email:", "N/A"),
+                        ("Phone number:", "N/A"),
+                        ("State:", "N/A"),
+                        ("Address:", "N/A"),
+                        ("Nationality:", "N/A")
+                    });
+                }
+
+                col.Item().Element(Header).Text("DESIGN CREATORS").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                if (model.DesignCreators != null && model.DesignCreators.Count > 0)
+                {
+                    int creatorIndex = 1;
+                    foreach (var creator in model.DesignCreators)
+                    {
+                        TwoColumnSection(col, string.Empty, new[]
+                        {
+                            ($"{creatorIndex}. Name:", F(creator?.Name)),
+                            ("Email:", F(creator?.Email)),
+                            ("Phone number:", F(creator?.Phone)),
+                            ("Nationality:", F(creator?.country)),
+                            ("Address:", F(creator?.Address)),
+                            ("State:", F(creator?.State))
+                        });
+                        creatorIndex++;
+                    }
+                }
+                else
+                {
+                    TwoColumnSection(col, string.Empty, new[]
+                    {
+                        ("Name:", "N/A"),
+                        ("Email:", "N/A"),
+                        ("Phone number:", "N/A"),
+                        ("Nationality:", "N/A"),
+                        ("Address:", "N/A"),
+                        ("State:", "N/A")
+                    });
+                }
+
+                col.Item().Element(Header).Text("CORRESPONDENCE INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                TwoColumnSection(col, string.Empty, new[]
+                {
+                    ("Name:", F(model.Correspondence?.name)),
+                    ("Email:", F(model.Correspondence?.email)),
+                    ("Phone number:", F(model.Correspondence?.phone)),
+                    ("Nationality:", F(model.Correspondence?.Nationality)),
+                    ("Address:", F(model.Correspondence?.address)),
+                    ("State:", F(model.Correspondence?.state))
+                });
+
+                col.Item().Element(Header).Text("PROCESS INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                var processDetails = model.ApplicationHistory?
+                    .SelectMany(app => app.StatusHistory ?? Enumerable.Empty<ApplicationHistory>())
+                    .FirstOrDefault(status => status.afterStatus == ApplicationStatuses.Rejected);
+
+                TwoColumnSection(col, string.Empty, new[]
+                {
+                    ("Examiners Name:", F(processDetails?.User ?? examinerName)),
+                    ("Reason for Rejection:", F(processDetails?.Message))
+                });
+
+                col.Item().AlignCenter().PaddingTop(30).PaddingBottom(20)
+                    .Text("YOUR APPLICATION HAS BEEN REJECTED")
+                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Red.Darken2);
+
+                //if (signatureUrl.Length > 0)
+                //{
+                //    var signatureImage = Image.FromBinaryData(signatureUrl);
+                //    col.Item().Height(50).AlignCenter().Image(signatureImage).FitArea();
+                //}
+
+                //if (!string.IsNullOrWhiteSpace(examinerName))
+                //{
+                //    col.Item().AlignCenter().Text(examinerName).FontFamily(Fonts.TimesNewRoman).FontSize(12).Bold();
+                //}
+            });
+        }
+
+        private static IContainer Box(IContainer c) => c
+            .Border(1)
+            .Padding(5)
+            .AlignLeft();
+
+        private static IContainer Header(IContainer c) => c
+            .Border(1)
+            .Background(Colors.Grey.Lighten1);
+
+        private static void WriteText(IContainer cell, string text)
+        {
+            bool placeholder = text == "N/A";
+            cell.Text(text)
+                .FontFamily(Fonts.TimesNewRoman)
+                .FontSize(12)
+                .Italic(placeholder)
+                .FontColor(Colors.Black);
+        }
+
+        private static string F(object? v) => v switch
+        {
+            null => "N/A",
+            string s when string.IsNullOrWhiteSpace(s) => "N/A",
+            DateTime dt when dt == default => "N/A",
+            DateTime dt => dt.ToString("dd MMMM, yyyy"),
+            _ => v.ToString() ?? "N/A"
+        };
+
+        private static void TwoColumnSection(ColumnDescriptor col, string title, (string Label, string Value)[] pairs)
+        {
+            if (!string.IsNullOrWhiteSpace(title))
+                col.Item().Element(Header).Text(title).FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+            for (int i = 0; i < pairs.Length; i += 2)
+            {
+                col.Item().Row(row =>
+                {
+                    row.RelativeItem().Element(Box).Column(c2 =>
+                    {
+                        c2.Item().Text(pairs[i].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        WriteText(c2.Item(), pairs[i].Value);
+                    });
+
+                    if (i + 1 < pairs.Length)
+                    {
+                        row.RelativeItem().Element(Box).Column(c2 =>
+                        {
+                            c2.Item().Text(pairs[i + 1].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                            WriteText(c2.Item(), pairs[i + 1].Value);
+                        });
+                    }
+                    else
+                    {
+                        row.RelativeItem();
+                    }
+                });
             }
+        }
+
+        private static void FullWidthBox(ColumnDescriptor col, string label, string value)
+        {
+            col.Item().Element(Box).Column(c2 =>
+            {
+                if (!string.IsNullOrEmpty(label))
+                    c2.Item().Text(label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                WriteText(c2.Item(), value);
+            });
         }
     }
 }

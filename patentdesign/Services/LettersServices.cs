@@ -1090,39 +1090,59 @@ public class LettersServices
         return ReturnDocument(bytes);
     }
 
-    public async Task<Dictionary<string,object>> NewApplicationAcknowledgement(Filling file, Receipt receipt, string applicationId)
+    public async Task<Dictionary<string, object>> NewApplicationAcknowledgement(Filling file, Receipt receipt, string applicationId)
     {
-        try
-        {
-            byte[] data = [];
-            if (file.Type is FileTypes.Design)
-            {
-                List<byte[]> images = [];
+        if (file == null)
+            throw new ArgumentNullException(nameof(file));
+        if (receipt == null)
+            throw new ArgumentNullException(nameof(receipt));
 
-                foreach (var url in file.Attachments.FirstOrDefault(x => x.name == "designs").url)
+        byte[] data = [];
+        if (file.Type is FileTypes.Design)
+        {
+            List<byte[]> images = [];
+            var designAttachment = file.Attachments?.FirstOrDefault(x => x.name == "designs");
+            var filingDateText = receipt.Date;
+            if (designAttachment?.url != null)
+            {
+                // Only load valid design image URLs; skip missing or placeholder values.
+                foreach (var url in designAttachment.url)
                 {
-                    
-                    if (!string.IsNullOrWhiteSpace(url) && !url.Equals("NULL", StringComparison.OrdinalIgnoreCase))
+                    if (string.IsNullOrWhiteSpace(url) || url.Equals("NULL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    try
                     {
                         var imgBytes = await (new HttpClient()).GetByteArrayAsync(url);
-                        if (imgBytes != null && imgBytes.Length > 0)
+                        if (imgBytes?.Length > 0)
                         {
                             images.Add(imgBytes);
                         }
                     }
+                    catch (HttpRequestException)
+                    {
+                        // Ignore invalid image endpoints so generation can continue.
+                    }
                 }
-                data = new AcknowledgementModelDesign(file, "uri", images, receipt.Date).GeneratePdf();
             }
-            if (file.Type is FileTypes.TradeMark)
+
+            data = new AcknowledgementModelDesign(file, "uri", images, filingDateText).GeneratePdf();
+        }
+        if (file.Type is FileTypes.TradeMark)
+        {
+            byte[] images = [];
+            var representation = file.Attachments?.FirstOrDefault(e => e.name == "representation");
+            if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
+                representation?.url != null && representation.url.Count > 0)
             {
-                byte[] images = [];
-                var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
-                if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) && 
-                    representation != null && representation.url[0] != "NULL")
+                var logoUrl = representation.url[0];
+                if (!string.IsNullOrWhiteSpace(logoUrl) && !logoUrl.Equals("NULL", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        images = await (new HttpClient()).GetByteArrayAsync(representation.url[0]);
+                        images = await (new HttpClient()).GetByteArrayAsync(logoUrl);
                     }
                     catch (HttpRequestException)
                     {
@@ -1130,19 +1150,15 @@ public class LettersServices
                         images = [];
                     }
                 }
-                data = new AcknowledgementModelTrademark(file, "uri", images, receipt).GeneratePdf();
             }
-            if (file.Type is FileTypes.Patent)
-            {
-                data = new AcknowledgementModelPatent(file, "uri").GeneratePdf();
-            }
-            return ReturnDocument(data);
+            data = new AcknowledgementModelTrademark(file, "uri", images, receipt).GeneratePdf();
         }
-        catch(Exception ex)
+        if (file.Type is FileTypes.Patent)
         {
-            throw ex;
+            data = new AcknowledgementModelPatent(file, "uri").GeneratePdf();
         }
-       
+
+        return ReturnDocument(data);
     }
 
     public async Task<Dictionary<string, object>> NewApplicationAcceptance(Filling fileData)
@@ -1163,13 +1179,37 @@ public class LettersServices
         }
         if (fileData.Type is FileTypes.Design)
         {
-            foreach (var url in fileData.Attachments.FirstOrDefault(x => x.name == "designs").url)
+            var designAttachment = fileData.Attachments?
+                .FirstOrDefault(x => x.name == "designs" && x.url != null);
+
+            if (designAttachment?.url != null)
             {
-                images.Add(await (new HttpClient()).GetByteArrayAsync(url));
+                foreach (var url in designAttachment.url)
+                {
+                    if (string.IsNullOrWhiteSpace(url) || url.Equals("NULL", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    try
+                    {
+                        var imgBytes = await (new HttpClient()).GetByteArrayAsync(url);
+                        if (imgBytes?.Length > 0)
+                        {
+                            images.Add(imgBytes);
+                        }
+                    }
+                    catch (HttpRequestException)
+                    {
+                        // Skip invalid image URLs so the letter can still be generated.
+                    }
+                }
             }
-            data =
-                new AcceptanceModelDesign(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", sigdata, images, examinerName).GeneratePdf();
-            // new AcceptanceModelDesign(tradeData, "uri", sigdata, images, "ILoduba C.O").GeneratePdf();
+
+            data = new AcceptanceModelDesign(
+                fileData,
+                $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}",
+                sigdata,
+                images,
+                examinerName).GeneratePdf();
         }
         if (fileData.Type is FileTypes.Patent)
         {
