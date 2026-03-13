@@ -64,11 +64,15 @@ stages:
               JWT_KEY                   = "$(JWT_KEY)"
           }
 
+          Write-Host "Clearing existing environment variables for App Pool: $appPool"
+          Clear-WebConfiguration -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" -PSPath "IIS:\" -ErrorAction SilentlyContinue
+
           Write-Host "Injecting environment variables into App Pool: $appPool"
           foreach ($name in $envVars.Keys) {
-              # Set or update each env variable in the app pool
-              $current = Get-ItemProperty "IIS:\AppPools\$appPool" -Name environmentVariables -ErrorAction SilentlyContinue
-              Set-ItemProperty "IIS:\AppPools\$appPool" -Name environmentVariables -Value @{$name=$envVars[$name]}
+              Add-WebConfigurationProperty -PSPath "IIS:\" `
+                  -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
+                  -Name "." `
+                  -Value @{name=$name; value=$envVars[$name]}
               Write-Host " - $name set"
           }
 
