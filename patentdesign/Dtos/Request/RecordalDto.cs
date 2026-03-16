@@ -127,4 +127,12 @@ namespace patentdesign.Dtos.Request
         public string? AssigneeNationality { get; set; }
         public string? userId { get; set; }
     }
+
+    public class ReclassificationDto
+    {
+        public string? FileNumber { get; set; }
+        public int? NewClass { get; set; }
+        public string? UserId { get; set; }
+        public string? PaymentId { get; set; }
+    }
 }

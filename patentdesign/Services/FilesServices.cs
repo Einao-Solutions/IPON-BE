@@ -4468,7 +4468,7 @@ public class FileServices
             var applicant = fileInfo.applicants[0];
 
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Recordal Application",
+                data.Item1, data.Item3, data.Item2, "Trademark Merger",
                 applicant.Name, applicant.Email, applicant.Phone);
 
             var mergeCost = new RecordalDto
@@ -4488,6 +4488,175 @@ public class FileServices
             //log error
             _log.LogError(up, "Error-at-MergerCost");
             throw;
+        }
+    }
+    public async Task<RecordalDto> ReclassificationCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.Reclassification, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                throw new KeyNotFoundException("File not found");
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Reclassification of Trademark",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var reclassificationCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfTradeMark ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+
+            return reclassificationCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Reclassification-Cost");
+            throw;
+        }
+    }
+
+    public async Task<bool> TrademarkReclassification(ReclassificationDto dto)
+    {
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
+            if (file == null) throw new KeyNotFoundException("File not found");
+            var applicant = file.applicants.FirstOrDefault();
+            var user = await _userCollection
+                           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId))
+                           .FirstOrDefaultAsync()
+                       ?? await _userCollection
+                           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                           .FirstOrDefaultAsync();
+            var appHistory = new ApplicationInfo
+            {
+                id = Guid.NewGuid().ToString(),
+                ApplicationType = FormApplicationTypes.Reclassification,
+                CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                ApplicationDate = DateTime.Now,
+                PaymentId = dto.PaymentId,
+                FieldToChange = "Reclassification Application",
+                NewValue = "",
+                StatusHistory = new List<ApplicationHistory>
+                {
+                    new ApplicationHistory
+                    {
+                        Date = DateTime.Now,
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.AwaitingPayment,
+                        Message = "Reclassification application submitted",
+                        User = user.Name,
+                        UserId = user.Id
+                    }
+                }
+            };
+            var app = new PostRegistrationApp
+            {
+                Id = appHistory.id,
+                FilingDate = DateTime.Now.ToString(),
+                rrr = dto.PaymentId,
+                FileNumber = dto.FileNumber,
+                OldClass = file.TrademarkClass,
+                Class = dto.NewClass,
+                RecordalType = "Reclassification",
+                DateTreated = ""
+            };
+
+
+            var update = Builders<Filling>.Update
+                .Push(f => f.PostRegApplications, app)
+                .Push(f => f.ApplicationHistory, appHistory);
+
+
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+                update
+            );
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+    }
+    public async Task<bool> ApproveReclassification(TreatRecordalDto recordalApp)
+    {
+        try
+        {
+            var file = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
+                .FirstOrDefaultAsync();
+
+            if (file == null) return false;
+            var user = await _userCollection.Find(u => u.Id == recordalApp.userId).FirstOrDefaultAsync();
+            if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
+            // Update Post reg app
+            var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
+            if (recordal == null) return false;
+
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = recordalApp.reason;
+
+            // Update Application Status in App History
+            var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
+            if (app == null) return false;
+
+            app.CurrentStatus = ApplicationStatuses.Approved;
+
+            // Update class
+            file.TrademarkClass = recordal.Class;
+            var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
+            file.TrademarkClassDescription = descr;
+
+            var update = Builders<Filling>.Update
+                .Set(f => f.PostRegApplications, file.PostRegApplications)
+                .Set(f => f.ApplicationHistory, file.ApplicationHistory)
+                .Set(f => f.TrademarkClass, recordal.Class);
+
+
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+                update
+            );
+            var perform = new PerformanceDto
+            {
+                AfterStatus = ApplicationStatuses.Approved,
+                BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
+                ApplicationType = FormApplicationTypes.Reclassification,
+                AppUserId = recordalApp.userId,
+                Date = DateTime.Now,
+                FileNumber = recordalApp.fileId,
+                FileType = file.Type,
+                OfficeUnit = Roles.TrademarkCertification,
+                Reason = recordalApp.reason,
+            };
+
+            SavePerformance(perform);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, $"Error in ApproveReclassification: {ex.Message}");
+            Console.WriteLine(ex);
+            return false;
         }
     }
     public async Task<bool> NewMergerApplication(MergerApplicationDto mergerApp)
