@@ -91,7 +91,6 @@ namespace Tfunctions.pdfs
                 {
                     ("Filing date:",    F(history?.ApplicationDate ?? model.FilingDate ?? model.DateCreated)),
                     ("File number:",    F(model.FileId)),
-                    ("Acceptance Date:", F(acceptanceDate)),
                     ("Payment ID:",     F(history?.PaymentId))
                 });
 
@@ -162,6 +161,7 @@ namespace Tfunctions.pdfs
 
                 col.Item().Element(Header).Text("PROCESS INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                 FullWidthBox(col, "Examiners Name:", F(examinerName));
+                FullWidthBox(col, "Acceptance Date:", F(acceptanceDate));
 
                 if (images.Count > 0)
                 {
