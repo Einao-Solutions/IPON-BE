@@ -102,6 +102,16 @@ namespace patentdesign
                 col.Item().Element(Header).Text("DESIGN CREATORS").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                 RenderDesignCreators(col);
 
+                col.Item().Element(Header).Text("DESIGN REPRESENTATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                if (images.Count > 0)
+                {
+                    RenderDesignImages(col);
+                }
+                else
+                {
+                    FullWidthBox(col, "Design Representation(s):", "Not Attached");
+                }
+
                 //col.Item().Element(Header).Text("DOCUMENTS ATTACHED").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                 //RenderAttachmentStatus(col, "Priority Document", HasAttachment("pdoc"));
                 //RenderAttachmentStatus(col, "Novelty Statement", HasAttachment("nov"));
@@ -127,16 +137,23 @@ namespace patentdesign
                     ("Priority Document", "pdoc", "PD"),
                     ("Power of Attorney", "form2", "POA"),
                     ("Novelty Statement", "nov", "NOV"),
-                    ("Design Representation(s)", "designs", "DES"),
                     ("Claims & Specifications", "cs", "CS"),
                     ("Other Attachments", "any", "OTH")
                 };
 
                 var attachmentRows = attachmentDefinitions
-                    .Select(def => ($"{def.Label}:", HasAttachment(def.Key) ? def.Acronym : "Nil"))
+                    .Where(def => HasAttachment(def.Key))
+                    .Select(def => ($"{def.Label}:", def.Acronym))
                     .ToArray();
 
-                TwoColumnSection(col, "ATTACHMENTS", attachmentRows);
+                if (attachmentRows.Length > 0)
+                {
+                    TwoColumnSection(col, "ATTACHMENTS", attachmentRows);
+                }
+                else
+                {
+                    FullWidthBox(col, "ATTACHMENTS", "No supporting documents uploaded.");
+                }
 
                 col.Item().AlignCenter().PaddingTop(30).Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
                     .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Green.Darken2);
