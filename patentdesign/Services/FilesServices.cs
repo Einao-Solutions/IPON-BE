@@ -40,6 +40,7 @@ using static QRCoder.PayloadGenerator.ShadowSocksConfig;
 using static System.Net.Mime.MediaTypeNames;
 using static System.Net.WebRequestMethods;
 using static System.Runtime.InteropServices.JavaScript.JSType;
+using File = System.IO.File;
 
 namespace patentdesign.Services;
 
@@ -6050,6 +6051,7 @@ public class FileServices
                         PaymentRRR = paymentId,
                         FileStatus = fileInfo.FileStatus,
                         FileId = dto.FileNumber,
+                        FileTitle = fileInfo.TitleOfInvention,
                         FileType = fileInfo.Type,
                         UpdateType = dto.UpdateType,
                         PatentType = fileInfo.PatentType,
@@ -6059,6 +6061,11 @@ public class FileServices
                         ServiceFee = data.Item3,
                         Applicants = fileInfo.applicants,
                         Inventors = fileInfo.Inventors,
+                        ApplicantName = applicant.Name,
+                        ApplicantEmail = applicant.Email,
+                        ApplicantNationality = applicant.country,
+                        ApplicantPhone = applicant.Phone,
+                        ApplicantAddress = applicant.Address,
                         CorrespondenceName = fileInfo.Correspondence?.name,
                         CorrespondenceAddress = fileInfo.Correspondence?.address,
                         CorrespondenceEmail = fileInfo.Correspondence?.email,
@@ -6228,25 +6235,26 @@ public class FileServices
         {
             case ClericalUpdateTypes.ApplicantName:
                 clerical.OldApplicantNames = file.applicants.Select(a => a.Name).ToList();
-                clerical.NewApplicantNames = isPatent ? updateData.ApplicantNames : new List<string> { updateData.ApplicantName };
+                clerical.NewApplicantNames = new List<string> { updateData.ApplicantName };
                 break;
 
             case ClericalUpdateTypes.ApplicantAddress:
                 clerical.OldApplicantAddresses = file.applicants.Select(a => a.Address).ToList();
-                clerical.NewApplicantAddresses = isPatent ? updateData.ApplicantAddresses : new List<string> { updateData.ApplicantAddress };
+                clerical.NewApplicantAddresses = new List<string> { updateData.ApplicantAddress };
 
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantEmail))
                 {
                     clerical.OldApplicantEmails = file.applicants.Select(a => a.Email).ToList();
-                    clerical.NewApplicantEmails = isPatent ? updateData.ApplicantEmails : new List<string> { updateData.ApplicantEmail };
+                    clerical.NewApplicantEmails = new List<string> { updateData.ApplicantEmail };
                 }
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantPhone))
                 {
                     clerical.OldApplicantPhones = file.applicants.Select(a => a.Phone).ToList();
-                    clerical.NewApplicantPhones = isPatent ? updateData.ApplicantPhones : new List<string> { updateData.ApplicantPhone };
+                    clerical.NewApplicantPhones = new List<string> { updateData.ApplicantPhone };
                 }
 
                 break;
+
             case ClericalUpdateTypes.TrademarkType:
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
                 {
@@ -6263,8 +6271,13 @@ public class FileServices
             case ClericalUpdateTypes.FileClass:
                 clerical.OldFileClass = file.TrademarkClass?.ToString();
                 clerical.NewFileClass = updateData.FileClass?.ToString();
-                clerical.OldClassDescription = file.TrademarkClassDescription;
-                clerical.NewClassDescription = updateData.ClassDescription;
+                if (updateData.FileClass != null)
+                {
+                    var newDescription = FileUtils.TrademarkClassMapper.GetDescription(updateData.FileClass.Value);
+                    var oldDescription = FileUtils.TrademarkClassMapper.GetDescription(file.TrademarkClass.Value);
+                    clerical.OldClassDescription = oldDescription;
+                    clerical.NewClassDescription = newDescription;
+                }
                 break;
 
             case ClericalUpdateTypes.CorrespondenceInformation:
@@ -6423,8 +6436,79 @@ public class FileServices
                 break;
 
             case ClericalUpdateTypes.EditInventors:
-                clerical.OldInventorNames = file.Inventors?.Select(i => i.Name).ToList();
-                clerical.NewInventorNames = updateData.NewInventors?.Select(i => i.Name).ToList();
+                clerical.OldInventors = file.Inventors?.Select(i => new ApplicantInfo
+                {
+                    id = i.id,
+                    Name = i.Name,
+                    Address = i.Address,
+                    Email = i.Email,
+                    Phone = i.Phone,
+                    country = i.country,
+                    State = i.State,
+                    city = i.city
+                }).ToList();
+
+                // Build new inventors list by merging changes
+                var updatedInventors = file.Inventors?.ToList() ?? new List<ApplicantInfo>();
+
+                if (updateData.NewInventors?.Any() == true)
+                {
+                    foreach (var newInventor in updateData.NewInventors)
+                    {
+                        var existingInventor = updatedInventors.FirstOrDefault(i => i.id == newInventor.id);
+
+                        if (existingInventor != null)
+                        {
+                            // Update only the fields that are provided (not null/empty)
+                            if (!string.IsNullOrWhiteSpace(newInventor.Name))
+                                existingInventor.Name = newInventor.Name;
+                            if (!string.IsNullOrWhiteSpace(newInventor.Address))
+                                existingInventor.Address = newInventor.Address;
+                            if (!string.IsNullOrWhiteSpace(newInventor.Email))
+                                existingInventor.Email = newInventor.Email;
+                            if (!string.IsNullOrWhiteSpace(newInventor.Phone))
+                                existingInventor.Phone = newInventor.Phone;
+                            if (!string.IsNullOrWhiteSpace(newInventor.country))
+                                existingInventor.country = newInventor.country;
+                            if (!string.IsNullOrWhiteSpace(newInventor.State))
+                                existingInventor.State = newInventor.State;
+                            if (!string.IsNullOrWhiteSpace(newInventor.city))
+                                existingInventor.city = newInventor.city;
+                        }
+                        else
+                        {
+                            // New inventor - add to list with generated ID if missing
+                            newInventor.id ??= Guid.NewGuid().ToString();
+                            updatedInventors.Add(newInventor);
+                        }
+                    }
+                }
+
+                // Handle removals if specified
+                if (updateData.RemoveInventorIds?.Any() == true)
+                {
+                    updatedInventors.RemoveAll(i => updateData.RemoveInventorIds.Contains(i.id));
+                }
+
+                clerical.NewInventors = updatedInventors;
+                clerical.NewInventorNames = updatedInventors.Select(i => i.Name).ToList();
+                clerical.NewInventorAddresses = updatedInventors.Select(i => i.Address).ToList();
+                clerical.NewInventorEmails = updatedInventors.Select(i => i.Email).ToList();
+                clerical.NewInventorPhones = updatedInventors.Select(i => i.Phone).ToList();
+                clerical.NewInventorNationalities = updatedInventors.Select(i => i.country).ToList();
+                clerical.NewInventorStates = updatedInventors.Select(i => i.State).ToList();
+                clerical.NewInventorCities = updatedInventors.Select(i => i.city).ToList();
+
+                if (file.Inventors?.Any() == true)
+                {
+                    clerical.OldInventorNames = file.Inventors.Select(i => i.Name).ToList();
+                    clerical.OldInventorAddresses = file.Inventors.Select(i => i.Address).ToList();
+                    clerical.OldInventorEmails = file.Inventors.Select(i => i.Email).ToList();
+                    clerical.OldInventorPhones = file.Inventors.Select(i => i.Phone).ToList();
+                    clerical.OldInventorNationalities = file.Inventors.Select(i => i.country).ToList();
+                    clerical.OldInventorStates = file.Inventors.Select(i => i.State).ToList();
+                    clerical.OldInventorCities = file.Inventors.Select(i => i.city).ToList();
+                }
                 break;
 
             case ClericalUpdateTypes.PriorityInfo:
@@ -6555,6 +6639,12 @@ public class FileServices
                     if (clerical.NewDesignCreators?.Any() == true)
                     {
                         updates.Add(Builders<Filling>.Update.Set(f => f.DesignCreators, clerical.NewDesignCreators));
+                    }
+                    break;
+                case "EditInventors":
+                    if (clerical.NewInventors?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.Inventors, clerical.NewInventors));
                     }
                     break;
                 case "DesignInformation":

@@ -319,6 +319,7 @@ public record ClericalUpdate
     public DesignTypes? NewDesignType { get; set; }
     public List<ApplicantInfo>? OldDesignCreators { get; set; }
     public List<ApplicantInfo>? NewDesignCreators { get; set; }
+    public List<ApplicantInfo>? OldInventors { get; set; }
     public List<string>? OldDesignCreatorNames { get; set; }
     public List<string>? NewDesignCreatorNames { get; set; }
     public List<string>? OldDesignCreatorPhones { get; set; }
@@ -822,7 +823,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy,
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification
 }
 public enum ApplicationLetters
 {
@@ -988,7 +989,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger,
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, Reclassification
 }
 
 
