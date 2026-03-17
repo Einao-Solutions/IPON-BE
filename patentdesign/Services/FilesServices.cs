@@ -6276,6 +6276,7 @@ public class FileServices
                 throw new KeyNotFoundException("File Not Found");
 
             var user = await _userCollection.Find(u => u.Id == updateData.UserId).FirstOrDefaultAsync();
+            if (user is null) throw new KeyNotFoundException("User not found");
 
             // Check if this exact clerical update already exists (idempotency)
             var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
@@ -6681,8 +6682,17 @@ public class FileServices
                 break;
 
             case ClericalUpdateTypes.PriorityInfo:
-                clerical.OldPriorityInfo = file.PriorityInfo;
-                clerical.NewPriorityInfo = updateData.PriorityInfo;
+                if (updateData.PriorityInfo is not null)
+                {
+                    clerical.OldPriorityInfo = file.PriorityInfo;
+                    clerical.NewPriorityInfo = updateData.PriorityInfo;
+                }
+                if (updateData.FirstPriorityInfo is not null)
+                {
+                    clerical.OldFirstPriorityInfo = file.FirstPriorityInfo;
+                    clerical.NewFirstPriorityInfo = updateData.FirstPriorityInfo;
+                }
+                
                 break;
 
             case ClericalUpdateTypes.DesignAttachments:
@@ -6968,7 +6978,16 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
                     }
                     break;
-
+                case "PriorityInfo":
+                    if (clerical.NewFirstPriorityInfo?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.FirstPriorityInfo, clerical.NewFirstPriorityInfo));
+                    }
+                    if (clerical.NewPriorityInfo?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.PriorityInfo, clerical.NewPriorityInfo));
+                    }
+                    break;
             }
 
             if (!updates.Any())
