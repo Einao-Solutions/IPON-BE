@@ -82,7 +82,8 @@ builder.Services.AddCors(options =>
             .WithOrigins(
                 "https://portal.iponigeria.com",
                 "http://localhost:5173",
-                "https://link.einaotest.com"
+                "https://link.einaotest.com",
+                "https://iponigeria.einaotest.com"
             )
             .AllowAnyHeader()
             .AllowAnyMethod()
