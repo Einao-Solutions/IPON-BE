@@ -57,7 +57,7 @@ stages:
         script: |
           Import-Module WebAdministration
 
-          $appPool = "IPONigeriaBackend"
+          $appPool = "integration.iponigeria.com"
 
           $envVars = @{
               MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
