@@ -84,21 +84,60 @@ stages:
         script: |
           Import-Module WebAdministration
 
-          $appPool = "IPONigeriaBackend"
+          $appPool = "integration.iponigeria.com"   # ← must match step 1
           $source = "$(Pipeline.Workspace)\backend\*"
           $destination = "C:\inetpub\vhosts\iponigeria.com\integration.iponigeria.com"
 
+          # --- Stop the App Pool ---
           Write-Host "Stopping App Pool: $appPool"
           if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
               Stop-WebAppPool -Name $appPool
           }
 
+          # --- Wait for worker processes to fully exit ---
+          $maxWait = 30  # seconds
+          $elapsed = 0
+          while ($elapsed -lt $maxWait) {
+              $workers = Get-ChildItem "IIS:\AppPools\$appPool\WorkerProcesses" -ErrorAction SilentlyContinue
+              if (-not $workers -or $workers.Count -eq 0) {
+                  Write-Host "Worker processes exited after $elapsed seconds."
+                  break
+              }
+              Write-Host "Waiting for worker processes to exit... ($elapsed s)"
+              Start-Sleep -Seconds 2
+              $elapsed += 2
+          }
+
+          # --- Kill any remaining w3wp processes for this pool ---
+          if ($elapsed -ge $maxWait) {
+              Write-Host "Force-killing remaining worker processes."
+              $workers = Get-ChildItem "IIS:\AppPools\$appPool\WorkerProcesses" -ErrorAction SilentlyContinue
+              foreach ($w in $workers) {
+                  Stop-Process -Id $w.processId -Force -ErrorAction SilentlyContinue
+              }
+              Start-Sleep -Seconds 2
+          }
+
+          # --- Remove old files ---
           Write-Host "Removing old files in $destination"
           Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
 
-          Write-Host "Copying new build from $source to $destination"
-          Copy-Item -Path $source -Destination $destination -Recurse -Force
+          # --- Copy with retry ---
+          $retries = 3
+          for ($i = 1; $i -le $retries; $i++) {
+              try {
+                  Write-Host "Copying new build (attempt $i of $retries)..."
+                  Copy-Item -Path $source -Destination $destination -Recurse -Force -ErrorAction Stop
+                  Write-Host "Copy succeeded."
+                  break
+              } catch {
+                  Write-Host "Copy failed: $_"
+                  if ($i -eq $retries) { throw }
+                  Start-Sleep -Seconds 5
+              }
+          }
 
+          # --- Start the App Pool ---
           Write-Host "Starting App Pool: $appPool"
           if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
               Start-WebAppPool -Name $appPool
