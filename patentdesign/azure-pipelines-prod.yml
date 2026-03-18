@@ -86,7 +86,7 @@ stages:
 
           $appPool = "IPONigeriaBackend"
           $source = "$(Pipeline.Workspace)\backend\*"
-          $destination = "C:\inetpub\wwwroot\IPO Nigeria Backend"
+          $destination = "C:\inetpub\vhosts\iponigeria.com\integration.iponigeria.com"
 
           Write-Host "Stopping App Pool: $appPool"
           if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
