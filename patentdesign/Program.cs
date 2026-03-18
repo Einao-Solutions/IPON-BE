@@ -110,7 +110,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 // ------------------ QuestPDF ------------------
 QuestPDF.Settings.License = LicenseType.Community;
-using var fontStream = File.OpenRead("assets/Certificate.otf");
+var fontPath = Path.Combine(AppContext.BaseDirectory, "assets", "Certificate.otf");
+using var fontStream = File.OpenRead(fontPath);
 FontManager.RegisterFont(fontStream);
 
 // ------------------ Mongo Client ------------------
