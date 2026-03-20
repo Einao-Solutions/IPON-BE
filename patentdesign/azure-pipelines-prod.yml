@@ -84,7 +84,7 @@ stages:
         script: |
           Import-Module WebAdministration
 
-          $appPool = "integration.iponigeria.com"   # ← must match step 1
+          $appPool = "integration.iponigeria.com(domain)(pool)"   # ← must match step 1
           $source = "$(Pipeline.Workspace)\backend\*"
           $destination = "C:\inetpub\vhosts\iponigeria.com\integration.iponigeria.com"
 
