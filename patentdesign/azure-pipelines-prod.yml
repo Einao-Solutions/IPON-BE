@@ -57,26 +57,30 @@ stages:
         fileType: 'json'
         targetFiles: '**/appsettings.Production.json'
 
-    # ---------------------- 2️⃣ Set ASPNETCORE_ENVIRONMENT for this App Pool ----------------------
+    # ---------------------- 2️⃣ Set ASPNETCORE_ENVIRONMENT=Production for this App Pool ----------------------
     - task: PowerShell@2
       displayName: 'Set ASPNETCORE_ENVIRONMENT=Production for App Pool'
       inputs:
         targetType: 'inline'
         script: |
           Import-Module WebAdministration
+
           $appPool = "integration.iponigeria.com(domain)(4.0)(pool)"
 
-          $exists = Get-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables/add[@name='ASPNETCORE_ENVIRONMENT']" -PSPath "IIS:\" -ErrorAction SilentlyContinue
+          # Get the environment variable collection
+          $envVars = Get-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" -PSPath "IIS:\" -Name "Collection"
 
-          if (-not $exists) {
-              Add-WebConfigurationProperty -PSPath "IIS:\" `
-                  -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
-                  -Name "." `
-                  -Value @{name="ASPNETCORE_ENVIRONMENT"; value="Production"}
+          # Check if ASPNETCORE_ENVIRONMENT exists
+          $existingVar = $envVars | Where-Object { $_.Name -eq "ASPNETCORE_ENVIRONMENT" }
+
+          if ($existingVar) {
+              # Update its value
+              Set-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables/add[@name='ASPNETCORE_ENVIRONMENT']" `
+                  -PSPath "IIS:\" -Name "value" -Value "Production"
           } else {
-              Set-WebConfigurationProperty -PSPath "IIS:\" `
-                  -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables/add[@name='ASPNETCORE_ENVIRONMENT']" `
-                  -Name "value" -Value "Production"
+              # Add it
+              Add-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
+                  -PSPath "IIS:\" -Name "." -Value @{name="ASPNETCORE_ENVIRONMENT"; value="Production"}
           }
 
           Write-Host "ASPNETCORE_ENVIRONMENT set to Production for $appPool"
@@ -91,7 +95,7 @@ stages:
 
           $appPool = "integration.iponigeria.com(domain)(4.0)(pool)"
           $source = "$(Pipeline.Workspace)\backend\*"
-          $destination = "C:\inetpub\vhosts\iponigeria.com\integration.iponigeria.com"  # ← keep exactly as-is
+          $destination = "C:\inetpub\vhosts\iponigeria.com\integration.iponigeria.com"
 
           # Stop the App Pool
           Write-Host "Stopping App Pool: $appPool"
