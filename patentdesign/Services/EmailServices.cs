@@ -1,9 +1,12 @@
 using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Options;
 using MimeKit;
+using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Utils;
-using MailKit.Security;
+using static QRCoder.PayloadGenerator;
 
 namespace patentdesign.Services;
 
@@ -16,13 +19,25 @@ public class EmailServices
         _settings = settings.Value;
     }
 
-    public async Task <bool>NotifyApplicantMail(OppositionEmailDto email)
+    public async Task <bool>SendMail(EmailDto dto)
     {
-        string body = PopulateOppositionMail(email);
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
-        message.To.Add(new MailboxAddress("",email.To));
-        message.Subject = email.Subject;
+        message.To.Add(new MailboxAddress("",dto.To));
+        message.Subject = dto.Subject;
+        string body = "";
+        switch (dto.EmailType)
+        { 
+            case EmailType.Opposition:
+                body = PopulateOppositionMail(dto.OppositionMail);
+                break;
+            case EmailType.ResetPassword:
+                body = ResetPasswordMail(dto.ResetPasswordMail);
+                break;
+            case EmailType.StatusUpdate:
+                break;
+        }
+
         var builder = new BodyBuilder();
         builder.HtmlBody = body;
         message.Body = builder.ToMessageBody();
@@ -78,7 +93,7 @@ public class EmailServices
         
     }
 
-    private string PopulateOppositionMail(OppositionEmailDto dto)
+    private string PopulateOppositionMail(OppositionMail dto)
     {
         string body = string.Empty;
         string filePath = Directory.GetCurrentDirectory() + @"\Templates\OppositionNotification.html";
@@ -94,6 +109,19 @@ public class EmailServices
         body = body.Replace("{OppositionDate}", dto.OppositionDate);
         body = body.Replace("{SignatoryName}", dto.SignatoryName);
 
+        return body;
+    }
+
+    private string ResetPasswordMail(ResetPasswordMail dto)
+    {
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\ResetPassword.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+
+        body = body.Replace("{ResetLink}", dto.ResetLink);
         return body;
     }
 }

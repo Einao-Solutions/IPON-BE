@@ -13,6 +13,7 @@ using patentdesign.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Authentication;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -338,26 +339,60 @@ namespace patentdesign.Services
                 throw;
             }
         }
+        public async Task<bool> RequestPasswordReset(string email)
+        {
+            var user = await _users.Find(u => u.Email == email).FirstOrDefaultAsync();
+            if (user == null)
+                return false;
+
+            // Generate secure token
+            var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.PasswordResetToken, token)
+                .Set(u => u.PasswordResetTokenExpiry, DateTime.UtcNow.AddHours(1));
+
+            await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+
+            // Build reset link
+            var resetLink = $"https://portal.iponigeria.com/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
+
+            var mail = new EmailDto
+            {
+                EmailType = EmailType.ResetPassword,
+                ResetPasswordMail =
+                {
+                    ResetLink = resetLink,
+                    UserName = user.Name,
+                },
+                To = email,
+                Subject = "Password Reset"
+            }
+            Console.WriteLine($"Reset Link: {resetLink}");
+
+            return true;
+        }
         public async Task<bool> ResetPassword(ResetPasswordDto dto)
         {
-            try
-            {
-                var user = await _users.Find(u => u.Email == dto.Email).FirstOrDefaultAsync();
-                if (user == null)
-                    return false;
-                // Here you would typically generate a reset token and send it via email.
-                if (user == null)
-                    return false;
-                var hashedPassword = BCrypt.Net.BCrypt.HashPassword("Ipo@1234");
-                var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, hashedPassword);
-                var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
-                return result.ModifiedCount > 0;
-                return true;
-            }
-            catch (Exception)
-            {
-                throw;
-            }
+            var user = await _users.Find(u =>
+                u.Email == dto.Email &&
+                u.PasswordResetToken == dto.Token &&
+                u.PasswordResetTokenExpiry > DateTime.UtcNow
+            ).FirstOrDefaultAsync();
+
+            if (user == null)
+                return false;
+
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.PasswordHash, hashedPassword)
+                .Unset(u => u.PasswordResetToken)
+                .Unset(u => u.PasswordResetTokenExpiry);
+
+            var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+
+            return result.ModifiedCount > 0;
         }
         public async Task<bool> UpdateUserProfile(ProfileDto dto)
         {

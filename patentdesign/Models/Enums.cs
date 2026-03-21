@@ -91,4 +91,8 @@
         TrademarkType
     }
 
+    public enum EmailType
+    {
+        ResetPassword, Opposition, StatusUpdate
+    }
 }
