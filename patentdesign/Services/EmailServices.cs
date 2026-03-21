@@ -36,6 +36,9 @@ public class EmailServices
                 break;
             case EmailType.StatusUpdate:
                 break;
+            case EmailType.Announcement:
+                body = dto.Body;
+                break;
         }
 
         var builder = new BodyBuilder();
@@ -124,4 +127,5 @@ public class EmailServices
         body = body.Replace("{ResetLink}", dto.ResetLink);
         return body;
     }
+    
 }
