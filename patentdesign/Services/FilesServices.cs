@@ -103,11 +103,12 @@ public class FileServices
     {
         try
         {
+            _log.LogDebug("Fetching file by Id {FileId}", id);
             return await _fillingCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Error-at-GetSingleFile");
+            _log.LogError(ex, "Error fetching file {FileId}", id);
             throw;
         }
     }
@@ -116,44 +117,44 @@ public class FileServices
     public async Task CreateFileAsync(Filling newFile)
     {
         newFile.FileId = string.Join("/", [newFile.FileId, Guid.NewGuid().ToString().Split("-")[0]]);
+        _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
     }
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
     {
+        _log.LogInformation("ManualUpdate started for FileId {FileId}, AppId {AppId}, IsCertificate {IsCert}",
+            fileId, applicationId, isCertificate);
+
         var file = await _fillingCollection.Find(d => d.FileId == fileId).FirstOrDefaultAsync()
-            ?? throw new KeyNotFoundException("File not found.");
+                   ?? throw new KeyNotFoundException("File not found.");
 
         var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId)
-            ?? throw new KeyNotFoundException("Application not found.");
+                          ?? throw new KeyNotFoundException("Application not found.");
 
-        // Handle certificate-only path
         if (isCertificate == true)
         {
-            //return await HandleCertificateValidation(file, application, userName, userId);
-            Console.WriteLine("Updating certificate app...");
+            _log.LogDebug("Updating certificate application for FileId {FileId}", fileId);
             var update = await UpdateCertificatePaymentStatus(fileId, application.PaymentId);
             if (update) return file;
         }
 
-        // Validate and get payment info
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
         var paymentDate = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
 
-        // Initialize status history
         application.StatusHistory ??= new List<ApplicationHistory>();
 
-        // Process application based on type
         await ProcessApplicationType(file, application, paymentDate, userName, userId);
 
-        // Update file in database
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
 
+        _log.LogInformation("ManualUpdate completed for FileId {FileId}", fileId);
         return file;
     }
     private async void SavePayment(RemitaResponseClass pay, PaymentTypes type, string fileId, string appId)
     {
+        _log.LogDebug("Saving payment record for FileId {FileId}, AppId {AppId}, Type {PaymentType}", fileId, appId, type);
         var paymentDate = DateTime.TryParse(pay.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
         var payment = new PaymentRecord
         {
@@ -172,6 +173,7 @@ public class FileServices
         if (string.IsNullOrWhiteSpace(certRrr))
             throw new ArgumentException("Certificate payment reference not found.");
 
+        _log.LogDebug("Validating certificate payment RRR {Rrr} for FileId {FileId}", certRrr, file.Id);
         var certRes = await ValidateCertificatePayment(file.Id, certRrr, userName, userId);
         return certRes.data;
     }
@@ -181,8 +183,10 @@ public class FileServices
         if (string.IsNullOrWhiteSpace(application.PaymentId))
             throw new Exception("Payment reference not found for the application.");
 
+        _log.LogDebug("Validating payment for RRR {Rrr}", application.PaymentId);
         var paymentInfo = await _paymentService.CheckPayment(application.PaymentId);
-        Console.WriteLine("payment info: ", paymentInfo);
+        _log.LogDebug("Payment status for RRR {Rrr}: {Status}", application.PaymentId, paymentInfo?.status);
+
         if (paymentInfo == null || paymentInfo.status != "00")
             throw new InvalidOperationException($"Payment Not Found or Invalid RRR, {application.PaymentId}");
 
@@ -229,11 +233,11 @@ public class FileServices
 
     private async Task ProcessNewApplication(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
-        Console.WriteLine($"Processing new application...{file.FileId}");
+        _log.LogInformation("Processing new application for FileId {FileId}", file.FileId);
         file.FileStatus = ApplicationStatuses.AwaitingSearch;
         file.FileId = await GenerateNewFileId(file);
 
-        Console.WriteLine($"Generated new file ID: {file.FileId}");
+        _log.LogInformation("Generated new file ID {FileId} for {FileType}", file.FileId, file.Type);
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
             paymentDate, userName, userId, "Payment Successful, awaiting search");
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
@@ -400,17 +404,17 @@ public class FileServices
 
     private async Task<string> GenerateNewFileId(Filling file)
     {
-        Console.WriteLine("Generating new file number...");
+        _log.LogDebug("Generating new file number for {FileType}", file.Type);
         var segments = (file.FileId ?? string.Empty).Split('/');
         var max = Math.Max(segments.Length - 1, 0);
 
         var counter = await _countersCollection
-            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-            .FirstOrDefaultAsync()
-            ?? throw new Exception("Counter not found for file type.");
+                          .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
+                          .FirstOrDefaultAsync()
+                      ?? throw new Exception("Counter not found for file type.");
 
         var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-        Console.WriteLine($"Generated new file number: {newId}");
+        _log.LogInformation("Generated file number {NewFileId} for {FileType}", newId, file.Type);
         var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
         await _countersCollection.FindOneAndUpdateAsync(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
@@ -1017,6 +1021,9 @@ public class FileServices
 
     public async Task<Filling?> UpdateApplicationStatus(UpdateDataType data)
     {
+        _log.LogInformation("UpdateApplicationStatus started for FileId {FileId}, AppId {AppId}, {Before} → {After}",
+            data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
+
         RemitaResponseClass? remi = null;
         bool paymentSuccessful = false;
         if (data.simulate == false)
@@ -1030,16 +1037,22 @@ public class FileServices
                     or FormApplicationTypes.LicenseRenewal
                 })
             {
+                _log.LogDebug("Checking payment status for RRR {Rrr}", data.paymentId);
                 var response = (await CheckStatusViaOrderId(data.paymentId));
                 status = response.Item1;
                 remi = response.Item2;
                 if (status)
                 {
                     paymentSuccessful = true;
+                    _log.LogDebug("Payment confirmed for RRR {Rrr}", data.paymentId);
                 }
             }
 
-            if (!status) return null;
+            if (!status)
+            {
+                _log.LogWarning("Payment validation failed for FileId {FileId}, RRR {Rrr}", data.fileId, data.paymentId);
+                return null;
+            }
         }
         var newStatusHistory = new ApplicationHistory()
         {
@@ -1076,6 +1089,7 @@ public class FileServices
             if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
             {
                 var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.NewApplication);
+                _log.LogDebug("Calculated expiry date {ExpiryDate} for FileId {FileId}", nextDate, data.fileId);
 
                 if (data.applicationType == FormApplicationTypes.NewApplication)
                 {
@@ -1092,6 +1106,7 @@ public class FileServices
                     if (data.FileType is FileTypes.TradeMark)
                     {
                         var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
+                        _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
                         operations.Add(Builders<Filling>.Update.AddToSetEach(
                             "ApplicationHistory.$.ApplicationLetters",
                             [
@@ -1120,6 +1135,7 @@ public class FileServices
             }
             if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
             {
+                _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
                 var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1)
                     .ToListAsync()).First();
                 operations.Add(Builders<Filling>.Update.Push(
@@ -1180,13 +1196,17 @@ public class FileServices
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
         var result = await _fillingCollection.FindOneAndUpdateAsync(filter, Builders<Filling>.Update.Combine(operations), options);
         SavePerformance(perf);
+        _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, NewStatus {Status}",
+            data.fileId, data.AfterStatus);
         return result;
     }
 
     public async Task<PaginatedResponse> GetPaginatedSummaryAsync(int startingIndex, int quantity, SummaryRequestObj filter)
     {
-        Console.WriteLine("index: " + startingIndex + " quantity: " + quantity);
-        Console.WriteLine("filter: " + JsonSerializer.Serialize(filter));
+        _log.LogDebug("GetPaginatedSummary: Index {Index}, Quantity {Qty}, FileTypes {Types}, Status {Status}",
+            startingIndex, quantity, filter.types != null ? string.Join(",", filter.types) : "all",
+            filter.status != null ? string.Join(",", filter.status) : "all");
+
         var filters = getFilter(filter);
         var fillBuilder = Builders<Filling>.Projection;
         var projection = fillBuilder.Expression(x => new FileSummary()
@@ -1206,6 +1226,8 @@ public class FileServices
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
+
         return new PaginatedResponse()
         {
             result = result,
@@ -1215,24 +1237,27 @@ public class FileServices
 
     public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
     {
-        Console.WriteLine($"User id: {userId}");
-        Console.WriteLine($"File id: {fileId}");
+        _log.LogInformation("GetCertificatePaymentCost for FileId {FileId}, UserId {UserId}", fileId, userId);
+
 
         var file = await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.FileId, fileId)).FirstOrDefaultAsync();
         if (file == null)
         {
-            throw new Exception("File not found");
+            _log.LogError("File is null");
+            throw new KeyNotFoundException("File not found");
         }
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq("_id", userId)).FirstOrDefaultAsync();
         if (user == null)
         {
-            throw new Exception("User not found");
+            _log.LogError("User is null");
+            throw new KeyNotFoundException("User not found");
         }
 
         var applicant = file.applicants.FirstOrDefault();
         if (applicant == null)
         {
-            throw new Exception("Applicant not found");
+            _log.LogError("No applicant found");
+            throw new KeyNotFoundException("Applicant not found");
         }
 
         var username = $"{user.FirstName} {user.LastName}";
@@ -1244,8 +1269,11 @@ public class FileServices
 
         if (string.IsNullOrWhiteSpace(rrr))
         {
-            throw new Exception("Unable to generate payment reference");
+            _log.LogError("Failed to generate RRR for certificate payment on FileId {FileId}", fileId);
+            throw new KeyNotFoundException("Unable to generate payment reference");
+
         }
+        _log.LogDebug("Generated certificate RRR {Rrr} for FileId {FileId}, Amount {Amount}", rrr, fileId, data.Item1);
 
         var certApp = new ApplicationInfo
         {
@@ -1287,7 +1315,7 @@ public class FileServices
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, certApp) // <-- correct array
         );
 
-
+        _log.LogInformation("Certificate application created for FileId {FileId}, AppId {AppId}", fileId, certApp.id);
         return new
         {
             rrr,
