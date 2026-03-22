@@ -234,21 +234,20 @@ public class OppositionService
                 OppositionMail = mail,
                 Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
             };
-            var res = await _emailServices.SendMail(email);
-            if (res)
-            {
-                opp.Status = ApplicationStatuses.AwaitingCounter;
-                opp.ApplicantNotified = true;
-                opp.ApplicantNotifiedDate = DateTime.Now;
-                
-                await _oppositionCollection.UpdateOneAsync(
-                    Builders<Opposition>.Filter.Eq(x => x.id, oppositionId),
-                    Builders<Opposition>.Update.Combine(
-                        Builders<Opposition>.Update.Set(x => x.Status, ApplicationStatuses.AwaitingCounter),
-                        Builders<Opposition>.Update.Set(x => x.ApplicantNotified, true),
-                        Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.Now)
-                    ));
-            }
+            await _emailServices.SendMail(email);
+            
+            opp.Status = ApplicationStatuses.AwaitingCounter;
+            opp.ApplicantNotified = true;
+            opp.ApplicantNotifiedDate = DateTime.Now;
+            
+            await _oppositionCollection.UpdateOneAsync(
+                Builders<Opposition>.Filter.Eq(x => x.id, oppositionId),
+                Builders<Opposition>.Update.Combine(
+                    Builders<Opposition>.Update.Set(x => x.Status, ApplicationStatuses.AwaitingCounter),
+                    Builders<Opposition>.Update.Set(x => x.ApplicantNotified, true),
+                    Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.Now)
+                ));
+            
             file.FileStatus = ApplicationStatuses.AwaitingCounter;
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),

@@ -13,14 +13,17 @@ namespace patentdesign.Services;
 public class EmailServices
 {
     private readonly EmailSettings _settings;
-
-    public EmailServices(IOptions<EmailSettings> settings)
+    private readonly ILogger<EmailServices> _log;
+    public EmailServices(IOptions<EmailSettings> settings, ILogger<EmailServices> log)
     {
         _settings = settings.Value;
+        _log = log;
     }
 
-    public async Task <bool>SendMail(EmailDto dto)
+    public async Task SendMail(EmailDto dto)
     {
+        _log.LogInformation("Preparing email to {Recipient} with subject '{Subject}' (Type: {EmailType})",
+            dto.To, dto.Subject, dto.EmailType);
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
         message.To.Add(new MailboxAddress("",dto.To));
@@ -36,9 +39,6 @@ public class EmailServices
                 break;
             case EmailType.StatusUpdate:
                 break;
-            case EmailType.Announcement:
-                body = dto.Body;
-                break;
         }
 
         var builder = new BodyBuilder();
@@ -47,45 +47,49 @@ public class EmailServices
 
         using (var client = new SmtpClient())
         {
-            // Ensure we use username/password instead of OAuth if the server doesn't support it
             client.AuthenticationMechanisms.Remove("XOAUTH2");
-
-            // Use MailKit's built-in timeout (ms). Adjust as needed, e.g., 60000 for slower networks.
             client.Timeout = 60000;
 
             try
             {
-                // Auto-negotiates TLS (implicit SSL/STARTTLS) based on port and server capabilities
+                _log.LogDebug("Connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+
                 await client.ConnectAsync(
                     _settings.SmtpServer,
                     _settings.Port,
                     SecureSocketOptions.Auto);
 
-                // Auth required by Plesk
                 await client.AuthenticateAsync(_settings.Username, _settings.Password);
 
                 await client.SendAsync(message);
-                return true;
+                _log.LogInformation("Email sent successfully to {Recipient}", dto.To);
             }
             catch (System.Threading.Tasks.TaskCanceledException ex)
             {
-                // Typically indicates network reachability or firewall issues when using timeouts
-                throw new ApplicationException($"SMTP connection timed out to '{_settings.SmtpServer}:{_settings.Port}'. " +
-                                               "Check DNS resolution, outbound firewall rules, and that the port/TLS mode matches the server.", ex);
+                _log.LogError(ex, "SMTP connection timed out to {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+                throw new ApplicationException(
+                    $"SMTP connection timed out to '{_settings.SmtpServer}:{_settings.Port}'. " +
+                    "Check DNS resolution, outbound firewall rules, and that the port/TLS mode matches the server.", ex);
             }
-            catch (System.Net.Sockets.SocketException ex)
+            catch(System.Net.Sockets.SocketException ex)
             {
-                throw new ApplicationException($"Failed to connect to SMTP server '{_settings.SmtpServer}:{_settings.Port}'. " +
-                                               $"Verify host, port, firewall, and TLS settings. Details: {ex.Message}", ex);
+                _log.LogError(ex, "Socket error connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+                throw new ApplicationException(
+                    $"Failed to connect to SMTP server '{_settings.SmtpServer}:{_settings.Port}'. " +
+                    $"Verify host, port, firewall, and TLS settings. Details: {ex.Message}", ex);
             }
-            catch (MailKit.Security.SslHandshakeException ex)
+            catch (SslHandshakeException ex)
             {
-                throw new ApplicationException("SSL/TLS handshake with SMTP server failed. " +
-                                               "This often indicates a TLS mode mismatch (implicit SSL vs STARTTLS) or certificate issues.", ex);
+                _log.LogError(ex, "SSL/TLS handshake failed with SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+                throw new ApplicationException(
+                    "SSL/TLS handshake with SMTP server failed. " +
+                    "This often indicates a TLS mode mismatch (implicit SSL vs STARTTLS) or certificate issues.", ex);
             }
             catch (MailKit.ServiceNotAuthenticatedException ex)
             {
-                throw new ApplicationException("SMTP authentication failed. Verify username/password and that SMTP auth is enabled.", ex);
+                _log.LogError(ex, "SMTP authentication failed for user {Username}", _settings.Username);
+                throw new ApplicationException(
+                    "SMTP authentication failed. Verify username/password and that SMTP auth is enabled.", ex);
             }
             finally
             {
@@ -97,8 +101,11 @@ public class EmailServices
     }
     public async Task SendBulkEmailAsync(BulkEmailDto dto)
     {
-        var batchSize = 20; // safe batch size
-        var delayMs = 2000; // delay between batches
+        var batchSize = 20;
+        var delayMs = 2000;
+        _log.LogInformation("Starting bulk email send to {RecipientCount} recipients with subject '{Subject}'",
+            dto.Recipients.Count, dto.Subject);
+
         string template = string.Empty;
         string filePath = Directory.GetCurrentDirectory() + @"\Templates\Announcement.html";
         using (var reader = new StreamReader(filePath))
@@ -107,39 +114,61 @@ public class EmailServices
         }
 
         using var client = new SmtpClient();
-        await client.ConnectAsync(
-            _settings.SmtpServer,
-            _settings.Port,
-            SecureSocketOptions.Auto);
-
-        // Auth required by Plesk
-        await client.AuthenticateAsync(_settings.Username, _settings.Password);
-        var recipients = dto.Recipients;
-        for (int i = 0; i < recipients.Count; i += batchSize)
+        try
         {
-            var batch = recipients.Skip(i).Take(batchSize);
-            foreach (var recipient in batch)
+            _log.LogDebug("Connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+            await client.ConnectAsync(
+                _settings.SmtpServer,
+                _settings.Port,
+                SecureSocketOptions.Auto);
+
+            await client.AuthenticateAsync(_settings.Username, _settings.Password);
+
+            var recipients = dto.Recipients;
+            int sentCount = 0;
+            for (int i = 0; i < recipients.Count; i += batchSize)
             {
-                var message = new MimeMessage();
-                message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
-                message.To.Add(new MailboxAddress(recipient.Value, recipient.Key));
-                message.Subject = dto.Subject;
+                var batch = recipients.Skip(i).Take(batchSize);
+                _log.LogDebug("Sending batch starting at index {Index}", i);
 
-                var html = template.Replace("{{UserName}}", recipient.Value)
-                    .Replace("{{Message}}", dto.Body);
+                foreach (var recipient in batch)
+                {
+                    var message = new MimeMessage();
+                    message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
+                    message.To.Add(new MailboxAddress(recipient.Value, recipient.Key));
+                    message.Subject = dto.Subject;
 
-                message.Body = new BodyBuilder { HtmlBody = html }.ToMessageBody();
-                await client.SendAsync(message);
+                    var html = template.Replace("{{UserName}}", recipient.Value)
+                        .Replace("{{Message}}", dto.Body);
+
+                    message.Body = new BodyBuilder { HtmlBody = html }.ToMessageBody();
+                    await client.SendAsync(message);
+                    sentCount++;
+                }
+
+                await Task.Delay(delayMs);
             }
 
-            await Task.Delay(delayMs); // throttle
+            _log.LogInformation("Bulk email completed. {SentCount}/{TotalCount} emails sent successfully",
+                sentCount, recipients.Count);
         }
-
-
-        await client.DisconnectAsync(true);
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Bulk email failed during send to {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+            throw;
+        }
+        finally
+        {
+            if (client.IsConnected)
+                await client.DisconnectAsync(true);
+        }
     }
+
     private string PopulateOppositionMail(OppositionMail dto)
     {
+        _log.LogDebug("Populating opposition mail template for applicant {Applicant}, file {FileNumber}",
+            dto.ApplicantName, dto.FileNumber);
+
         string body = string.Empty;
         string filePath = Directory.GetCurrentDirectory() + @"\Templates\OppositionNotification.html";
         using (var reader = new StreamReader(filePath))
@@ -159,6 +188,8 @@ public class EmailServices
 
     private string ResetPasswordMail(ResetPasswordMail dto)
     {
+        _log.LogDebug("Populating reset password mail template");
+
         string body = string.Empty;
         string filePath = Directory.GetCurrentDirectory() + @"\Templates\PasswordReset.html";
         using (var reader = new StreamReader(filePath))
