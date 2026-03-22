@@ -57,7 +57,7 @@ public class EmailServices
                 await client.ConnectAsync(
                     _settings.SmtpServer,
                     _settings.Port,
-                    SecureSocketOptions.Auto);
+                    SecureSocketOptions.SslOnConnect);
 
                 await client.AuthenticateAsync(_settings.Username, _settings.Password);
 
@@ -120,7 +120,7 @@ public class EmailServices
             await client.ConnectAsync(
                 _settings.SmtpServer,
                 _settings.Port,
-                SecureSocketOptions.Auto);
+                SecureSocketOptions.SslOnConnect);
 
             await client.AuthenticateAsync(_settings.Username, _settings.Password);
 
