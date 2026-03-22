@@ -321,9 +321,13 @@ public class UsersService
         }
     }
 
-    //public async Task<bool?> UpdateUser(UserCreateType user)
-    //{
-    //    await _userCollection.ReplaceOneAsync(Builders<UserCreateType>.Filter.Eq(x=>x.id, user.id), user);
-    //    return true;
-    //}
+    public async Task<Dictionary<string, string>> GetAllUserEmails()
+    {
+        var emails = await _userCollection
+            .Find(Builders<AppUser>.Filter.Empty)
+            .Project(u => new { u.Name, u.Email })
+            .ToListAsync();
+
+        return emails.ToDictionary(e => e.Name ?? "", e => e.Email ?? "");
+    }
 }

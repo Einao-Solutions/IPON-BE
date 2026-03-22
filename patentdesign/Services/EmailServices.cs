@@ -95,7 +95,48 @@ public class EmailServices
         }
         
     }
+    public async Task SendBulkEmailAsync(BulkEmailDto dto)
+    {
+        var batchSize = 20; // safe batch size
+        var delayMs = 2000; // delay between batches
+        string template = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\Announcement.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            template = reader.ReadToEnd();
+        }
 
+        using var client = new SmtpClient();
+        await client.ConnectAsync(
+            _settings.SmtpServer,
+            _settings.Port,
+            SecureSocketOptions.Auto);
+
+        // Auth required by Plesk
+        await client.AuthenticateAsync(_settings.Username, _settings.Password);
+        var recipients = dto.Recipients;
+        for (int i = 0; i < recipients.Count; i += batchSize)
+        {
+            var batch = recipients.Skip(i).Take(batchSize);
+            foreach (var recipient in batch)
+            {
+                var message = new MimeMessage();
+                message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
+                message.To.Add(new MailboxAddress(recipient.Value, recipient.Key));
+                message.Subject = dto.Subject;
+
+                var html = template.Replace("{{NAME}}", recipient.Value);
+
+                message.Body = new BodyBuilder { HtmlBody = html }.ToMessageBody();
+                await client.SendAsync(message);
+            }
+
+            await Task.Delay(delayMs); // throttle
+        }
+
+
+        await client.DisconnectAsync(true);
+    }
     private string PopulateOppositionMail(OppositionMail dto)
     {
         string body = string.Empty;
@@ -118,7 +159,7 @@ public class EmailServices
     private string ResetPasswordMail(ResetPasswordMail dto)
     {
         string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\ResetPassword.html";
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\PasswordReset.html";
         using (var reader = new StreamReader(filePath))
         {
             body = reader.ReadToEnd();
@@ -127,5 +168,4 @@ public class EmailServices
         body = body.Replace("{ResetLink}", dto.ResetLink);
         return body;
     }
-    
 }

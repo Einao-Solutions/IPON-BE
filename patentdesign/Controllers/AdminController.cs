@@ -39,5 +39,14 @@ namespace patentdesign.Controllers
             if (updated) return Ok(updated);
             return NotFound(new { message = "Application history not updated" });
         }
+
+        [HttpPost("SendAnnouncement")]
+        public async Task<IActionResult> SendAnnouncement([FromBody] AnnouncementMailDto dto)
+        {
+            var mail = await adminServices.SendAnnouncementMail(dto);
+            if (!mail) return BadRequest(new { message = "Failed to Send mail"});
+            return Ok(new { message = "Bulk Email Sent" });
+        }
+
     }
 }

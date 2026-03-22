@@ -27,13 +27,15 @@ namespace patentdesign.Services
         private MongoClient _mongoClient;
         private FinanceService _financeService;
         private PaymentService _paymentService;
-
+        private EmailServices _emailServices;
+        private UsersService _userServices;
+        //adding log service
+        private ILoggerService _log;
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
         //private string attachmentBaseUrl = "http://localhost:5044";
 
-        //adding log service
-        private ILoggerService _log;
-        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILoggerService log, PaymentService paymentService)
+       
+        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILoggerService log, PaymentService paymentService, EmailServices emailServices)
         {
             var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -62,7 +64,7 @@ namespace patentdesign.Services
             _paymentService = paymentService;
             _log = log;
             _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
-
+            _emailServices = emailServices;
         }
         public async Task<StatusChangeLog> ChangeFileStatus(StatusChangeDto dto)
         {
@@ -238,5 +240,26 @@ namespace patentdesign.Services
             }
         }
 
+        public async Task<bool> SendAnnouncementMail(AnnouncementMailDto dto)
+        {
+            try
+            {
+                var recipients = await _userServices.GetAllUserEmails();
+                if (recipients is null) throw new KeyNotFoundException("No Recipients found");
+
+                var mail = new BulkEmailDto
+                {
+                    Recipients = recipients,
+                    Body = dto.Message,
+                    Subject = dto.Subject
+                };
+                await _emailServices.SendBulkEmailAsync(mail);
+                return true;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
     }
 }

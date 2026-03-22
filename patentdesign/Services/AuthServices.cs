@@ -25,8 +25,8 @@ namespace patentdesign.Services
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<Filling> _fillingCollection;
         private MongoClient _mongoClient;
-
-        public AuthServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config)
+        private EmailServices _emailServices;
+        public AuthServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices)
         {
             _config = config;
 
@@ -43,6 +43,7 @@ namespace patentdesign.Services
             var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
             _users = pdDb.GetCollection<AppUser>("appUsers");
             _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
+            _emailServices = emailServices;
         }
 
         public async Task<bool> CreateUser(RegisterDto req)
@@ -356,6 +357,7 @@ namespace patentdesign.Services
 
             // Build reset link
             var resetLink = $"https://portal.iponigeria.com/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
+            Console.WriteLine($"Reset Link: {resetLink}");
 
             var mail = new EmailDto
             {
@@ -366,9 +368,11 @@ namespace patentdesign.Services
                     UserName = user.Name,
                 },
                 To = email,
-                Subject = "Password Reset"
-            }
-            Console.WriteLine($"Reset Link: {resetLink}");
+                Subject = "Password Reset",
+            };
+            var mailSent = await _emailServices.SendMail(mail);
+            if (!mailSent) throw new ApplicationException("Failed to Send Mail");
+
 
             return true;
         }

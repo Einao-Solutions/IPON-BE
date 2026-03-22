@@ -13,13 +13,13 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 //using MongoDB.Driver.Core.Operations;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Linq;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.pdfs;
-using patentdesign.Services.Interface;
 using patentdesign.Utils;
 using QuestPDF.Fluent;
 using System.Diagnostics;
@@ -56,6 +56,7 @@ public class FileServices
     private static IMongoCollection<StaffPerformance> _performanceCollection;
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
+    private readonly ILogger<FileServices> _log;
 
 
     private PaymentUtils _remitaPaymentUtils;
@@ -68,8 +69,7 @@ public class FileServices
     // private string attachmentBaseUrl = "http://localhost:5044";
 
     //adding log service
-    private ILoggerService _log;
-    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILoggerService log, PaymentService paymentService)
+    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -656,7 +656,7 @@ public class FileServices
             FileStatus = x.FileStatus,
             Id = x.Id
         }).FirstOrDefaultAsync();
-        Console.WriteLine(JsonSerializer.Serialize(res));
+        _log.LogDebug("Search result for FileNumber {FileNumber}: {Result}", fileNumber, JsonSerializer.Serialize(res));
         return res;
     }
 
@@ -770,12 +770,12 @@ public class FileServices
     public async Task<Filling> SaveDateUpdateApplication(DataUpdateReq data)
     {
         var costData = _remitaPaymentUtils.GetCost(PaymentTypes.Update, data.fileType, "", null, null, data.fieldToChange);
-        Console.WriteLine(costData);
-        Console.WriteLine(data);
+        _log.LogDebug("Cost data for update: {CostData}", costData);
+        _log.LogDebug("Data update request for FileId: {FileId}", data.fileId);
         var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(costData.Item1, costData.Item3, costData.Item2,
             $"Payment for data update application",
             data.applicantName, data.email, data.phone);
-        Console.WriteLine(rrr);
+        _log.LogDebug("Generated RRR: {Rrr}", rrr);
         List<UpdateDefinition<Filling>> operations = [];
         var newApp = new ApplicationInfo()
         {
@@ -819,7 +819,7 @@ public class FileServices
             {
                 // if (pending.Id != "b6116cbc-da10-4951-96aa-5b2981c30a72")
                 // {
-                Console.WriteLine($"validating payment for...... {pending.Id}");
+                _log.LogInformation("Validating payment for FileId: {FileId}", pending.Id);
                 // update field
                 await UpdateApplicationStatus(new UpdateDataType()
                 {
