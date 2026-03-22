@@ -45,7 +45,7 @@ public class EmailServices
         builder.HtmlBody = body;
         message.Body = builder.ToMessageBody();
 
-        using (var client = new SmtpClient())
+        using (var client = new SmtpClient(new MailKit.ProtocolLogger(Console.OpenStandardError())))
         {
             client.AuthenticationMechanisms.Remove("XOAUTH2");
             client.Timeout = 60000;
