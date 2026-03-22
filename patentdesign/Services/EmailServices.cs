@@ -125,7 +125,8 @@ public class EmailServices
                 message.To.Add(new MailboxAddress(recipient.Value, recipient.Key));
                 message.Subject = dto.Subject;
 
-                var html = template.Replace("{{NAME}}", recipient.Value);
+                var html = template.Replace("{{UserName}}", recipient.Value)
+                    .Replace("{{Message}}", dto.Body);
 
                 message.Body = new BodyBuilder { HtmlBody = html }.ToMessageBody();
                 await client.SendAsync(message);

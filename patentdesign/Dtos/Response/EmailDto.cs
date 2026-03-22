@@ -16,7 +16,7 @@ public class EmailDto
 
 public class BulkEmailDto
 {
-    public Dictionary<string, string> Recipients { get; set; }
+    public Dictionary<string, string>? Recipients { get; set; }
     public string Subject { get; set; }
     public string Body { get; set; } 
 }
