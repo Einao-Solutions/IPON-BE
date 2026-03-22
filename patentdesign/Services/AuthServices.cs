@@ -370,7 +370,7 @@ namespace patentdesign.Services
             var mail = new EmailDto
             {
                 EmailType = EmailType.ResetPassword,
-                ResetPasswordMail =
+                ResetPasswordMail = new ResetPasswordMail
                     {
                         ResetLink = resetLink,
                         UserName = user.Name,
