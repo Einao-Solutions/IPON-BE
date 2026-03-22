@@ -68,7 +68,6 @@ public class FileServices
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
 
-    //adding log service
     public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;

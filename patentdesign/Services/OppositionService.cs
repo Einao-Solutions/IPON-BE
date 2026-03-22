@@ -215,7 +215,7 @@ public class OppositionService
             if (file == null) throw new Exception("File not found");
             var app = file.applicants.FirstOrDefault();
             if (app == null) throw new Exception("Applicant not found");
-            var mail = new OppositionEmailDto
+            var mail = new OppositionMail
             {
                 To = app.Email,
                 Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
@@ -227,7 +227,14 @@ public class OppositionService
                 OpposerName = opp.Name,
                 Title = opp.FileTitle
             };
-            var res = await _emailServices.NotifyApplicantMail(mail);
+            var email = new EmailDto
+            {
+                To = app.Email,
+                CarbonCopy = app.Email,
+                OppositionMail = mail,
+                Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
+            };
+            var res = await _emailServices.SendMail(email);
             if (res)
             {
                 opp.Status = ApplicationStatuses.AwaitingCounter;

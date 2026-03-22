@@ -3,7 +3,6 @@ using MongoDB.Driver;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
-using patentdesign.Services.Interface;
 using patentdesign.Utils;
 using System.Security.Authentication;
 
@@ -22,20 +21,20 @@ namespace patentdesign.Services
         private static IMongoCollection<OppositionType> _oppositionCollection;
         private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
         private static IMongoCollection<StatusChangeLog> _statusLogs;
-
+        private readonly ILogger<AdminServices> _log;
+        
         private PaymentUtils _remitaPaymentUtils;
         private MongoClient _mongoClient;
         private FinanceService _financeService;
         private PaymentService _paymentService;
         private EmailServices _emailServices;
         private UsersService _userServices;
-        //adding log service
-        private ILoggerService _log;
+        
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
         //private string attachmentBaseUrl = "http://localhost:5044";
 
        
-        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILoggerService log, PaymentService paymentService, EmailServices emailServices)
+        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<AdminServices> log, PaymentService paymentService, EmailServices emailServices)
         {
             var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
