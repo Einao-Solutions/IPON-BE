@@ -213,7 +213,11 @@ public class FileServices
             case FormApplicationTypes.ClericalUpdate:
                 await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
                 break;
-
+            case FormApplicationTypes.Reclassification:
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
             case FormApplicationTypes.DataUpdate:
                 application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
@@ -4559,27 +4563,33 @@ public class FileServices
         }
     }
 
-    public async Task<bool> TrademarkReclassification(ReclassificationDto dto)
+    public async Task<string> TrademarkReclassification(ChangeDataRecordalDto dto)
     {
         try
         {
-            var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
-            if (file == null) throw new KeyNotFoundException("File not found");
+            _log.LogInformation($"{dto.FileId} applies for reclassification...");
+            var file = await _fillingCollection.Find(f => f.FileId == dto.FileId).FirstOrDefaultAsync();
+            if (file == null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException("File not found");
+            }
             var applicant = file.applicants.FirstOrDefault();
             var user = await _userCollection
-                           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId))
+                           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.userId))
                            .FirstOrDefaultAsync()
                        ?? await _userCollection
-                           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                           .Find(Builders<AppUser>.Filter.Eq(u => u.CreatorId, dto.userId))
                            .FirstOrDefaultAsync();
+
             var appHistory = new ApplicationInfo
             {
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.Reclassification,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
                 ApplicationDate = DateTime.Now,
-                PaymentId = dto.PaymentId,
-                FieldToChange = "Reclassification Application",
+                PaymentId = dto.rrr,
+                FieldToChange = "Reclassification of Trademark",
                 NewValue = "",
                 StatusHistory = new List<ApplicationHistory>
                 {
@@ -4598,8 +4608,8 @@ public class FileServices
             {
                 Id = appHistory.id,
                 FilingDate = DateTime.Now.ToString(),
-                rrr = dto.PaymentId,
-                FileNumber = dto.FileNumber,
+                rrr = dto.rrr,
+                FileNumber = dto.FileId,
                 OldClass = file.TrademarkClass,
                 Class = dto.NewClass,
                 RecordalType = "Reclassification",
@@ -4611,16 +4621,16 @@ public class FileServices
                 .Push(f => f.PostRegApplications, app)
                 .Push(f => f.ApplicationHistory, appHistory);
 
-
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
             );
-            return true;
+            _log.LogInformation("Reclassification application saved");
+            return appHistory.id;
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            _log.LogError(e, "Failed to submit reclassification application");
             throw;
         }
     }
@@ -4628,6 +4638,7 @@ public class FileServices
     {
         try
         {
+            _log.LogInformation($"Approving Reclassification of {recordalApp.fileId}...");
             var file = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
                 .FirstOrDefaultAsync();
@@ -4886,7 +4897,11 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.ChangeDataRecordal, fileType, "", null, null, null);
+            var classChange = changeType == "Class";
+
+            _log.LogInformation($"Calculating cost for {changeType} application for fileId: {fileId}");
+
+            var data = _remitaPaymentUtils.GetCost(classChange ? PaymentTypes.Reclassification : PaymentTypes.ChangeDataRecordal, fileType, "", null, null, null);
 
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
@@ -4894,7 +4909,7 @@ public class FileServices
 
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
-                Console.WriteLine("No file or applicants found.");
+                _log.LogError("No file or applicants found.");
                 return null;
             }
 
@@ -4904,6 +4919,11 @@ public class FileServices
                 data.Item1, data.Item3, data.Item2, "Recordal Application",
                 applicant.Name, applicant.Email, applicant.Phone);
 
+            if (paymentId == null)
+            {
+                _log.LogError("Failed to generate payment ID");
+                return null;
+            }
             var changeCost = new RecordalDto
             {
                 Amount = data.Item1,
@@ -4918,7 +4938,7 @@ public class FileServices
                 TrademarkClass = fileInfo.TrademarkClass,
                 DataChangeType = changeType
             };
-
+            _log.LogInformation($"New Change data recordal application for {fileId}, with {paymentId}");
             return changeCost;
         }
         catch (Exception up)
@@ -4928,25 +4948,30 @@ public class FileServices
             throw;
         }
     }
-    public async Task<bool> ChangeDataRecordal(ChangeDataRecordalDto newData)
+    public async Task<string> ChangeDataRecordal(ChangeDataRecordalDto newData)
     {
+        _log.LogInformation($"New Change {newData.ChangeType} application");
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, newData.FileId))
             .FirstOrDefaultAsync();
 
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogError($"{newData.FileId} not found");
+            return null;
+        }
         var applicant = file.applicants.FirstOrDefault();
         var user = await _userCollection
             .Find(Builders<AppUser>.Filter.Eq(u => u.Id, newData.userId))
             .FirstOrDefaultAsync()
             ?? await _userCollection
-                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .Find(Builders<AppUser>.Filter.Eq(u => u.CreatorId, newData.userId))
                 .FirstOrDefaultAsync();
         var userName = user != null
             ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
             : applicant?.Name ?? "Unknown";
 
-        var userId = user?.Id ?? file.CreatorAccount;
+        var userId = user?.Id ?? user.CreatorId;
         string docUrl = "";
         if (newData.document != null)
         {
@@ -4991,7 +5016,7 @@ public class FileServices
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Change Data",
-                        User = userName,
+                        User = user.Name ?? userName,
                         UserId = userId
                     }
                 }
@@ -5023,13 +5048,15 @@ public class FileServices
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
             );
+            return appHistory.id;
         }
         catch (Exception ex)
         {
-            throw new Exception("Error during ChangeDataRecordal", ex);
+            _log.LogError("Error during ChangeDataRecordal", ex);
+            throw;
         }
 
-        return true;
+   
     }
     public async Task<ChangeDataRecordalDto> GetChangeDataRecordal(string fileId, string appId)
     {

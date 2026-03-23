@@ -82,6 +82,8 @@ namespace patentdesign.Dtos.Request
         public string? ChangeType { get; set; }
         public string? OldAddress { get; set; }
         public string? NewAddress { get; set; }
+        public int? OldClass { get; set; }
+        public int? NewClass { get; set; }
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
@@ -128,11 +130,5 @@ namespace patentdesign.Dtos.Request
         public string? userId { get; set; }
     }
 
-    public class ReclassificationDto
-    {
-        public string? FileNumber { get; set; }
-        public int? NewClass { get; set; }
-        public string? UserId { get; set; }
-        public string? PaymentId { get; set; }
-    }
+    
 }

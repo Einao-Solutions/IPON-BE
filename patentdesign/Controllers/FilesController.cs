@@ -643,11 +643,12 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpPost("ChangeDataRecordal")]
     public async Task<IActionResult> ChangeDataRecordal([FromForm] ChangeDataRecordalDto data)
     {
-        var res = await fileService.ChangeDataRecordal(data);
-        if (res == false)
+        var changeClass = data.ChangeType == "Class";
+        var res = changeClass ? await fileService.TrademarkReclassification(data) : await fileService.ChangeDataRecordal(data);
+        if (res == null)
         {
-            Console.WriteLine("Failed to submit");
-            return NotFound();
+        
+            return BadRequest("Failed to submit");
         }
         return Ok(res);
     }
