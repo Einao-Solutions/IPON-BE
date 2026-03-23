@@ -4085,41 +4085,41 @@ public class FileServices
             throw;
         }
     }
-    public async Task<RecordalDto> DesignMergerCost(string fileId, FileTypes fileType)
-    {
-        try
-        {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
-            var fileInfo = await _fillingCollection
-                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
-                .FirstOrDefaultAsync();
-            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
-            {
-                Console.WriteLine("No file or applicants found.");
-                return null;
-            }
-            var applicant = fileInfo.applicants[0];
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Design Merger",
-                applicant.Name, applicant.Email, applicant.Phone);
-            var designMergerCost = new RecordalDto
-            {
-                Amount = data.Item1,
-                rrr = paymentId,
-                FileId = fileId,
-                FileTitle = fileInfo.TitleOfDesign ?? "",
-                ApplicantName = applicant.Name,
-                TrademarkClass = fileInfo.TrademarkClass
-            };
-            return designMergerCost;
-        }
-        catch (Exception up)
-        {
-            //log error
-            _log.LogError(up, "Error-at-Design Merger Cost retrieval");
-            throw;
-        }
-    }
+    //public async Task<RecordalDto> DesignMergerCost(string fileId, FileTypes fileType)
+    //{
+    //    try
+    //    {
+    //        var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
+    //        var fileInfo = await _fillingCollection
+    //            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+    //            .FirstOrDefaultAsync();
+    //        if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+    //        {
+    //            Console.WriteLine("No file or applicants found.");
+    //            return null;
+    //        }
+    //        var applicant = fileInfo.applicants[0];
+    //        var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+    //            data.Item1, data.Item3, data.Item2, "Design Merger",
+    //            applicant.Name, applicant.Email, applicant.Phone);
+    //        var designMergerCost = new RecordalDto
+    //        {
+    //            Amount = data.Item1,
+    //            rrr = paymentId,
+    //            FileId = fileId,
+    //            FileTitle = fileInfo.TitleOfDesign ?? "",
+    //            ApplicantName = applicant.Name,
+    //            TrademarkClass = fileInfo.TrademarkClass
+    //        };
+    //        return designMergerCost;
+    //    }
+    //    catch (Exception up)
+    //    {
+    //        //log error
+    //        _log.LogError(up, "Error-at-Design Merger Cost retrieval");
+    //        throw;
+    //    }
+    //}
     public async Task<RecordalDto> DesignCtcCost(string fileId, FileTypes fileType)
     {
         try
