@@ -1352,6 +1352,11 @@ public record PaymentInfo
     public string? PatentMergerCost { get; set; }
     public string? PatentMergerServiceFee { get; set; }
     public string? PatentMergerServiceID { get; set; }
+
+    //TM Reclassification
+    public string? ReclassificationCost { get; set; }
+    public string? ReclassificationServiceFee { get; set; }
+    public string? ReclassificationServiceID { get; set; }
 }
 
 public record PaymentRecord

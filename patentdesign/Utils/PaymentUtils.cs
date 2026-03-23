@@ -300,6 +300,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.PatentMergerServiceID;
                 serviceFee = _paymentInfo.PatentMergerServiceFee;
                 break;
+            case PaymentTypes.Reclassification:
+                amount = _paymentInfo.ReclassificationCost;
+                serviceFee = _paymentInfo.ReclassificationServiceFee;
+                serviceId = _paymentInfo.ReclassificationServiceID;
+                break;
         }
 
         return (amount, serviceId, serviceFee);
