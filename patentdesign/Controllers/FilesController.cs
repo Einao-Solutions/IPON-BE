@@ -938,6 +938,28 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
     }
 
+    [HttpGet("GetDesignLicenseCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignLicenseCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.DesignLicenseCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
     [HttpPost("AddStatusSearchHistory")]
     public async Task<IActionResult> AddStatusSearchHistory([FromQuery] string fileId, [FromQuery] string rrr)
     {

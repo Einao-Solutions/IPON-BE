@@ -993,6 +993,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment,
     PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, Reclassification
 }
 
@@ -1352,6 +1353,30 @@ public record PaymentInfo
     public string? PatentMergerCost { get; set; }
     public string? PatentMergerServiceFee { get; set; }
     public string? PatentMergerServiceID { get; set; }
+
+    public string? DesignAssignmentCost { get; set; }
+    public string? DesignAssignmentServiceFee { get; set; }
+    public string? DesignAssignmentServiceID { get; set; }
+
+    public string? DesignLicenseCost { get; set; }
+    public string? DesignLicenseServiceFee { get; set; }
+    public string? DesignLicenseServiceID { get; set; }
+
+     public string? DesignMortgageCost { get; set; } 
+    public string? DesignMortgageServiceFee { get; set; }
+    public string? DesignMortgageServiceID { get; set; }
+
+     public string? DesignMergerCost { get; set; }
+    public string? DesignMergerServiceFee { get; set; }
+    public string? DesignMergerServiceID { get; set; }
+
+    public string? DesignCtcCost { get; set; }
+    public string? DesignCtcServiceFee { get; set; }
+    public string? DesignCtcServiceID { get; set; }
+
+    public string? DesignAmendmentCost { get; set; }
+    public string? DesignAmendmentServiceFee { get; set; }
+    public string? DesignAmendmentServiceID { get; set; }
 
     //TM Reclassification
     public string? ReclassificationCost { get; set; }

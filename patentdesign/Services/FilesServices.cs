@@ -3751,7 +3751,7 @@ public class FileServices
             throw;
         }
     }
-
+    
     public async Task<RecordalDto> PatentMortgageCost(string fileId, FileTypes fileType)
     {
         try
@@ -4032,6 +4032,232 @@ public class FileServices
         catch (Exception ex)
         {
             _log.LogError(ex, "Error-at-PatentAmendmentCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> DesignAssignmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignAssignment, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Assignment",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designAssignmentCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designAssignmentCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Assignment Cost retrieval");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto?> DesignLicenseCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var (amount, narration, serviceFee) = _remitaPaymentUtils
+                .GetCost(PaymentTypes.DesignLicense, fileType, string.Empty, null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                amount,
+                serviceFee,
+                narration,
+                "Design License",
+                applicant.Name,
+                applicant.Email,
+                applicant.Phone);
+
+            return new RecordalDto
+            {
+                Amount = amount,
+                rrr = paymentId,
+                FileId = fileInfo.FileId,                                  // file number
+                FileTitle = fileInfo.TitleOfDesign ?? string.Empty,        // title of industrial design
+                DesignType = fileInfo.DesignType,                          // design type enum
+                ApplicantName = applicant.Name,                            // first applicant details
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantCity = applicant.city
+            };
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-Design License Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignMergerCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designMergerCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designMergerCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Merger Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignCtcCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignCtc, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designCtcCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designCtcCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design CTC Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignAmendmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignAmendment, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Amendment",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designAmendmentCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designAmendmentCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Amendment Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignMortgageCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMortgage, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Mortgage",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designMortgageCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+              //  TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designMortgageCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Mortgage Cost retrieval");
             throw;
         }
     }
@@ -9656,6 +9882,136 @@ public class FileServices
         };
 
         return amendmentDetails;
+    }
+
+    //Design License Post Registration Section
+    public async Task<bool> NewDesignLicenseApplication(DesignLicenseDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Deed of License upload
+        if (dto.Deedoflicense != null && dto.Deedoflicense.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedoflicense);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedoflicense");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignDeedoflicense",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Supporting documents upload
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignLicenseSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignLicenseSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "License application submitted, awaiting payment";
+
+        var licenseHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.License,
+            CurrentStatus = status,
+            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design License Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.LicenseRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        var recordal = new PostRegistrationApp
+        {
+            Id = licenseHistory.id,
+            RecordalType = "Design License Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
+            OldLicensorName = dto.OldLicensorName,
+            OldLicensorEmail = dto.OldLicensorEmail,
+            OldLicensorPhone = dto.OldLicensorPhone,
+            OldLicensorAddress = dto.OldLicensorAddress,
+            OldLicensorNationality = dto.OldLicensorNationality,
+            OldLicensorState = dto.OldLicensorState,
+            OldLicensorCity = dto.OldLicensorCity,
+            Name = dto.NewLicenseeName,
+            Email = dto.NewLicenseeEmail,
+            Phone = dto.NewLicenseePhone,
+            Address = dto.NewLicenseeAddress,
+            Nationality = dto.NewLicenseeNationality,
+            State = dto.NewLicenseeState,
+            City = dto.NewLicenseeCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, licenseHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
     }
 
     private object GetAmendmentChanges(PostRegistrationApp amendment)

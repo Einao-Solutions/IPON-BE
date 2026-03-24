@@ -300,6 +300,36 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.PatentMergerServiceID;
                 serviceFee = _paymentInfo.PatentMergerServiceFee;
                 break;
+            case PaymentTypes.DesignAssignment:
+                amount = _paymentInfo.DesignAssignmentCost;
+                serviceId = _paymentInfo.DesignAssignmentServiceID;
+                serviceFee = _paymentInfo.DesignAssignmentServiceFee;
+                break;
+             case PaymentTypes.DesignLicense:
+                amount = _paymentInfo.DesignLicenseCost;
+                serviceId = _paymentInfo.DesignLicenseServiceID;
+                serviceFee = _paymentInfo.DesignLicenseServiceFee;
+                break;
+             case PaymentTypes.DesignMerger:
+                amount = _paymentInfo.DesignMergerCost;
+                serviceId = _paymentInfo.DesignMergerServiceID;
+                serviceFee = _paymentInfo.DesignMergerServiceFee;
+                break;
+             case PaymentTypes.DesignMortgage:
+                amount = _paymentInfo.DesignMortgageCost;
+                serviceId = _paymentInfo.DesignMortgageServiceID;
+                serviceFee = _paymentInfo.DesignMortgageServiceFee;
+                break;
+             case PaymentTypes.DesignCtc:
+                amount = _paymentInfo.DesignCtcCost;
+                serviceId = _paymentInfo.DesignCtcServiceID;
+                serviceFee = _paymentInfo.DesignCtcServiceFee;
+                break;
+             case PaymentTypes.DesignAmendment:
+                amount = _paymentInfo.DesignAmendmentCost;
+                serviceId = _paymentInfo.DesignAmendmentServiceID;
+                serviceFee = _paymentInfo.DesignAmendmentServiceFee;
+                break;
             case PaymentTypes.Reclassification:
                 amount = _paymentInfo.ReclassificationCost;
                 serviceFee = _paymentInfo.ReclassificationServiceFee;
