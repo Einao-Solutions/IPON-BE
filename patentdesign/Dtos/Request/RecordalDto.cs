@@ -19,6 +19,7 @@ namespace patentdesign.Dtos.Request
         public string? FileOrigin { get; set; }
         public PatentTypes? PatentType { get; set; }
         public PatentApplicationTypes? PatentApplicationType { get; set; }
+        public DesignTypes? DesignType { get; set; }
         public string? TitleOfInvention { get; set; }
         public string? DataChangeType { get; set; }
         public string? rrr { get; set; }
