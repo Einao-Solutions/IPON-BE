@@ -83,7 +83,9 @@ namespace patentdesign.Dtos.Request
         public string? OldAddress { get; set; }
         public string? NewAddress { get; set; }
         public int? OldClass { get; set; }
+        public string? OldClassDescription { get; set; }
         public int? NewClass { get; set; }
+        public string? NewClassDescription { get; set; }
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }

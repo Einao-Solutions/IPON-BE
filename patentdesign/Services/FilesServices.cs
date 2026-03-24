@@ -4634,69 +4634,6 @@ public class FileServices
             throw;
         }
     }
-    public async Task<bool> ApproveReclassification(TreatRecordalDto recordalApp)
-    {
-        try
-        {
-            _log.LogInformation($"Approving Reclassification of {recordalApp.fileId}...");
-            var file = await _fillingCollection
-                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
-                .FirstOrDefaultAsync();
-
-            if (file == null) return false;
-            var user = await _userCollection.Find(u => u.Id == recordalApp.userId).FirstOrDefaultAsync();
-            if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
-            // Update Post reg app
-            var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
-            if (recordal == null) return false;
-
-            recordal.DateTreated = DateTime.Now.ToString();
-            recordal.Reason = recordalApp.reason;
-
-            // Update Application Status in App History
-            var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
-            if (app == null) return false;
-
-            app.CurrentStatus = ApplicationStatuses.Approved;
-
-            // Update class
-            file.TrademarkClass = recordal.Class;
-            var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
-            file.TrademarkClassDescription = descr;
-
-            var update = Builders<Filling>.Update
-                .Set(f => f.PostRegApplications, file.PostRegApplications)
-                .Set(f => f.ApplicationHistory, file.ApplicationHistory)
-                .Set(f => f.TrademarkClass, recordal.Class);
-
-
-            await _fillingCollection.UpdateOneAsync(
-                Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
-                update
-            );
-            var perform = new PerformanceDto
-            {
-                AfterStatus = ApplicationStatuses.Approved,
-                BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
-                ApplicationType = FormApplicationTypes.Reclassification,
-                AppUserId = recordalApp.userId,
-                Date = DateTime.Now,
-                FileNumber = recordalApp.fileId,
-                FileType = file.Type,
-                OfficeUnit = Roles.TrademarkCertification,
-                Reason = recordalApp.reason,
-            };
-
-            SavePerformance(perform);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, $"Error in ApproveReclassification: {ex.Message}");
-            Console.WriteLine(ex);
-            return false;
-        }
-    }
     public async Task<bool> NewMergerApplication(MergerApplicationDto mergerApp)
     {
         var file = await _fillingCollection
@@ -5077,7 +5014,11 @@ public class FileServices
             NewName = recordal?.Name,
             OldAddress = recordal.OldAddress,
             NewAddress = recordal?.Address,
-            documentUrl = recordal?.documentUrl
+            OldClassDescription = recordal?.OldClass.HasValue == true ? FileUtils.TrademarkClassMapper.GetDescription(recordal.OldClass.Value) : null,
+            NewClassDescription = recordal?.Class.HasValue == true ? FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value) : null,
+            documentUrl = recordal?.documentUrl,
+            OldClass = recordal.OldClass,
+            NewClass = recordal?.Class,
         };
 
         return changeDetails;
@@ -5149,8 +5090,8 @@ public class FileServices
     {
         try
         {
-            Console.WriteLine($"Approving data change for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
-            Console.WriteLine(JsonSerializer.Serialize(recordalApp, new JsonSerializerOptions { WriteIndented = true }));
+            _log.LogInformation($"Approving data change for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
+            _log.LogDebug(JsonSerializer.Serialize(recordalApp, new JsonSerializerOptions { WriteIndented = true }));
             var file = await _fillingCollection
                  .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
                  .FirstOrDefaultAsync();
@@ -5165,18 +5106,25 @@ public class FileServices
             }
 
             if (user == null)
+            {
+                _log.LogError("Unauthorized user");
                 throw new KeyNotFoundException("Unauthorized user");
+            }
 
             // Update post reg
             var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
-            if (recordal == null) return false;
+            if (recordal == null)
+            {
+                _log.LogError("Recordal not found");
+                return false;
+            }
             recordal.DateTreated = DateTime.Now.ToString();
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
-            app.CurrentStatus = ApplicationStatuses.AutoApproved;
+            app.CurrentStatus = ApplicationStatuses.Approved;
 
             file.applicants ??= new List<ApplicantInfo>();
             var applicant = file.applicants.FirstOrDefault();
@@ -5188,6 +5136,16 @@ public class FileServices
             else if (recordal.RecordalType == "Change of Applicant Name")
             {
                 applicant.Name = recordal.Name;
+            } else if (recordal.RecordalType == "Reclassification")
+            {
+                file.TrademarkClass = recordal.Class;
+                var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
+                file.TrademarkClassDescription = descr;
+            }
+            {
+                file.TrademarkClass = recordal.Class;
+                var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
+                file.TrademarkClassDescription = descr;
             }
 
             var update = Builders<Filling>.Update
@@ -5213,6 +5171,7 @@ public class FileServices
             };
 
             SavePerformance(perform);
+            _log.LogInformation($"{recordal.RecordalType} has been approved");
             return true;
 
         }
