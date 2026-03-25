@@ -31,7 +31,9 @@ public class AppUser
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
-    public string? Name { get; set; } 
+    public string? Name { get; set; }
+    public string? PasswordResetToken { get; set; }
+    public DateTime? PasswordResetTokenExpiry { get; set; }
 }
 
 public record DesignForm
@@ -320,6 +322,7 @@ public record ClericalUpdate
     public DesignTypes? NewDesignType { get; set; }
     public List<ApplicantInfo>? OldDesignCreators { get; set; }
     public List<ApplicantInfo>? NewDesignCreators { get; set; }
+    public List<ApplicantInfo>? OldInventors { get; set; }
     public List<string>? OldDesignCreatorNames { get; set; }
     public List<string>? NewDesignCreatorNames { get; set; }
     public List<string>? OldDesignCreatorPhones { get; set; }
@@ -356,6 +359,8 @@ public record PostRegistrationApp
     public string? OldName { get; set; } = String.Empty;
     public string? Email { get; set; }
     public string? OldEmail { get; set; } = String.Empty;
+    public int? Class { get; set; }
+    public int? OldClass { get; set; }
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
     public string? OldAddress { get; set; } = String.Empty;
@@ -823,7 +828,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy,
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification
 }
 public enum ApplicationLetters
 {
@@ -989,7 +994,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger,
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment,Reclassification
 }
 
 
@@ -1348,6 +1353,35 @@ public record PaymentInfo
     public string? PatentMergerCost { get; set; }
     public string? PatentMergerServiceFee { get; set; }
     public string? PatentMergerServiceID { get; set; }
+
+    public string? DesignAssignmentCost { get; set; }
+    public string? DesignAssignmentServiceFee { get; set; }
+    public string? DesignAssignmentServiceID { get; set; }
+
+    public string? DesignLicenseCost { get; set; }
+    public string? DesignLicenseServiceFee { get; set; }
+    public string? DesignLicenseServiceID { get; set; }
+
+     public string? DesignMortgageCost { get; set; } 
+    public string? DesignMortgageServiceFee { get; set; }
+    public string? DesignMortgageServiceID { get; set; }
+
+     public string? DesignMergerCost { get; set; }
+    public string? DesignMergerServiceFee { get; set; }
+    public string? DesignMergerServiceID { get; set; }
+
+    public string? DesignCtcCost { get; set; }
+    public string? DesignCtcServiceFee { get; set; }
+    public string? DesignCtcServiceID { get; set; }
+
+    public string? DesignAmendmentCost { get; set; }
+    public string? DesignAmendmentServiceFee { get; set; }
+    public string? DesignAmendmentServiceID { get; set; }
+
+    //TM Reclassification
+    public string? ReclassificationCost { get; set; }
+    public string? ReclassificationServiceFee { get; set; }
+    public string? ReclassificationServiceID { get; set; }
 }
 
 public record PaymentRecord

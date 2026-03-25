@@ -13,6 +13,7 @@ using patentdesign.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Authentication;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -24,10 +25,12 @@ namespace patentdesign.Services
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<Filling> _fillingCollection;
         private MongoClient _mongoClient;
-
-        public AuthServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config)
+        private EmailServices _emailServices;
+        private readonly ILogger<AuthServices> _log;
+        public AuthServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
         {
             _config = config;
+            _log = log;
 
             var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -42,6 +45,7 @@ namespace patentdesign.Services
             var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
             _users = pdDb.GetCollection<AppUser>("appUsers");
             _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
+            _emailServices = emailServices;
         }
 
         public async Task<bool> CreateUser(RegisterDto req)
@@ -52,10 +56,14 @@ namespace patentdesign.Services
 
             try
             {
-                Console.WriteLine("Creating user...");
+                _log.LogInformation("Creating user with email {Email}", req.Email);
                 var emailNormalized = req.Email.Trim().ToLowerInvariant();
                 var existing = await _users.Find(u => u.Email == emailNormalized).FirstOrDefaultAsync();
-                if (existing != null) return false;
+                if (existing != null)
+                {
+                    _log.LogWarning("User creation failed — email {Email} already exists", emailNormalized);
+                    return false;
+                }
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(req.Password);
 
@@ -75,17 +83,17 @@ namespace patentdesign.Services
                 };
 
                 await _users.InsertOneAsync(user);
+                _log.LogInformation("User {Email} created successfully with Id {UserId}", emailNormalized, user.Id);
                 return true;
             }
-            catch (MongoWriteException)
+            catch (MongoWriteException ex)
             {
-                // Insert failed (duplicate key or write error)
+                _log.LogError(ex, "MongoDB write error creating user {Email}", req.Email);
                 return false;
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                // Unexpected error - log if you have logging, then return false
-                Console.WriteLine(e);
+                _log.LogError(ex, "Unexpected error creating user {Email}", req.Email);
                 return false;
             }
         }
@@ -94,9 +102,9 @@ namespace patentdesign.Services
         {
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Email, user.Email),
-            };
+                    new Claim(ClaimTypes.NameIdentifier, user.Id),
+                    new Claim(ClaimTypes.Email, user.Email),
+                };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -116,12 +124,19 @@ namespace patentdesign.Services
         {
             try
             {
+                _log.LogInformation("Login attempt for {Email}", req.Email);
                 var user = await _users.Find(u => u.Email == req.Email).FirstOrDefaultAsync();
                 if (user == null)
+                {
+                    _log.LogWarning("Login failed — user {Email} not found", req.Email);
                     return null;
+                }
                 var validPassword = BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash);
                 if (!validPassword)
+                {
+                    _log.LogWarning("Login failed — invalid password for {Email}", req.Email);
                     return null;
+                }
                 LoggedInUserDto dto = new LoggedInUserDto
                 {
                     Id = user.Id,
@@ -134,7 +149,7 @@ namespace patentdesign.Services
                     CreatedAt = user.CreatedAt,
                     CreatorId = user.CreatorId,
                     LastUpdatedAt = user?.LastUpdatedAt,
-                    
+
                 };
                 var token = GenerateJwtToken(user);
                 AuthUserDto authUser = new AuthUserDto
@@ -142,11 +157,12 @@ namespace patentdesign.Services
                     Token = token,
                     User = dto
                 };
-                Console.WriteLine("Token: " + token);
+                _log.LogInformation("User {Email} logged in successfully", req.Email);
                 return authUser;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _log.LogError(ex, "Unexpected error during login for {Email}", req.Email);
                 throw;
             }
         }
@@ -154,13 +170,10 @@ namespace patentdesign.Services
         {
             if (string.IsNullOrWhiteSpace(raw)) return NigerianStates.None;
 
-            // Trim and lower for comparisons
             var s = raw.Trim();
 
-            // Remove the word "state" if present (e.g. "Lagos State" -> "Lagos")
             s = Regex.Replace(s, @"\bstate\b", "", RegexOptions.IgnoreCase).Trim();
 
-            // Common aliases
             var alias = s.ToLowerInvariant();
             switch (alias)
             {
@@ -171,15 +184,13 @@ namespace patentdesign.Services
                     return NigerianStates.FederalCapitalTerritory;
             }
 
-            // Normalize: remove non-letters, collapse spaces, then remove spaces to match enum naming
             var cleaned = Regex.Replace(s, @"[^A-Za-z\s]", " ").Trim();
             cleaned = Regex.Replace(cleaned, @"\s+", " ");
-            var key = cleaned.Replace(" ", ""); // e.g. "Cross River" -> "CrossRiver", "Akwa Ibom" -> "AkwaIbom"
+            var key = cleaned.Replace(" ", "");
 
             if (Enum.TryParse<NigerianStates>(key, true, out var parsed))
                 return parsed;
 
-            // As fallback, try parsing the cleaned string directly (some enums match single-word names)
             if (Enum.TryParse<NigerianStates>(cleaned, true, out parsed))
                 return parsed;
 
@@ -221,7 +232,6 @@ namespace patentdesign.Services
         }
         private AccountType MapAccountType(List<UserRoles> roles, UserTypes? type)
         {
-            // If no roles provided, fall back to user type mapping or default to Individual
             if (type.HasValue)
             {
                 return type switch
@@ -260,7 +270,6 @@ namespace patentdesign.Services
                 return AccountType.Individual;
             }
 
-            // If roles explicitly indicate individual-level users
             if (roles.Exists(r => r == UserRoles.Users || r == UserRoles.Agent))
             {
                 return AccountType.Individual;
@@ -278,17 +287,8 @@ namespace patentdesign.Services
         {
             try
             {
-                Console.WriteLine("Creator id:" + dto._id);
+                _log.LogInformation("Transferring user {UserId} with email {Email}", dto._id, dto.email);
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.password);
-                // var filings = await _fillingCollection.Find(f => f.CreatorAccount == dto._id).ToListAsync();
-                // var files = new List<string>();
-                // if (filings != null && filings.Count > 0)
-                // {
-                //     files = filings
-                //         .Select(f => f.FileId)
-                //         .Where(id => !string.IsNullOrWhiteSpace(id))
-                //         .ToList();
-                // }
                 var corr = dto.DefaultCorrespondence;
                 var state = MapToNigerianState(corr?.state);
                 var roles = MapToRole(dto.UserRoles);
@@ -314,10 +314,12 @@ namespace patentdesign.Services
                     Files = new List<string>(),
                 };
                 await _users.InsertOneAsync(newUser);
+                _log.LogInformation("User {Email} transferred successfully with Id {UserId}", dto.email, dto.uuid);
                 return true;
             }
-            catch (MongoWriteException)
+            catch (MongoWriteException ex)
             {
+                _log.LogError(ex, "MongoDB write error transferring user {UserId}", dto._id);
                 return false;
             }
         }
@@ -325,50 +327,100 @@ namespace patentdesign.Services
         {
             try
             {
+                _log.LogInformation("Password change requested for {Email}", dto.Email);
                 var user = await _users.Find(u => u.Email == dto.Email).FirstOrDefaultAsync();
                 if (user == null)
+                {
+                    _log.LogWarning("Password change failed — user {Email} not found", dto.Email);
                     return false;
+                }
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
                 var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, hashedPassword);
                 var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+                _log.LogInformation("Password changed for {Email}, ModifiedCount: {Count}", dto.Email, result.ModifiedCount);
                 return result.ModifiedCount > 0;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _log.LogError(ex, "Error changing password for {Email}", dto.Email);
                 throw;
             }
         }
+        public async Task<bool> RequestPasswordReset(string email)
+        {
+            _log.LogInformation("Password reset requested for {Email}", email);
+            var user = await _users.Find(u => u.Email == email).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                _log.LogWarning("Password reset failed — user {Email} not found", email);
+                return false;
+            }
+
+            var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.PasswordResetToken, token)
+                .Set(u => u.PasswordResetTokenExpiry, DateTime.UtcNow.AddHours(1));
+
+            await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+
+            var resetLink = $"https://portal.iponigeria.com/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
+            _log.LogDebug("Reset link generated for {Email}", email);
+
+            var mail = new EmailDto
+            {
+                EmailType = EmailType.ResetPassword,
+                ResetPasswordMail = new ResetPasswordMail
+                    {
+                        ResetLink = resetLink,
+                        UserName = user.Name,
+                    },
+                To = email,
+                Subject = "Password Reset",
+            };
+            await _emailServices.SendMail(mail);
+            _log.LogInformation("Password reset email sent to {Email}", email);
+
+            return true;
+        }
         public async Task<bool> ResetPassword(ResetPasswordDto dto)
         {
-            try
+            _log.LogInformation("Processing password reset for {Email}", dto.Email);
+            var user = await _users.Find(u =>
+                u.Email == dto.Email &&
+                u.PasswordResetToken == dto.Token &&
+                u.PasswordResetTokenExpiry > DateTime.UtcNow
+            ).FirstOrDefaultAsync();
+
+            if (user == null)
             {
-                var user = await _users.Find(u => u.Email == dto.Email).FirstOrDefaultAsync();
-                if (user == null)
-                    return false;
-                // Here you would typically generate a reset token and send it via email.
-                if (user == null)
-                    return false;
-                var hashedPassword = BCrypt.Net.BCrypt.HashPassword("Ipo@1234");
-                var update = Builders<AppUser>.Update.Set(u => u.PasswordHash, hashedPassword);
-                var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
-                return result.ModifiedCount > 0;
-                return true;
+                _log.LogWarning("Password reset failed — invalid or expired token for {Email}", dto.Email);
+                return false;
             }
-            catch (Exception)
-            {
-                throw;
-            }
+
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.PasswordHash, hashedPassword)
+                .Unset(u => u.PasswordResetToken)
+                .Unset(u => u.PasswordResetTokenExpiry);
+
+            var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+            _log.LogInformation("Password reset completed for {Email}, ModifiedCount: {Count}", dto.Email, result.ModifiedCount);
+
+            return result.ModifiedCount > 0;
         }
         public async Task<bool> UpdateUserProfile(ProfileDto dto)
         {
             try
             {
+                _log.LogInformation("Updating profile for user {UserId}", dto.UserId);
                 var user = await _users.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
                 if (user == null) throw new KeyNotFoundException("User not found");
                 var fullName = dto?.FirstName + " " + dto?.LastName;
                 var updateDefinitions = new List<UpdateDefinition<AppUser>>();
 
-                
+
                 if (!string.IsNullOrEmpty(dto.FirstName))
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.FirstName, dto.FirstName));
 
@@ -380,7 +432,7 @@ namespace patentdesign.Services
 
                 if (dto.AccountType is not null)
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.AccountType, dto.AccountType));
-                
+
                 if (!string.IsNullOrEmpty(dto.Address))
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Address, dto.Address));
 
@@ -402,18 +454,23 @@ namespace patentdesign.Services
                     updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.Name, dto.Name));
                 }
                 if (updateDefinitions.Count == 0)
+                {
+                    _log.LogDebug("No profile fields to update for user {UserId}", dto.UserId);
                     return false;
+                }
 
                 updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.LastUpdatedAt, DateTime.Now));
 
                 var combinedUpdate = Builders<AppUser>.Update.Combine(updateDefinitions);
                 var filter = Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId);
                 var result = await _users.UpdateOneAsync(filter, combinedUpdate);
+                _log.LogInformation("Profile updated for user {UserId}, ModifiedCount: {Count}", dto.UserId, result.ModifiedCount);
 
                 return result.ModifiedCount > 0;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _log.LogError(ex, "Error updating profile for user {UserId}", dto.UserId);
                 throw;
             }
         }
@@ -421,7 +478,8 @@ namespace patentdesign.Services
         {
             try
             {
-                var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync() ?? 
+                _log.LogDebug("Fetching user profile for {UserId}", userId);
+                var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync() ??
                     throw new KeyNotFoundException("User not found");
 
                 var userDeets = new ProfileDto
@@ -434,13 +492,14 @@ namespace patentdesign.Services
                     Nationality = user.Nationality,
                     PhoneNumber = user.PhoneNumber,
                     State = user.State,
-                    Name = user.FirstName +" "+ user.LastName,
+                    Name = user.FirstName + " " + user.LastName,
                     UserRoles = user.UserRoles
                 };
                 return userDeets;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _log.LogError(ex, "Error fetching user profile for {UserId}", userId);
                 throw;
             }
         }

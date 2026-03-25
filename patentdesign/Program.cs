@@ -9,11 +9,10 @@ using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 using patentdesign.Models;
 using patentdesign.Services;
-using patentdesign.Services.Implementation;
-using patentdesign.Services.Interface;
 using patentdesign.Utils;
 using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
+using Serilog;
 using System.Security.Authentication;
 using System.Text;
 
@@ -25,7 +24,20 @@ if (builder.Environment.IsDevelopment())
 {
     DotNetEnv.Env.Load();
 }
+// ------------------ Serilog ------------------
+var logPath = builder.Configuration["PatentDesignDatabase:LogPath"] ?? @"C:\IpoApiLog";
 
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .WriteTo.Console()
+    .WriteTo.File(
+        Path.Combine(logPath, ".txt"),
+        rollingInterval: RollingInterval.Day,
+        outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 // ------------------ JWT Config ------------------
 var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "https://portal.iponigeria.com";
@@ -110,7 +122,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 // ------------------ QuestPDF ------------------
 QuestPDF.Settings.License = LicenseType.Community;
-using var fontStream = File.OpenRead("assets/Certificate.otf");
+var fontPath = Path.Combine(AppContext.BaseDirectory, "assets", "Certificate.otf");
+using var fontStream = File.OpenRead(fontPath);
 FontManager.RegisterFont(fontStream);
 
 // ------------------ Mongo Client ------------------
@@ -150,7 +163,7 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddProblemDetails();
 
 // ------------------ Services ------------------
-builder.Services.AddSingleton<ILoggerService, LoggerService>();
+//builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddSingleton<OppositionService>();
 builder.Services.AddSingleton<FileServices>();
@@ -176,6 +189,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                       | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+});
 
 app.UseHttpsRedirection();
 

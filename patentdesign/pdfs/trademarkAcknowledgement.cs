@@ -133,27 +133,30 @@ namespace patentdesign
                             columns.RelativeColumn();
                             columns.RelativeColumn();
                         });
-                        table.Cell().ColumnSpan(2).Element(HeaderElement).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-                        table.Cell().Element(Block).Column(c => {
-                            c.Item().Text("Applicant Name:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.applicants[0].Name).FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                        });
-                        table.Cell().Element(Block).Column(c => {
-                            c.Item().Text("Email:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.applicants[0].Email).FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                        });
-                        table.Cell().Element(Block).Column(c => {
-                            c.Item().Text("Phone Number:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.applicants[0].Phone).FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                        });
-                        table.Cell().Element(Block).Column(c => {
-                            c.Item().Text("Nationality:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.applicants[0].country).FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                        });
-                        table.Cell().ColumnSpan(2).Element(Block).Column(c => {
-                            c.Item().Text("Applicant Address:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.applicants[0].Address).FontSize(12).FontFamily(Fonts.TimesNewRoman);
-                        });
+                        table.Cell().ColumnSpan(2).Element(HeaderElement).Text("APPLICANT(S) INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                        foreach (var applicant in model.applicants)
+                        {
+                            table.Cell().Element(Block).Column(c => {
+                                c.Item().Text("Applicant Name:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text(applicant.Name).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            });
+                            table.Cell().Element(Block).Column(c => {
+                                c.Item().Text("Email:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text(applicant.Email).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            });
+                            table.Cell().Element(Block).Column(c => {
+                                c.Item().Text("Phone Number:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text(applicant.Phone).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            });
+                            table.Cell().Element(Block).Column(c => {
+                                c.Item().Text("Nationality:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text(applicant.country).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            });
+                            table.Cell().ColumnSpan(2).Element(Block).Column(c => {
+                                c.Item().Text("Applicant Address:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text(applicant.Address).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            });
+                        }
                     });
                     // Trademark Information Section
                     column.Item().Table(table =>

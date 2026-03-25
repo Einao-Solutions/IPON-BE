@@ -13,13 +13,13 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 //using MongoDB.Driver.Core.Operations;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Linq;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.pdfs;
-using patentdesign.Services.Interface;
 using patentdesign.Utils;
 using QuestPDF.Fluent;
 using System.Diagnostics;
@@ -40,6 +40,7 @@ using static QRCoder.PayloadGenerator.ShadowSocksConfig;
 using static System.Net.Mime.MediaTypeNames;
 using static System.Net.WebRequestMethods;
 using static System.Runtime.InteropServices.JavaScript.JSType;
+using File = System.IO.File;
 
 namespace patentdesign.Services;
 
@@ -55,6 +56,7 @@ public class FileServices
     private static IMongoCollection<StaffPerformance> _performanceCollection;
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
+    private readonly ILogger<FileServices> _log;
 
 
     private PaymentUtils _remitaPaymentUtils;
@@ -66,9 +68,7 @@ public class FileServices
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
 
-    //adding log service
-    private ILoggerService _log;
-    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILoggerService log, PaymentService paymentService)
+    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -103,11 +103,12 @@ public class FileServices
     {
         try
         {
+            _log.LogDebug("Fetching file by Id {FileId}", id);
             return await _fillingCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Error-at-GetSingleFile");
+            _log.LogError(ex, "Error fetching file {FileId}", id);
             throw;
         }
     }
@@ -116,41 +117,44 @@ public class FileServices
     public async Task CreateFileAsync(Filling newFile)
     {
         newFile.FileId = string.Join("/", [newFile.FileId, Guid.NewGuid().ToString().Split("-")[0]]);
+        _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
     }
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
     {
-        var file = await _fillingCollection.Find(d => d.Id == fileId).FirstOrDefaultAsync()
-            ?? throw new KeyNotFoundException("File not found.");
+        _log.LogInformation("ManualUpdate started for FileId {FileId}, AppId {AppId}, IsCertificate {IsCert}",
+            fileId, applicationId, isCertificate);
+
+        var file = await _fillingCollection.Find(d => d.FileId == fileId).FirstOrDefaultAsync()
+                   ?? throw new KeyNotFoundException("File not found.");
 
         var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId)
-            ?? throw new KeyNotFoundException("Application not found.");
+                          ?? throw new KeyNotFoundException("Application not found.");
 
-        // Handle certificate-only path
         if (isCertificate == true)
         {
-            return await HandleCertificateValidation(file, application, userName, userId);
+            _log.LogDebug("Updating certificate application for FileId {FileId}", fileId);
+            var update = await UpdateCertificatePaymentStatus(fileId, application.PaymentId);
+            if (update) return file;
         }
 
-        // Validate and get payment info
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
         var paymentDate = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
 
-        // Initialize status history
         application.StatusHistory ??= new List<ApplicationHistory>();
 
-        // Process application based on type
         await ProcessApplicationType(file, application, paymentDate, userName, userId);
 
-        // Update file in database
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
-        
+
+        _log.LogInformation("ManualUpdate completed for FileId {FileId}", fileId);
         return file;
     }
     private async void SavePayment(RemitaResponseClass pay, PaymentTypes type, string fileId, string appId)
     {
+        _log.LogDebug("Saving payment record for FileId {FileId}, AppId {AppId}, Type {PaymentType}", fileId, appId, type);
         var paymentDate = DateTime.TryParse(pay.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
         var payment = new PaymentRecord
         {
@@ -169,6 +173,7 @@ public class FileServices
         if (string.IsNullOrWhiteSpace(certRrr))
             throw new ArgumentException("Certificate payment reference not found.");
 
+        _log.LogDebug("Validating certificate payment RRR {Rrr} for FileId {FileId}", certRrr, file.Id);
         var certRes = await ValidateCertificatePayment(file.Id, certRrr, userName, userId);
         return certRes.data;
     }
@@ -178,8 +183,10 @@ public class FileServices
         if (string.IsNullOrWhiteSpace(application.PaymentId))
             throw new Exception("Payment reference not found for the application.");
 
+        _log.LogDebug("Validating payment for RRR {Rrr}", application.PaymentId);
         var paymentInfo = await _paymentService.CheckPayment(application.PaymentId);
-        Console.WriteLine("payment info: ", paymentInfo);
+        _log.LogDebug("Payment status for RRR {Rrr}: {Status}", application.PaymentId, paymentInfo?.status);
+
         if (paymentInfo == null || paymentInfo.status != "00")
             throw new InvalidOperationException($"Payment Not Found or Invalid RRR, {application.PaymentId}");
 
@@ -206,7 +213,11 @@ public class FileServices
             case FormApplicationTypes.ClericalUpdate:
                 await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
                 break;
-
+            case FormApplicationTypes.Reclassification:
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
             case FormApplicationTypes.DataUpdate:
                 application.ApplicationLetters = [ApplicationLetters.RecordalReceipt, ApplicationLetters.RecordalAck];
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
@@ -226,11 +237,11 @@ public class FileServices
 
     private async Task ProcessNewApplication(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
-        Console.WriteLine($"Processing new application...{file.FileId}");
+        _log.LogInformation("Processing new application for FileId {FileId}", file.FileId);
         file.FileStatus = ApplicationStatuses.AwaitingSearch;
         file.FileId = await GenerateNewFileId(file);
 
-        Console.WriteLine($"Generated new file ID: {file.FileId}");
+        _log.LogInformation("Generated new file ID {FileId} for {FileType}", file.FileId, file.Type);
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
             paymentDate, userName, userId, "Payment Successful, awaiting search");
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
@@ -397,17 +408,17 @@ public class FileServices
 
     private async Task<string> GenerateNewFileId(Filling file)
     {
-        Console.WriteLine("Generating new file number...");
+        _log.LogDebug("Generating new file number for {FileType}", file.Type);
         var segments = (file.FileId ?? string.Empty).Split('/');
         var max = Math.Max(segments.Length - 1, 0);
 
         var counter = await _countersCollection
-            .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-            .FirstOrDefaultAsync()
-            ?? throw new Exception("Counter not found for file type.");
+                          .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
+                          .FirstOrDefaultAsync()
+                      ?? throw new Exception("Counter not found for file type.");
 
         var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
-        Console.WriteLine($"Generated new file number: {newId}");
+        _log.LogInformation("Generated file number {NewFileId} for {FileType}", newId, file.Type);
         var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
         await _countersCollection.FindOneAndUpdateAsync(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
@@ -652,7 +663,7 @@ public class FileServices
             FileStatus = x.FileStatus,
             Id = x.Id
         }).FirstOrDefaultAsync();
-        Console.WriteLine(JsonSerializer.Serialize(res));
+        _log.LogDebug("Search result for FileNumber {FileNumber}: {Result}", fileNumber, JsonSerializer.Serialize(res));
         return res;
     }
 
@@ -759,19 +770,19 @@ public class FileServices
         }
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
         var result = await _fillingCollection.FindOneAndUpdateAsync<Filling>(filter, Builders<Filling>.Update.Combine(operations), options);
-        
+
         return result;
     }
 
     public async Task<Filling> SaveDateUpdateApplication(DataUpdateReq data)
     {
         var costData = _remitaPaymentUtils.GetCost(PaymentTypes.Update, data.fileType, "", null, null, data.fieldToChange);
-        Console.WriteLine(costData);
-        Console.WriteLine(data);
+        _log.LogDebug("Cost data for update: {CostData}", costData);
+        _log.LogDebug("Data update request for FileId: {FileId}", data.fileId);
         var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(costData.Item1, costData.Item3, costData.Item2,
             $"Payment for data update application",
             data.applicantName, data.email, data.phone);
-        Console.WriteLine(rrr);
+        _log.LogDebug("Generated RRR: {Rrr}", rrr);
         List<UpdateDefinition<Filling>> operations = [];
         var newApp = new ApplicationInfo()
         {
@@ -815,7 +826,7 @@ public class FileServices
             {
                 // if (pending.Id != "b6116cbc-da10-4951-96aa-5b2981c30a72")
                 // {
-                Console.WriteLine($"validating payment for...... {pending.Id}");
+                _log.LogInformation("Validating payment for FileId: {FileId}", pending.Id);
                 // update field
                 await UpdateApplicationStatus(new UpdateDataType()
                 {
@@ -1014,6 +1025,9 @@ public class FileServices
 
     public async Task<Filling?> UpdateApplicationStatus(UpdateDataType data)
     {
+        _log.LogInformation("UpdateApplicationStatus started for FileId {FileId}, AppId {AppId}, {Before} → {After}",
+            data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
+
         RemitaResponseClass? remi = null;
         bool paymentSuccessful = false;
         if (data.simulate == false)
@@ -1027,16 +1041,22 @@ public class FileServices
                     or FormApplicationTypes.LicenseRenewal
                 })
             {
+                _log.LogDebug("Checking payment status for RRR {Rrr}", data.paymentId);
                 var response = (await CheckStatusViaOrderId(data.paymentId));
                 status = response.Item1;
                 remi = response.Item2;
                 if (status)
                 {
                     paymentSuccessful = true;
+                    _log.LogDebug("Payment confirmed for RRR {Rrr}", data.paymentId);
                 }
             }
 
-            if (!status) return null;
+            if (!status)
+            {
+                _log.LogWarning("Payment validation failed for FileId {FileId}, RRR {Rrr}", data.fileId, data.paymentId);
+                return null;
+            }
         }
         var newStatusHistory = new ApplicationHistory()
         {
@@ -1073,6 +1093,7 @@ public class FileServices
             if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
             {
                 var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.NewApplication);
+                _log.LogDebug("Calculated expiry date {ExpiryDate} for FileId {FileId}", nextDate, data.fileId);
 
                 if (data.applicationType == FormApplicationTypes.NewApplication)
                 {
@@ -1089,6 +1110,7 @@ public class FileServices
                     if (data.FileType is FileTypes.TradeMark)
                     {
                         var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
+                        _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
                         operations.Add(Builders<Filling>.Update.AddToSetEach(
                             "ApplicationHistory.$.ApplicationLetters",
                             [
@@ -1117,12 +1139,13 @@ public class FileServices
             }
             if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
             {
+                _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
                 var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1)
                     .ToListAsync()).First();
                 operations.Add(Builders<Filling>.Update.Push(
                     "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
-                if (data.FileType is FileTypes.TradeMark) 
-                { 
+                if (data.FileType is FileTypes.TradeMark)
+                {
                     perf.OfficeUnit = Roles.TrademarkCertification;
                 }
                 else if (data.FileType is FileTypes.Patent)
@@ -1177,13 +1200,17 @@ public class FileServices
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
         var result = await _fillingCollection.FindOneAndUpdateAsync(filter, Builders<Filling>.Update.Combine(operations), options);
         SavePerformance(perf);
+        _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, NewStatus {Status}",
+            data.fileId, data.AfterStatus);
         return result;
     }
 
     public async Task<PaginatedResponse> GetPaginatedSummaryAsync(int startingIndex, int quantity, SummaryRequestObj filter)
     {
-        Console.WriteLine("index: " + startingIndex + " quantity: " + quantity);
-        Console.WriteLine("filter: " + JsonSerializer.Serialize(filter));
+        _log.LogDebug("GetPaginatedSummary: Index {Index}, Quantity {Qty}, FileTypes {Types}, Status {Status}",
+            startingIndex, quantity, filter.types != null ? string.Join(",", filter.types) : "all",
+            filter.status != null ? string.Join(",", filter.status) : "all");
+
         var filters = getFilter(filter);
         var fillBuilder = Builders<Filling>.Projection;
         var projection = fillBuilder.Expression(x => new FileSummary()
@@ -1203,6 +1230,8 @@ public class FileServices
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
+
         return new PaginatedResponse()
         {
             result = result,
@@ -1212,24 +1241,27 @@ public class FileServices
 
     public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
     {
-        Console.WriteLine($"User id: {userId}");
-        Console.WriteLine($"File id: {fileId}");
+        _log.LogInformation("GetCertificatePaymentCost for FileId {FileId}, UserId {UserId}", fileId, userId);
+
 
         var file = await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.FileId, fileId)).FirstOrDefaultAsync();
         if (file == null)
         {
-            throw new Exception("File not found");
+            _log.LogError("File is null");
+            throw new KeyNotFoundException("File not found");
         }
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq("_id", userId)).FirstOrDefaultAsync();
         if (user == null)
         {
-            throw new Exception("User not found");
+            _log.LogError("User is null");
+            throw new KeyNotFoundException("User not found");
         }
 
         var applicant = file.applicants.FirstOrDefault();
         if (applicant == null)
         {
-            throw new Exception("Applicant not found");
+            _log.LogError("No applicant found");
+            throw new KeyNotFoundException("Applicant not found");
         }
 
         var username = $"{user.FirstName} {user.LastName}";
@@ -1237,12 +1269,15 @@ public class FileServices
         var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(
             data.Item1, data.Item3, data.Item2,
             "Application for Certificate",
-            username, user.Email, user.PhoneNumber);
+            applicant.Name, applicant.Email, applicant.Phone);
 
         if (string.IsNullOrWhiteSpace(rrr))
         {
-            throw new Exception("Unable to generate payment reference");
+            _log.LogError("Failed to generate RRR for certificate payment on FileId {FileId}", fileId);
+            throw new KeyNotFoundException("Unable to generate payment reference");
+
         }
+        _log.LogDebug("Generated certificate RRR {Rrr} for FileId {FileId}, Amount {Amount}", rrr, fileId, data.Item1);
 
         var certApp = new ApplicationInfo
         {
@@ -1284,13 +1319,14 @@ public class FileServices
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, certApp) // <-- correct array
         );
 
-
+        _log.LogInformation("Certificate application created for FileId {FileId}, AppId {AppId}", fileId, certApp.id);
         return new
         {
             rrr,
             total = data.Item1,
             applicant = applicant.Name,
-            fileId
+            fileId,
+            appId = certApp.id
         };
     }
 
@@ -3715,7 +3751,7 @@ public class FileServices
             throw;
         }
     }
-
+    
     public async Task<RecordalDto> PatentMortgageCost(string fileId, FileTypes fileType)
     {
         try
@@ -3996,6 +4032,232 @@ public class FileServices
         catch (Exception ex)
         {
             _log.LogError(ex, "Error-at-PatentAmendmentCost");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto> DesignAssignmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignAssignment, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Assignment",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designAssignmentCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designAssignmentCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Assignment Cost retrieval");
+            throw;
+        }
+    }
+
+    public async Task<RecordalDto?> DesignLicenseCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var (amount, narration, serviceFee) = _remitaPaymentUtils
+                .GetCost(PaymentTypes.DesignLicense, fileType, string.Empty, null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                amount,
+                serviceFee,
+                narration,
+                "Design License",
+                applicant.Name,
+                applicant.Email,
+                applicant.Phone);
+
+            return new RecordalDto
+            {
+                Amount = amount,
+                rrr = paymentId,
+                FileId = fileInfo.FileId,                                  // file number
+                FileTitle = fileInfo.TitleOfDesign ?? string.Empty,        // title of industrial design
+                DesignType = fileInfo.DesignType,                          // design type enum
+                ApplicantName = applicant.Name,                            // first applicant details
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantCity = applicant.city
+            };
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-Design License Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignMergerCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designMergerCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designMergerCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Merger Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignCtcCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignCtc, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designCtcCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designCtcCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design CTC Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignAmendmentCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignAmendment, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Amendment",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designAmendmentCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designAmendmentCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Amendment Cost retrieval");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> DesignMortgageCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMortgage, fileType, "", null, null, null);
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+            var applicant = fileInfo.applicants[0];
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Mortgage",
+                applicant.Name, applicant.Email, applicant.Phone);
+            var designMortgageCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                ApplicantName = applicant.Name,
+              //  TrademarkClass = fileInfo.TrademarkClass
+            };
+            return designMortgageCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Design Mortgage Cost retrieval");
             throw;
         }
     }
@@ -4463,7 +4725,7 @@ public class FileServices
             var applicant = fileInfo.applicants[0];
 
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Recordal Application",
+                data.Item1, data.Item3, data.Item2, "Trademark Merger",
                 applicant.Name, applicant.Email, applicant.Phone);
 
             var mergeCost = new RecordalDto
@@ -4482,6 +4744,119 @@ public class FileServices
         {
             //log error
             _log.LogError(up, "Error-at-MergerCost");
+            throw;
+        }
+    }
+    public async Task<RecordalDto> ReclassificationCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.Reclassification, fileType, "", null, null, null);
+
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                throw new KeyNotFoundException("File not found");
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Reclassification of Trademark",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var reclassificationCost = new RecordalDto
+            {
+                Amount = data.Item1,
+                rrr = paymentId,
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfTradeMark ?? "",
+                ApplicantName = applicant.Name,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+
+            return reclassificationCost;
+        }
+        catch (Exception up)
+        {
+            //log error
+            _log.LogError(up, "Error-at-Reclassification-Cost");
+            throw;
+        }
+    }
+
+    public async Task<string> TrademarkReclassification(ChangeDataRecordalDto dto)
+    {
+        try
+        {
+            _log.LogInformation($"{dto.FileId} applies for reclassification...");
+            var file = await _fillingCollection.Find(f => f.FileId == dto.FileId).FirstOrDefaultAsync();
+            if (file == null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException("File not found");
+            }
+            var applicant = file.applicants.FirstOrDefault();
+            var user = await _userCollection
+                           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.userId))
+                           .FirstOrDefaultAsync()
+                       ?? await _userCollection
+                           .Find(Builders<AppUser>.Filter.Eq(u => u.CreatorId, dto.userId))
+                           .FirstOrDefaultAsync();
+
+            var appHistory = new ApplicationInfo
+            {
+                id = Guid.NewGuid().ToString(),
+                ApplicationType = FormApplicationTypes.Reclassification,
+                CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                ApplicationDate = DateTime.Now,
+                PaymentId = dto.rrr,
+                FieldToChange = "Reclassification of Trademark",
+                NewValue = "",
+                StatusHistory = new List<ApplicationHistory>
+                {
+                    new ApplicationHistory
+                    {
+                        Date = DateTime.Now,
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.AwaitingPayment,
+                        Message = "Reclassification application submitted",
+                        User = user.Name,
+                        UserId = user.Id
+                    }
+                }
+            };
+            var app = new PostRegistrationApp
+            {
+                Id = appHistory.id,
+                FilingDate = DateTime.Now.ToString(),
+                rrr = dto.rrr,
+                FileNumber = dto.FileId,
+                OldClass = file.TrademarkClass,
+                Class = dto.NewClass,
+                RecordalType = "Reclassification",
+                DateTreated = ""
+            };
+
+
+            var update = Builders<Filling>.Update
+                .Push(f => f.PostRegApplications, app)
+                .Push(f => f.ApplicationHistory, appHistory);
+
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+                update
+            );
+            _log.LogInformation("Reclassification application saved");
+            return appHistory.id;
+        }
+        catch (Exception e)
+        {
+            _log.LogError(e, "Failed to submit reclassification application");
             throw;
         }
     }
@@ -4685,7 +5060,11 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.ChangeDataRecordal, fileType, "", null, null, null);
+            var classChange = changeType == "Class";
+
+            _log.LogInformation($"Calculating cost for {changeType} application for fileId: {fileId}");
+
+            var data = _remitaPaymentUtils.GetCost(classChange ? PaymentTypes.Reclassification : PaymentTypes.ChangeDataRecordal, fileType, "", null, null, null);
 
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
@@ -4693,7 +5072,7 @@ public class FileServices
 
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
-                Console.WriteLine("No file or applicants found.");
+                _log.LogError("No file or applicants found.");
                 return null;
             }
 
@@ -4703,6 +5082,11 @@ public class FileServices
                 data.Item1, data.Item3, data.Item2, "Recordal Application",
                 applicant.Name, applicant.Email, applicant.Phone);
 
+            if (paymentId == null)
+            {
+                _log.LogError("Failed to generate payment ID");
+                return null;
+            }
             var changeCost = new RecordalDto
             {
                 Amount = data.Item1,
@@ -4717,7 +5101,7 @@ public class FileServices
                 TrademarkClass = fileInfo.TrademarkClass,
                 DataChangeType = changeType
             };
-
+            _log.LogInformation($"New Change data recordal application for {fileId}, with {paymentId}");
             return changeCost;
         }
         catch (Exception up)
@@ -4727,25 +5111,30 @@ public class FileServices
             throw;
         }
     }
-    public async Task<bool> ChangeDataRecordal(ChangeDataRecordalDto newData)
+    public async Task<string> ChangeDataRecordal(ChangeDataRecordalDto newData)
     {
+        _log.LogInformation($"New Change {newData.ChangeType} application");
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, newData.FileId))
             .FirstOrDefaultAsync();
 
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogError($"{newData.FileId} not found");
+            return null;
+        }
         var applicant = file.applicants.FirstOrDefault();
         var user = await _userCollection
             .Find(Builders<AppUser>.Filter.Eq(u => u.Id, newData.userId))
             .FirstOrDefaultAsync()
             ?? await _userCollection
-                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, file.CreatorAccount))
+                .Find(Builders<AppUser>.Filter.Eq(u => u.CreatorId, newData.userId))
                 .FirstOrDefaultAsync();
         var userName = user != null
             ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
             : applicant?.Name ?? "Unknown";
 
-        var userId = user?.Id ?? file.CreatorAccount;
+        var userId = user?.Id ?? user.CreatorId;
         string docUrl = "";
         if (newData.document != null)
         {
@@ -4790,7 +5179,7 @@ public class FileServices
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Change Data",
-                        User = userName,
+                        User = user.Name ?? userName,
                         UserId = userId
                     }
                 }
@@ -4822,13 +5211,15 @@ public class FileServices
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
             );
+            return appHistory.id;
         }
         catch (Exception ex)
         {
-            throw new Exception("Error during ChangeDataRecordal", ex);
+            _log.LogError("Error during ChangeDataRecordal", ex);
+            throw;
         }
 
-        return true;
+   
     }
     public async Task<ChangeDataRecordalDto> GetChangeDataRecordal(string fileId, string appId)
     {
@@ -4849,7 +5240,11 @@ public class FileServices
             NewName = recordal?.Name,
             OldAddress = recordal.OldAddress,
             NewAddress = recordal?.Address,
-            documentUrl = recordal?.documentUrl
+            OldClassDescription = recordal?.OldClass.HasValue == true ? FileUtils.TrademarkClassMapper.GetDescription(recordal.OldClass.Value) : null,
+            NewClassDescription = recordal?.Class.HasValue == true ? FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value) : null,
+            documentUrl = recordal?.documentUrl,
+            OldClass = recordal.OldClass,
+            NewClass = recordal?.Class,
         };
 
         return changeDetails;
@@ -4921,8 +5316,8 @@ public class FileServices
     {
         try
         {
-            Console.WriteLine($"Approving data change for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
-            Console.WriteLine(JsonSerializer.Serialize(recordalApp, new JsonSerializerOptions { WriteIndented = true }));
+            _log.LogInformation($"Approving data change for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
+            _log.LogDebug(JsonSerializer.Serialize(recordalApp, new JsonSerializerOptions { WriteIndented = true }));
             var file = await _fillingCollection
                  .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
                  .FirstOrDefaultAsync();
@@ -4937,18 +5332,25 @@ public class FileServices
             }
 
             if (user == null)
+            {
+                _log.LogError("Unauthorized user");
                 throw new KeyNotFoundException("Unauthorized user");
+            }
 
             // Update post reg
             var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
-            if (recordal == null) return false;
+            if (recordal == null)
+            {
+                _log.LogError("Recordal not found");
+                return false;
+            }
             recordal.DateTreated = DateTime.Now.ToString();
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
-            app.CurrentStatus = ApplicationStatuses.AutoApproved;
+            app.CurrentStatus = ApplicationStatuses.Approved;
 
             file.applicants ??= new List<ApplicantInfo>();
             var applicant = file.applicants.FirstOrDefault();
@@ -4960,6 +5362,16 @@ public class FileServices
             else if (recordal.RecordalType == "Change of Applicant Name")
             {
                 applicant.Name = recordal.Name;
+            } else if (recordal.RecordalType == "Reclassification")
+            {
+                file.TrademarkClass = recordal.Class;
+                var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
+                file.TrademarkClassDescription = descr;
+            }
+            {
+                file.TrademarkClass = recordal.Class;
+                var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
+                file.TrademarkClassDescription = descr;
             }
 
             var update = Builders<Filling>.Update
@@ -4985,6 +5397,7 @@ public class FileServices
             };
 
             SavePerformance(perform);
+            _log.LogInformation($"{recordal.RecordalType} has been approved");
             return true;
 
         }
@@ -6039,6 +6452,35 @@ public class FileServices
                         ExistingDesignAttachments = designs?.url
                     };
                     break;
+                case FileTypes.Patent:
+                    updateCost = new ClericalUpdateDto
+                    {
+                        Cost = search ? "0" : data.Item1,
+                        PaymentRRR = paymentId,
+                        FileStatus = fileInfo.FileStatus,
+                        FileId = dto.FileNumber,
+                        FileTitle = fileInfo.TitleOfInvention,
+                        FileType = fileInfo.Type,
+                        UpdateType = dto.UpdateType,
+                        PatentType = fileInfo.PatentType,
+                        PatentApplicationType = fileInfo.PatentApplicationType,
+                        FileOrigin = fileInfo.FileOrigin,
+                        TitleOfInvention = fileInfo.TitleOfInvention,
+                        ServiceFee = data.Item3,
+                        Applicants = fileInfo.applicants,
+                        Inventors = fileInfo.Inventors,
+                        ApplicantName = applicant.Name,
+                        ApplicantEmail = applicant.Email,
+                        ApplicantNationality = applicant.country,
+                        ApplicantPhone = applicant.Phone,
+                        ApplicantAddress = applicant.Address,
+                        CorrespondenceName = fileInfo.Correspondence?.name,
+                        CorrespondenceAddress = fileInfo.Correspondence?.address,
+                        CorrespondenceEmail = fileInfo.Correspondence?.email,
+                        CorrespondencePhone = fileInfo.Correspondence?.phone,
+                        PatentAbstract = fileInfo.PatentAbstract,
+                    };
+                    break;
                 default:
                     throw new Exception("Invalid file type for clerical update.");
             }
@@ -6054,7 +6496,6 @@ public class FileServices
 
     public async Task<string> ClericalUpdate(ClericalUpdateDto updateData)
     {
-        Console.WriteLine(updateData);
         if (updateData == null)
             throw new ArgumentNullException(nameof(updateData));
 
@@ -6064,7 +6505,7 @@ public class FileServices
         try
         {
             Console.WriteLine($"Finding file: {updateData.FileId}");
-            Console.WriteLine(JsonSerializer.Serialize(updateData));
+            Console.WriteLine(JsonSerializer.Serialize(updateData, new JsonSerializerOptions { WriteIndented = true }));
 
             var file = await _fillingCollection
                 .Find(f => f.FileId == updateData.FileId)
@@ -6073,15 +6514,19 @@ public class FileServices
             if (file == null)
                 throw new KeyNotFoundException("File Not Found");
 
+            var user = await _userCollection.Find(u => u.Id == updateData.UserId).FirstOrDefaultAsync();
+            if (user is null) throw new KeyNotFoundException("User not found");
+
             // Check if this exact clerical update already exists (idempotency)
             var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
                 c.PaymentRRR == updateData.PaymentRRR &&
                 c.UpdateType == updateData.UpdateType.ToString() &&
-                c.FilingDate.Date == DateTime.UtcNow.Date
+                c.FilingDate.Date == DateTime.Now.Date
             );
 
             if (existingUpdate != null)
             {
+                Console.WriteLine("Application already exists!");
                 return existingUpdate.Id;
             }
 
@@ -6090,13 +6535,12 @@ public class FileServices
             var isAmendment =
                 file.FileStatus == ApplicationStatuses.Publication ||
                 file.FileStatus == ApplicationStatuses.AwaitingCertification;
-
             var appHistoryId = Guid.NewGuid().ToString();
 
             var appHistory = new ApplicationInfo
             {
                 id = appHistoryId,
-                ApplicationDate = DateTime.UtcNow,
+                ApplicationDate = DateTime.Now,
                 PaymentId = updateData.PaymentRRR,
                 ApplicationType = isAmendment
                     ? FormApplicationTypes.Amendment
@@ -6106,16 +6550,16 @@ public class FileServices
                 [
                     new ApplicationHistory
                     {
-                        Date = DateTime.UtcNow,
+                        Date = DateTime.Now,
                         beforeStatus = ApplicationStatuses.AwaitingPayment,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Clerical Update",
-                        User = applicant?.Name,
-                        UserId = file.CreatorAccount
+                        User = user.Name ?? $"{user.FirstName} {user.LastName}",
+                        UserId = updateData.UserId
                     }
                 ]
             };
-
+            Console.WriteLine("creating clerical record... ");
             var clerical = await CreateClericalUpdateRecord(file, updateData, appHistoryId);
             clerical.IsAmendment = isAmendment;
 
@@ -6146,11 +6590,14 @@ public class FileServices
     ClericalUpdateDto updateData,
     string appHistoryId)
     {
+        var isPatent = file.Type == FileTypes.Patent;
+        var isDesign = file.Type == FileTypes.Design;
+
         var clerical = new ClericalUpdate
         {
             Id = appHistoryId,
             UpdateType = updateData.UpdateType.ToString(),
-            FilingDate = DateTime.UtcNow,
+            FilingDate = DateTime.Now,
             PaymentRRR = updateData.PaymentRRR
         };
 
@@ -6216,6 +6663,7 @@ public class FileServices
                 }
 
                 break;
+
             case ClericalUpdateTypes.TrademarkType:
                 if (!string.IsNullOrWhiteSpace(updateData.ApplicantNationality))
                 {
@@ -6232,8 +6680,13 @@ public class FileServices
             case ClericalUpdateTypes.FileClass:
                 clerical.OldFileClass = file.TrademarkClass?.ToString();
                 clerical.NewFileClass = updateData.FileClass?.ToString();
-                clerical.OldClassDescription = file.TrademarkClassDescription;
-                clerical.NewClassDescription = updateData.ClassDescription;
+                if (updateData.FileClass != null)
+                {
+                    var newDescription = FileUtils.TrademarkClassMapper.GetDescription(updateData.FileClass.Value);
+                    var oldDescription = FileUtils.TrademarkClassMapper.GetDescription(file.TrademarkClass.Value);
+                    clerical.OldClassDescription = oldDescription;
+                    clerical.NewClassDescription = newDescription;
+                }
                 break;
 
             case ClericalUpdateTypes.CorrespondenceInformation:
@@ -6248,7 +6701,7 @@ public class FileServices
                 clerical.OldPowerOfAttorneyUrl =
                     file.Attachments?.FirstOrDefault(a => a.name == "poa")?.url?.FirstOrDefault();
                 clerical.NewPowerOfAttorneyUrl = poaUrl;
-                clerical.NewAttachmentUrl = otherAttachmentUrl;
+                clerical.NewAttachmentUrl = otherAttachmentUrl ?? null;
                 break;
 
             case ClericalUpdateTypes.FileTitle:
@@ -6269,15 +6722,40 @@ public class FileServices
                     clerical.OldTrademarkLogo = file.TrademarkLogo?.ToString();
                     clerical.NewTrademarkLogo = updateData.TrademarkLogo.Value.ToString();
                 }
+                if (isPatent)
+                {
+                    if (!string.IsNullOrWhiteSpace(updateData.PatentAbstract))
+                    {
+                        clerical.OldPatentAbstract = file.PatentAbstract;
+                        clerical.NewPatentAbstract = updateData.PatentAbstract;
+                    }
+                    if (updateData.PatentApplicationType.HasValue)
+                    {
+                        clerical.OldPatentApplicationType = file.PatentApplicationType;
+                        clerical.NewPatentApplicationType = updateData.PatentApplicationType;
+                    }
+                }
                 break;
 
             case ClericalUpdateTypes.DesignInformation:
-                clerical.OldFileTitle = file.TitleOfDesign;
-                clerical.NewFileTitle = updateData.TitleOfDesign;
-                clerical.OldNoveltyStatement = file.StatementOfNovelty;
-                clerical.NewNoveltyStatement = updateData.NoveltyStatement;
-                clerical.OldDesignType = file.DesignType;
-                clerical.NewDesignType = updateData.DesignType;
+                if (!string.IsNullOrWhiteSpace(updateData.TitleOfDesign))
+                {
+                    clerical.OldFileTitle = file.TitleOfDesign;
+                    clerical.NewFileTitle = updateData.TitleOfDesign;
+                }
+
+                if (!string.IsNullOrWhiteSpace(updateData.NoveltyStatement))
+                {
+                    clerical.OldNoveltyStatement = file.StatementOfNovelty;
+                    clerical.NewNoveltyStatement = updateData.NoveltyStatement;
+                }
+
+                if (updateData.DesignType is not null)
+                {
+                    clerical.OldDesignType = file.DesignType;
+                    clerical.NewDesignType = updateData.DesignType;
+                }
+
                 break;
 
             case ClericalUpdateTypes.CreatorInformation:
@@ -6323,31 +6801,28 @@ public class FileServices
                             updatedCreators.Add(newCreator);
                         }
                     }
+                }
 
-                    // Handle removals if specified
-                    if (updateData.RemoveInventorIds?.Any() == true)
-                    {
-                        updatedCreators.RemoveAll(c => updateData.RemoveInventorIds.Contains(c.id));
-                    }
+                // Handle removals if specified
+                if (updateData.RemoveInventorIds?.Any() == true)
+                {
+                    updatedCreators.RemoveAll(c => updateData.RemoveInventorIds.Contains(c.id));
+                }
 
-                    // ✅ FIX: Use the merged updatedCreators list instead of raw updateData
-                    clerical.NewDesignCreators = updatedCreators;
+                clerical.NewDesignCreators = updatedCreators;
+                clerical.NewDesignCreatorNames = updatedCreators.Select(c => c.Name).ToList();
+                clerical.NewDesignCreatorAddresses = updatedCreators.Select(c => c.Address).ToList();
+                clerical.NewDesignCreatorEmails = updatedCreators.Select(c => c.Email).ToList();
+                clerical.NewDesignCreatorPhones = updatedCreators.Select(c => c.Phone).ToList();
+                clerical.NewDesignCreatorNationalities = updatedCreators.Select(c => c.country).ToList();
 
-                    // For detailed audit trail, store individual field changes
-                    clerical.NewDesignCreatorNames = updatedCreators.Select(c => c.Name).ToList();
-                    clerical.NewDesignCreatorAddresses = updatedCreators.Select(c => c.Address).ToList();
-                    clerical.NewDesignCreatorEmails = updatedCreators.Select(c => c.Email).ToList();
-                    clerical.NewDesignCreatorPhones = updatedCreators.Select(c => c.Phone).ToList();
-                    clerical.NewDesignCreatorNationalities = updatedCreators.Select(c => c.country).ToList();
-
-                    if (file.DesignCreators?.Any() == true)
-                    {
-                        clerical.OldDesignCreatorNames = file.DesignCreators.Select(c => c.Name).ToList();
-                        clerical.OldDesignCreatorAddresses = file.DesignCreators.Select(c => c.Address).ToList();
-                        clerical.OldDesignCreatorEmails = file.DesignCreators.Select(c => c.Email).ToList();
-                        clerical.OldDesignCreatorPhones = file.DesignCreators.Select(c => c.Phone).ToList();
-                        clerical.OldDesignCreatorNationalities = file.DesignCreators.Select(c => c.country).ToList();
-                    }
+                if (file.DesignCreators?.Any() == true)
+                {
+                    clerical.OldDesignCreatorNames = file.DesignCreators.Select(c => c.Name).ToList();
+                    clerical.OldDesignCreatorAddresses = file.DesignCreators.Select(c => c.Address).ToList();
+                    clerical.OldDesignCreatorEmails = file.DesignCreators.Select(c => c.Email).ToList();
+                    clerical.OldDesignCreatorPhones = file.DesignCreators.Select(c => c.Phone).ToList();
+                    clerical.OldDesignCreatorNationalities = file.DesignCreators.Select(c => c.country).ToList();
                 }
                 break;
 
@@ -6370,13 +6845,93 @@ public class FileServices
                 break;
 
             case ClericalUpdateTypes.EditInventors:
-                clerical.OldInventorNames = file.Inventors?.Select(i => i.Name).ToList();
-                clerical.NewInventorNames = updateData.NewInventors?.Select(i => i.Name).ToList();
+                clerical.OldInventors = file.Inventors?.Select(i => new ApplicantInfo
+                {
+                    id = i.id,
+                    Name = i.Name,
+                    Address = i.Address,
+                    Email = i.Email,
+                    Phone = i.Phone,
+                    country = i.country,
+                    State = i.State,
+                    city = i.city
+                }).ToList();
+
+                // Build new inventors list by merging changes
+                var updatedInventors = file.Inventors?.ToList() ?? new List<ApplicantInfo>();
+
+                if (updateData.NewInventors?.Any() == true)
+                {
+                    foreach (var newInventor in updateData.NewInventors)
+                    {
+                        var existingInventor = updatedInventors.FirstOrDefault(i => i.id == newInventor.id);
+
+                        if (existingInventor != null)
+                        {
+                            // Update only the fields that are provided (not null/empty)
+                            if (!string.IsNullOrWhiteSpace(newInventor.Name))
+                                existingInventor.Name = newInventor.Name;
+                            if (!string.IsNullOrWhiteSpace(newInventor.Address))
+                                existingInventor.Address = newInventor.Address;
+                            if (!string.IsNullOrWhiteSpace(newInventor.Email))
+                                existingInventor.Email = newInventor.Email;
+                            if (!string.IsNullOrWhiteSpace(newInventor.Phone))
+                                existingInventor.Phone = newInventor.Phone;
+                            if (!string.IsNullOrWhiteSpace(newInventor.country))
+                                existingInventor.country = newInventor.country;
+                            if (!string.IsNullOrWhiteSpace(newInventor.State))
+                                existingInventor.State = newInventor.State;
+                            if (!string.IsNullOrWhiteSpace(newInventor.city))
+                                existingInventor.city = newInventor.city;
+                        }
+                        else
+                        {
+                            // New inventor - add to list with generated ID if missing
+                            newInventor.id ??= Guid.NewGuid().ToString();
+                            updatedInventors.Add(newInventor);
+                        }
+                    }
+                }
+
+                // Handle removals if specified
+                if (updateData.RemoveInventorIds?.Any() == true)
+                {
+                    updatedInventors.RemoveAll(i => updateData.RemoveInventorIds.Contains(i.id));
+                }
+
+                clerical.NewInventors = updatedInventors;
+                clerical.NewInventorNames = updatedInventors.Select(i => i.Name).ToList();
+                clerical.NewInventorAddresses = updatedInventors.Select(i => i.Address).ToList();
+                clerical.NewInventorEmails = updatedInventors.Select(i => i.Email).ToList();
+                clerical.NewInventorPhones = updatedInventors.Select(i => i.Phone).ToList();
+                clerical.NewInventorNationalities = updatedInventors.Select(i => i.country).ToList();
+                clerical.NewInventorStates = updatedInventors.Select(i => i.State).ToList();
+                clerical.NewInventorCities = updatedInventors.Select(i => i.city).ToList();
+
+                if (file.Inventors?.Any() == true)
+                {
+                    clerical.OldInventorNames = file.Inventors.Select(i => i.Name).ToList();
+                    clerical.OldInventorAddresses = file.Inventors.Select(i => i.Address).ToList();
+                    clerical.OldInventorEmails = file.Inventors.Select(i => i.Email).ToList();
+                    clerical.OldInventorPhones = file.Inventors.Select(i => i.Phone).ToList();
+                    clerical.OldInventorNationalities = file.Inventors.Select(i => i.country).ToList();
+                    clerical.OldInventorStates = file.Inventors.Select(i => i.State).ToList();
+                    clerical.OldInventorCities = file.Inventors.Select(i => i.city).ToList();
+                }
                 break;
 
             case ClericalUpdateTypes.PriorityInfo:
-                clerical.OldPriorityInfo = file.PriorityInfo;
-                clerical.NewPriorityInfo = updateData.PriorityInfo;
+                if (updateData.PriorityInfo is not null)
+                {
+                    clerical.OldPriorityInfo = file.PriorityInfo;
+                    clerical.NewPriorityInfo = updateData.PriorityInfo;
+                }
+                if (updateData.FirstPriorityInfo is not null)
+                {
+                    clerical.OldFirstPriorityInfo = file.FirstPriorityInfo;
+                    clerical.NewFirstPriorityInfo = updateData.FirstPriorityInfo;
+                }
+                
                 break;
 
             case ClericalUpdateTypes.DesignAttachments:
@@ -6404,7 +6959,6 @@ public class FileServices
 
                 break;
         }
-
         return clerical;
     }
 
@@ -6421,8 +6975,9 @@ public class FileServices
 
             if (file == null)
                 throw new KeyNotFoundException("File not found");
+            var isDesign = file.Type == FileTypes.Design;
+            var isPatent = file.Type == FileTypes.Patent;
             var isTrademark = file.Type == FileTypes.TradeMark;
-
             file.applicants ??= new List<ApplicantInfo>();
             file.ClericalUpdates ??= new List<ClericalUpdate>();
             file.ApplicationHistory ??= new List<ApplicationInfo>();
@@ -6467,7 +7022,6 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
                     break;
-
                 case "ApplicantAddress":
                     if (clerical.NewApplicantAddresses?.Any() == true)
                     {
@@ -6499,7 +7053,34 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.applicants, file.applicants));
                     }
                     break;
+                case "CreatorInformation":
+                    if (clerical.NewDesignCreators?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.DesignCreators, clerical.NewDesignCreators));
+                    }
+                    break;
+                case "EditInventors":
+                    if (clerical.NewInventors?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.Inventors, clerical.NewInventors));
+                    }
+                    break;
+                case "DesignInformation":
+                    if (!string.IsNullOrWhiteSpace(clerical.NewFileTitle))
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f=> f.TitleOfDesign, clerical.NewFileTitle));
+                    }
 
+                    if (!string.IsNullOrWhiteSpace(clerical.NewNoveltyStatement))
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f=> f.StatementOfNovelty, clerical.NewNoveltyStatement));
+                    }
+
+                    if (clerical.NewDesignType is not null)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f=> f.DesignType, clerical.NewDesignType));
+                    }
+                    break;
                 case "FileClass":
                     if (!string.IsNullOrWhiteSpace(clerical.NewFileClass))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClass, int.Parse(clerical.NewFileClass)));
@@ -6510,7 +7091,6 @@ public class FileServices
                     if (!string.IsNullOrWhiteSpace(clerical.NewDisclaimer))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
                     break;
-
                 case "CorrespondenceInformation":
                     var correspondence = file.Correspondence ?? new CorrespondenceType();
                     var hasCorrespondence = false;
@@ -6583,13 +7163,24 @@ public class FileServices
                                 break;
                             case FileTypes.Patent:
                                 updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfInvention, clerical.NewFileTitle));
+
                                 break;
                             case FileTypes.TradeMark:
                                 updates.Add(Builders<Filling>.Update.Set(f => f.TitleOfTradeMark, clerical.NewFileTitle));
                                 break;
                         }
                     }
-
+                    if (isPatent)
+                    {
+                        if (!string.IsNullOrWhiteSpace(clerical.NewPatentAbstract))
+                        {
+                            updates.Add(Builders<Filling>.Update.Set(f => f.PatentAbstract, clerical.NewPatentAbstract));
+                        }
+                        if (clerical.NewPatentApplicationType != null)
+                        {
+                            updates.Add(Builders<Filling>.Update.Set(f => f.PatentApplicationType, clerical.NewPatentApplicationType));
+                        }
+                    }
                     if (!string.IsNullOrWhiteSpace(clerical.NewTrademarkLogo) &&
                         Enum.TryParse<TradeMarkLogo>(clerical.NewTrademarkLogo, out var logo))
                     {
@@ -6607,7 +7198,35 @@ public class FileServices
                         updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
                     }
                     break;
-
+                case "DesignAttachments":
+                    if (clerical.NewDesignAttachmentUrls?.Any() == true)
+                    {
+                        var designsIdx = file.Attachments.FindIndex(a => a.name == "designs");
+                        if (designsIdx >= 0)
+                        {
+                            file.Attachments[designsIdx].url = clerical.NewDesignAttachmentUrls;
+                        }
+                        else
+                        {
+                            file.Attachments.Add(new AttachmentType
+                            {
+                                name = "designs",
+                                url = clerical.NewDesignAttachmentUrls
+                            });
+                        }
+                        updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
+                    }
+                    break;
+                case "PriorityInfo":
+                    if (clerical.NewFirstPriorityInfo?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.FirstPriorityInfo, clerical.NewFirstPriorityInfo));
+                    }
+                    if (clerical.NewPriorityInfo?.Any() == true)
+                    {
+                        updates.Add(Builders<Filling>.Update.Set(f => f.PriorityInfo, clerical.NewPriorityInfo));
+                    }
+                    break;
             }
 
             if (!updates.Any())
@@ -6625,7 +7244,7 @@ public class FileServices
                     file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingSearch;
                     updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingSearch));
                 }
-                else if(!isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer))
+                else if (!isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer))
                 {
                     file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.AwaitingExaminer;
                     updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingExaminer));
@@ -7561,7 +8180,7 @@ public class FileServices
 
         return true;
     }
-   
+
     public async Task<bool> ApproveAmendmentAsync(AmendmentDto dto)
     {
         // Fetch the file
@@ -9222,8 +9841,8 @@ public class FileServices
 
         // Fetch the SPECIFIC PostRegApp for amendment using both RecordalType and Id
         var amendmentApp = file.PostRegApplications?
-            .FirstOrDefault(a => a.RecordalType == "Patent Amendment" 
-                              && a.IsAmendment == true 
+            .FirstOrDefault(a => a.RecordalType == "Patent Amendment"
+                              && a.IsAmendment == true
                               && a.Id == appId);
 
         if (amendmentApp == null)
@@ -9265,6 +9884,136 @@ public class FileServices
         return amendmentDetails;
     }
 
+    //Design License Post Registration Section
+    public async Task<bool> NewDesignLicenseApplication(DesignLicenseDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Deed of License upload
+        if (dto.Deedoflicense != null && dto.Deedoflicense.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedoflicense);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedoflicense");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignDeedoflicense",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Supporting documents upload
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignLicenseSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignLicenseSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "License application submitted, awaiting payment";
+
+        var licenseHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.License,
+            CurrentStatus = status,
+            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design License Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.LicenseRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        var recordal = new PostRegistrationApp
+        {
+            Id = licenseHistory.id,
+            RecordalType = "Design License Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
+            OldLicensorName = dto.OldLicensorName,
+            OldLicensorEmail = dto.OldLicensorEmail,
+            OldLicensorPhone = dto.OldLicensorPhone,
+            OldLicensorAddress = dto.OldLicensorAddress,
+            OldLicensorNationality = dto.OldLicensorNationality,
+            OldLicensorState = dto.OldLicensorState,
+            OldLicensorCity = dto.OldLicensorCity,
+            Name = dto.NewLicenseeName,
+            Email = dto.NewLicenseeEmail,
+            Phone = dto.NewLicenseePhone,
+            Address = dto.NewLicenseeAddress,
+            Nationality = dto.NewLicenseeNationality,
+            State = dto.NewLicenseeState,
+            City = dto.NewLicenseeCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, licenseHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
     private object GetAmendmentChanges(PostRegistrationApp amendment)
     {
         switch (amendment.AmendmentType)
@@ -9283,9 +10032,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldAddressData = oldData,
-                        NewAddressData = newData 
+                        NewAddressData = newData
                     };
                 }
                 return new { Message = "No address changes found" };
@@ -9295,9 +10045,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldTitleData = oldData,
-                        NewTitleData = newData 
+                        NewTitleData = newData
                     };
                 }
                 return new { Message = "No title changes found" };
@@ -9307,9 +10058,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldCorrespondence = oldData,
-                        NewCorrespondence = newData 
+                        NewCorrespondence = newData
                     };
                 }
                 return new { Message = "No correspondence changes found" };
@@ -9319,9 +10071,10 @@ public class FileServices
                 {
                     var oldInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.OldDataJson ?? "[]");
                     var newInventors = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.NewDataJson ?? "[]");
-                    return new { 
+                    return new
+                    {
                         OldInventors = oldInventors,
-                        NewInventors = newInventors 
+                        NewInventors = newInventors
                     };
                 }
                 return new { Message = "No inventor changes found" };
@@ -9331,9 +10084,10 @@ public class FileServices
                 {
                     var oldData = JsonSerializer.Deserialize<dynamic>(amendment.OldDataJson ?? "{}");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldPriorityData = oldData,
-                        NewPriorityData = newData 
+                        NewPriorityData = newData
                     };
                 }
                 return new { Message = "No priority changes found" };
@@ -9343,9 +10097,10 @@ public class FileServices
                 {
                     var oldApplicants = JsonSerializer.Deserialize<List<ApplicantInfo>>(amendment.OldDataJson ?? "[]");
                     var newData = JsonSerializer.Deserialize<dynamic>(amendment.NewDataJson ?? "{}");
-                    return new { 
+                    return new
+                    {
                         OldApplicants = oldApplicants,
-                        NewApplicantData = newData 
+                        NewApplicantData = newData
                     };
                 }
                 return new { Message = "No applicant changes found" };

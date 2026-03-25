@@ -116,5 +116,4 @@ public class UsersController(UsersService usersService) :ControllerBase
     //    var result=await usersService.UpdateUser(user);
     //    return Ok(result);
     //}
-
 }

@@ -215,7 +215,7 @@ public class OppositionService
             if (file == null) throw new Exception("File not found");
             var app = file.applicants.FirstOrDefault();
             if (app == null) throw new Exception("Applicant not found");
-            var mail = new OppositionEmailDto
+            var mail = new OppositionMail
             {
                 To = app.Email,
                 Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
@@ -227,21 +227,27 @@ public class OppositionService
                 OpposerName = opp.Name,
                 Title = opp.FileTitle
             };
-            var res = await _emailServices.NotifyApplicantMail(mail);
-            if (res)
+            var email = new EmailDto
             {
-                opp.Status = ApplicationStatuses.AwaitingCounter;
-                opp.ApplicantNotified = true;
-                opp.ApplicantNotifiedDate = DateTime.Now;
-                
-                await _oppositionCollection.UpdateOneAsync(
-                    Builders<Opposition>.Filter.Eq(x => x.id, oppositionId),
-                    Builders<Opposition>.Update.Combine(
-                        Builders<Opposition>.Update.Set(x => x.Status, ApplicationStatuses.AwaitingCounter),
-                        Builders<Opposition>.Update.Set(x => x.ApplicantNotified, true),
-                        Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.Now)
-                    ));
-            }
+                To = app.Email,
+                CarbonCopy = app.Email,
+                OppositionMail = mail,
+                Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
+            };
+            await _emailServices.SendMail(email);
+            
+            opp.Status = ApplicationStatuses.AwaitingCounter;
+            opp.ApplicantNotified = true;
+            opp.ApplicantNotifiedDate = DateTime.Now;
+            
+            await _oppositionCollection.UpdateOneAsync(
+                Builders<Opposition>.Filter.Eq(x => x.id, oppositionId),
+                Builders<Opposition>.Update.Combine(
+                    Builders<Opposition>.Update.Set(x => x.Status, ApplicationStatuses.AwaitingCounter),
+                    Builders<Opposition>.Update.Set(x => x.ApplicantNotified, true),
+                    Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.Now)
+                ));
+            
             file.FileStatus = ApplicationStatuses.AwaitingCounter;
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),

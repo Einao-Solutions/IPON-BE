@@ -91,6 +91,10 @@
         TrademarkType
     }
 
+    public enum EmailType
+    {
+        ResetPassword, Opposition, StatusUpdate, Announcement
+    }
     public enum ApplicationUnits
     {
         Search,

@@ -4,7 +4,7 @@ using MongoDB.Driver;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
-using patentdesign.Services.Interface;
+//using patentdesign.Services.Interface;
 using System.Security.Authentication;
 
 namespace patentdesign.Services;
@@ -13,9 +13,9 @@ public class StatisticsService
 {
     private readonly IMongoCollection<StaffPerformance> _workflowCollection;
     private readonly IMongoCollection<AppUser> _userCollection;
-    private readonly ILoggerService _log;
+  //  private readonly ILoggerService _log;
 
-    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILoggerService log)
+    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
         var digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
@@ -26,7 +26,7 @@ public class StatisticsService
         var db = mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
         _workflowCollection = db.GetCollection<StaffPerformance>("staffPerformance");
         _userCollection = db.GetCollection<AppUser>("appUsers");
-        _log = log;
+     //   _log = log;
     }
 
     public IReadOnlyList<UnitInfoDto> GetUnits(string registryType)
