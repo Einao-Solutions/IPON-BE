@@ -91,4 +91,14 @@
         TrademarkType
     }
 
+    public enum ApplicationUnits
+    {
+        Search,
+        Examination,
+        Publication,
+        Opposition,
+        Acceptance,
+        Certificate
+    }
+
 }

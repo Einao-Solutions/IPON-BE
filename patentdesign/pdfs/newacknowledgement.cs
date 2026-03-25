@@ -17,7 +17,7 @@ namespace patentdesign
 
         
          public void Compose(IDocumentContainer container)
-        {
+         {
             container.Page(page =>
             {
                 page.Margin(30);
@@ -27,7 +27,8 @@ namespace patentdesign
                     row.RelativeItem().Height(30).AlignRight(). Image("assets/ministry.png").FitArea();
                 });
             });
-        }
+         }
+
         static IContainer Block(IContainer container)
         {
             return container

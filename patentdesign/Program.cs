@@ -164,6 +164,7 @@ builder.Services.AddSingleton<MigrationService>();
 builder.Services.AddSingleton<EmailServices>();
 builder.Services.AddSingleton<AuthServices>();
 builder.Services.AddSingleton<AdminServices>();
+builder.Services.AddSingleton<StatisticsService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();
