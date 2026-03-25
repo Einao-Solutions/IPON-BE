@@ -95,4 +95,14 @@
     {
         ResetPassword, Opposition, StatusUpdate, Announcement
     }
+    public enum ApplicationUnits
+    {
+        Search,
+        Examination,
+        Publication,
+        Opposition,
+        Acceptance,
+        Certificate
+    }
+
 }
