@@ -87,11 +87,26 @@ namespace Tfunctions.pdfs
                 col.Item().AlignCenter().Text("DESIGN ACCEPTANCE LETTER").FontFamily(Fonts.TimesNewRoman).FontSize(16).FontColor(Colors.Green.Darken3).ExtraBold();
                 col.Item().Height(10);
 
-                TwoColumnSection(col, "FILE INFORMATION", new[]
+                col.Item().Element(Header).Text("FILE INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                col.Item().Row(row =>
                 {
-                    ("Filing date:",    F(history?.ApplicationDate ?? model.FilingDate ?? model.DateCreated)),
-                    ("File number:",    F(model.FileId)),
-                    ("Payment ID:",     F(history?.PaymentId))
+                    row.RelativeItem().Element(Box).Column(c2 =>
+                    {
+                        c2.Item().Text("Filing date:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        WriteText(c2.Item(), F(history?.ApplicationDate ?? model.FilingDate ?? model.DateCreated));
+                    });
+
+                    row.RelativeItem().Element(Box).Column(c2 =>
+                    {
+                        c2.Item().Text("Payment ID:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        WriteText(c2.Item(), F(history?.PaymentId));
+                    });
+                });
+
+                col.Item().Element(Box).Column(c2 =>
+                {
+                    c2.Item().Text("File number:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    WriteText(c2.Item(), F(model.FileId));
                 });
 
                 col.Item().Element(Header).Text("DESIGN INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();

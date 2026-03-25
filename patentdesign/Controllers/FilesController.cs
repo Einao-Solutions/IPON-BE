@@ -937,6 +937,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
     }
 
+    //Design License Post Registration Section
     [HttpGet("GetDesignLicenseCost")]
     [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
@@ -956,6 +957,81 @@ public class FilesController(FileServices fileService) : ControllerBase
         catch (Exception)
         {
             return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignLicenseApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignLicenseApplication([FromBody] DesignLicenseDto dto)
+    {
+        try
+        {
+            var created = await fileService.NewDesignLicenseApplication(dto);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Design license application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Design license application submitted successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+  
+    [HttpGet("GetDesignLicenseDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignLicenseDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetDesignLicenseDetailsAsync(fileId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Design license recordal not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignLicenseDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignLicenseDecision([FromBody] DesignLicenseDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.DesignLicenseDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.NewLicensee);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
         }
     }
 

@@ -312,27 +312,31 @@ namespace patentdesign
 
             for (int i = 0; i < pairs.Length; i += 2)
             {
-                col.Item().Row(row =>
+                if (i + 1 < pairs.Length)
                 {
-                    row.RelativeItem().Element(Box).Column(c2 =>
+                    col.Item().Row(row =>
                     {
-                        c2.Item().Text(pairs[i].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
-                        WriteText(c2.Item(), pairs[i].Value);
-                    });
+                        row.RelativeItem().Element(Box).Column(c2 =>
+                        {
+                            c2.Item().Text(pairs[i].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                            WriteText(c2.Item(), pairs[i].Value);
+                        });
 
-                    if (i + 1 < pairs.Length)
-                    {
                         row.RelativeItem().Element(Box).Column(c2 =>
                         {
                             c2.Item().Text(pairs[i + 1].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
                             WriteText(c2.Item(), pairs[i + 1].Value);
                         });
-                    }
-                    else
+                    });
+                }
+                else
+                {
+                    col.Item().Element(Box).Column(c2 =>
                     {
-                        row.RelativeItem();
-                    }
-                });
+                        c2.Item().Text(pairs[i].Label).FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        WriteText(c2.Item(), pairs[i].Value);
+                    });
+                }
             }
         }
 
