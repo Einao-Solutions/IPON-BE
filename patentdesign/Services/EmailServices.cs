@@ -197,7 +197,8 @@ public class EmailServices
             body = reader.ReadToEnd();
         }
 
-        body = body.Replace("{ResetLink}", dto.ResetLink);
+        body = body.Replace("{{ResetLink}}", dto.ResetLink);
+        body = body.Replace("{{UserName}}", dto.UserName);
         return body;
     }
 }
