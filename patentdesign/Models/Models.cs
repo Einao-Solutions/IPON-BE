@@ -9,6 +9,7 @@ using Org.BouncyCastle.Asn1.Cms;
 using patentdesign.Enums;
 
 namespace patentdesign.Models;
+[BsonIgnoreExtraElements]
 public class AppUser
 {
     [BsonId]
