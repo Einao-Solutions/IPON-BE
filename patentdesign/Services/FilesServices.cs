@@ -70,7 +70,7 @@ public class FileServices
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
 
-    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService)
+    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService, PublicationServices publicationServices)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -99,7 +99,7 @@ public class FileServices
         _log = log;
         _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
         _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
-
+        _publicationServices = publicationServices;
     }
 
     public async Task<Filling?> GetFileAsync(string id)
