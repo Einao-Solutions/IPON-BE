@@ -21,6 +21,10 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
         catch (Exception e)
         {
+            if (e.Message == "File not found")
+            {
+                return NotFound(new { message = e.Message });
+            }
             return BadRequest(new { message = e.Message });
         }
     }

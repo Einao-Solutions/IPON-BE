@@ -48,7 +48,7 @@ public record PublicationInfo
     public string? StaffName { get; set; }
     public bool IsPublished { get; set; } = false;
     public bool IsOpposed { get; set; } = false;
-    public List<Opposition>? Opposition { get; set; }
+    public List<Opposition>? Opposition { get; set; } = new();
     public string? Title { get; set; }
     public List<AttachmentType>? Attachments { get; set; }
     public List<AttachmentType>? Images { get; set; }
