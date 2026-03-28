@@ -430,7 +430,10 @@ public class OppositionService
         long awaitingCounter = _oppositionCollection.CountDocuments(Builders<Opposition>.Filter.Eq(x => x.Status, ApplicationStatuses.AwaitingCounter));
         long newOpps =
             _oppositionCollection.CountDocuments(
-                Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.NewOpposition));
+                Builders<Opposition>.Filter.And(
+                    Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.NewOpposition),
+                    Builders<Opposition>.Filter.Eq(o => o.Paid, true)
+                )); 
         
         stats.AwaitingCounter = awaitingCounter;
         stats.NewOpposition = newOpps;
