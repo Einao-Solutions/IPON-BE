@@ -4,6 +4,8 @@ using patentdesign.Services;
 
 namespace patentdesign.Controllers
 {
+    [ApiController]
+    [Route("api/publication")]
     public class PublicationController(PublicationServices publicationServices) : ControllerBase
     {
         [HttpGet("GetPublication")]
