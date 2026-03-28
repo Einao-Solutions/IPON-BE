@@ -5,9 +5,9 @@ using QuestPDF.Infrastructure;
 
 namespace Tfunctions.pdfs
 {
-    public class JournalDocument(List<PublicationType> models, FileTypes type,DateTime start, DateTime end) : IDocument
+    public class JournalDocument(List<PublicationInfo> models, FileTypes type,DateTime start, DateTime end) : IDocument
     {
-        private List<PublicationType> models { get; set; } = models;
+        private List<PublicationInfo> models { get; set; } = models;
          public void Compose(IDocumentContainer container)
          {
              var title = $"{type.ToString()} publications between {start.ToString("D")} and {end.ToString("D")}";
@@ -87,10 +87,10 @@ namespace Tfunctions.pdfs
                         column.Item().Text(text =>
                         {
                             text.Span("Publication Date").Bold();
-                            text.Span(model.Date.ToString("D"));
+                            text.Span(model.PublicationDate.ToString("D"));
                             text.EmptyLine();
                             text.Span("File Number").Bold();
-                            text.Span(model.FileId);
+                            text.Span(model.FileNumber);
                             text.EmptyLine();
                             text.Span("System ID").Bold();
                             text.Span(model.Id);
@@ -111,7 +111,7 @@ namespace Tfunctions.pdfs
                         column.Item().Text(creatorInventorType).Bold();
                         column.Item().Text(text =>
                         {
-                            foreach (var applicant in model.inventorsCreators)
+                            foreach (var applicant in model.Inventors)
                             {
                                 text.Span($"{applicant.Name}, {applicant.Phone}, {applicant.Email}, {applicant.Address}, {applicant.country}");
                                 text.EmptyLine();

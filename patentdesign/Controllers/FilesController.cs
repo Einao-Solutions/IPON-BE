@@ -176,14 +176,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return File(attachmentInfo.Value.Item1, attachmentInfo.Value.Item2);
     }
 
-    [HttpGet("GetPublication")]
-    public async Task<IActionResult> GetJournal([FromQuery] int type, [FromQuery] DateTime start,
-        [FromQuery] DateTime end)
-    {
-        var data = await fileService.GetTypePublication(start, end, Enum.GetValues<FileTypes>()[type]);
-        Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
-        return File(data, "application/pdf", "journal.pdf");
-    }
+   
 
 
     [HttpGet("GetTrademarkPublication")]

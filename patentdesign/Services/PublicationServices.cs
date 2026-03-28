@@ -3,6 +3,8 @@ using MongoDB.Driver;
 using patentdesign.Models;
 using System.Security.Authentication;
 using patentdesign.Dtos.Response;
+using QuestPDF.Fluent;
+using Tfunctions.pdfs;
 
 namespace patentdesign.Services
 {
@@ -66,6 +68,8 @@ namespace patentdesign.Services
                     FilingDate = file.FilingDate,
                     PriorityInfo = file.PriorityInfo,
                     FirstPriorityInfo = file.FirstPriorityInfo,
+                    Attachments = file.Attachments,
+
                 };
 
                 await _pubCollection.InsertOneAsync(publicationInfo);
@@ -118,6 +122,47 @@ namespace patentdesign.Services
 
             return publications.Count;
         }
+        public async Task<byte[]> GetPublications(DateTime startDate, DateTime endDate, FileTypes type)
+        {
+            var filter = Builders<PublicationInfo>.Filter.And(
+                Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
+                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate)
+            );
 
+            var publicationsData = await _pubCollection.Find(filter)
+                .Project(x => new PublicationInfo()
+                {
+                    Title = x.Title ?? "",
+                    FileNumber = x.FileNumber,
+                    Id = x.Id,
+                    Inventors = x.Inventors,
+                    PublicationDate = x.PublicationDate,
+                    Correspondence = x.Correspondence,
+                    Applicants = x.Applicants,
+                    Images = type == FileTypes.Design ? x.Attachments : null,
+                    PriorityInfo = type == FileTypes.Patent ? x.PriorityInfo : null
+                }).ToListAsync();
+
+            if (type == FileTypes.Design)
+            {
+                using var httpClient = new HttpClient();
+                foreach (var dt in publicationsData)
+                {
+                    List<byte[]> image_ = [];
+                    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
+                    if (attachment?.url != null)
+                    {
+                        foreach (var url in attachment.url)
+                        {
+                            image_.Add(await httpClient.GetByteArrayAsync(url));
+                        }
+                    }
+                    dt.ImagesUrl = image_;
+                }
+            }
+
+            var pdfData = new JournalDocument(publicationsData, type, startDate, endDate).GeneratePdf();
+            return pdfData;
+        }
     }
 }

@@ -50,13 +50,14 @@ public record PublicationInfo
     public bool IsOpposed { get; set; } = false;
     public List<Opposition>? Opposition { get; set; }
     public string? Title { get; set; }
+    public List<AttachmentType>? Attachments { get; set; }
     public List<AttachmentType>? Images { get; set; }
     public List<ApplicantInfo> Applicants { get; set; }
     public CorrespondenceType Correspondence { get; set; }
     public List<PriorityInfo>? PriorityInfo { get; set; }
+    public List<byte[]>? ImagesUrl { get; set; }
     public List<PriorityInfo>? FirstPriorityInfo { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
-    public List<byte[]>? ImagesUrl { get; set; }
 
 }
 public record DesignForm

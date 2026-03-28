@@ -670,43 +670,6 @@ public class FileServices
         return res;
     }
 
-    public async Task<byte[]> GetTypePublication(DateTime startDate, DateTime endDate, FileTypes type)
-    {
-        var publicationsData = await _fillingCollection.Find(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x => x.Type, type),
-            Builders<Filling>.Filter.Gte(x => x.DateCreated, startDate),
-            Builders<Filling>.Filter.Lte(x => x.DateCreated, endDate),
-            Builders<Filling>.Filter.In(x => x.FileStatus,
-                new List<ApplicationStatuses>() { ApplicationStatuses.Active, ApplicationStatuses.Inactive })
-        ])).Project(x => new PublicationType()
-        {
-            Title = type == FileTypes.Design ? x.TitleOfDesign : type == FileTypes.Patent ? x.TitleOfInvention : "",
-            FileId = x.FileId,
-            Id = x.Id,
-            inventorsCreators = x.Type == FileTypes.Design ? x.DesignCreators : x.Type == FileTypes.Patent ? x.Inventors : new List<ApplicantInfo>() { },
-            Date = x.DateCreated,
-            Correspondence = x.Correspondence,
-            Applicants = x.applicants,
-            Images = type == FileTypes.Design ? x.Attachments : null,
-            PriorityInfos = type == FileTypes.Patent ? x.PriorityInfo : null
-        }).ToListAsync();
-        if (type == FileTypes.Design)
-        {
-            foreach (var dt in publicationsData)
-            {
-                List<byte[]> image_ = [];
-                var urls = dt.Images.FirstOrDefault(x => x.name == "designs").url;
-                foreach (var url in urls)
-                {
-                    image_.Add(await (new HttpClient()).GetByteArrayAsync(url));
-                }
-
-                publicationsData[publicationsData.IndexOf(dt)].ImagesUrl = image_;
-            }
-        }
-        var pdfData = new JournalDocument(publicationsData, type, startDate, endDate).GeneratePdf();
-        return pdfData;
-    }
 
     public async Task<List<string>> LoadListOfIds(int startingIndex,
         SummaryRequestObj filter)
