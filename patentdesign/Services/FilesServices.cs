@@ -1158,7 +1158,7 @@ public class FileServices
             {
                 var publish = new PublicationDto
                 {
-                    FileNumber = data.fileId,
+                    FileNumber = data.fileNumber,
                     Comment = data.message,
                     StaffId = data.userId,
                     StaffName = userName,
