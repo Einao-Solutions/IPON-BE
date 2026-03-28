@@ -178,6 +178,10 @@ builder.Services.AddSingleton<EmailServices>();
 builder.Services.AddSingleton<AuthServices>();
 builder.Services.AddSingleton<AdminServices>();
 builder.Services.AddSingleton<StatisticsService>();
+builder.Services.AddSingleton<PublicationServices>();
+
+//------------------- Background Jobs ------------------
+builder.Services.AddHostedService<PublishTrademarkJob>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();

@@ -56,6 +56,7 @@ public class FileServices
     private static IMongoCollection<StaffPerformance> _performanceCollection;
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
+    private static IMongoCollection<PublicationInfo> _publicationCollection;
     private readonly ILogger<FileServices> _log;
 
 
@@ -63,6 +64,7 @@ public class FileServices
     private MongoClient _mongoClient;
     private FinanceService _financeService;
     private PaymentService _paymentService;
+    private PublicationServices _publicationServices;
 
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
@@ -96,6 +98,7 @@ public class FileServices
         _paymentService = paymentService;
         _log = log;
         _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
+        _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
 
     }
 
@@ -1027,7 +1030,7 @@ public class FileServices
     {
         _log.LogInformation("UpdateApplicationStatus started for FileId {FileId}, AppId {AppId}, {Before} → {After}",
             data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
-
+        var userName = data.user ?? await _userCollection.Find(x => x.Id == data.userId).Project(x => x.Name).FirstOrDefaultAsync() ?? "Unknown User";
         RemitaResponseClass? remi = null;
         bool paymentSuccessful = false;
         if (data.simulate == false)
@@ -1037,8 +1040,7 @@ public class FileServices
                 {
                     AfterStatus: ApplicationStatuses.AwaitingSearch,
                     beforeStatus: ApplicationStatuses.AwaitingPayment,
-                    applicationType: FormApplicationTypes.NewApplication or FormApplicationTypes.DataUpdate
-                    or FormApplicationTypes.LicenseRenewal
+                    applicationType: FormApplicationTypes.NewApplication
                 })
             {
                 _log.LogDebug("Checking payment status for RRR {Rrr}", data.paymentId);
@@ -1064,7 +1066,7 @@ public class FileServices
             afterStatus = data.AfterStatus,
             Date = DateTime.Now,
             Message = data.message,
-            User = data.user,
+            User = userName,
             UserId = data.userId
         };
         List<UpdateDefinition<Filling>> operations =
@@ -1090,52 +1092,47 @@ public class FileServices
         if (data.applicationType is FormApplicationTypes.NewApplication)
         {
             operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
-            if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
+            if (data.AfterStatus is ApplicationStatuses.Active)
             {
                 var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.NewApplication);
                 _log.LogDebug("Calculated expiry date {ExpiryDate} for FileId {FileId}", nextDate, data.fileId);
 
-                if (data.applicationType == FormApplicationTypes.NewApplication)
+                
+                if (data.FileType != FileTypes.TradeMark)
                 {
-                    if (data.FileType != FileTypes.TradeMark)
-                    {
-                        operations.Add(Builders<Filling>.Update.AddToSetEach(
-                            "ApplicationHistory.$.ApplicationLetters",
-                            [
-                                ApplicationLetters.NewApplicationAcceptance,
-                                ApplicationLetters.NewApplicationCertificate
-                            ]));
-                    }
-                    //assign RTM
-                    if (data.FileType is FileTypes.TradeMark)
-                    {
-                        var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
-                        _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
-                        operations.Add(Builders<Filling>.Update.AddToSetEach(
-                            "ApplicationHistory.$.ApplicationLetters",
-                            [
-                                ApplicationLetters.NewApplicationCertificate
-                            ]));
-                        operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmNumber.ToString()));
-                        await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
-                            Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
-                        perf.OfficeUnit = Roles.TrademarkCertification;
-                    }
-                    else if (data.FileType is FileTypes.Patent)
-                    {
-                        perf.OfficeUnit = Roles.PatentCertification;
-                    }
-                    else
-                    {
-                        perf.OfficeUnit = Roles.DesignCertification;
-                    }
+                    operations.Add(Builders<Filling>.Update.AddToSetEach(
+                        "ApplicationHistory.$.ApplicationLetters",
+                        [
+                            ApplicationLetters.NewApplicationAcceptance,
+                            ApplicationLetters.NewApplicationCertificate
+                        ]));
                 }
+                //assign RTM
+                if (data.FileType is FileTypes.TradeMark)
+                {
+                    var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
+                    _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
+                    operations.Add(Builders<Filling>.Update.AddToSetEach(
+                        "ApplicationHistory.$.ApplicationLetters",
+                        [
+                            ApplicationLetters.NewApplicationCertificate
+                        ]));
+                    operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmNumber.ToString()));
+                    await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
+                        Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+                    perf.OfficeUnit = Roles.TrademarkCertification;
+                }
+                else if (data.FileType is FileTypes.Patent)
+                {
+                    perf.OfficeUnit = Roles.PatentCertification;
+                }
+                else
+                {
+                    perf.OfficeUnit = Roles.DesignCertification;
+                }
+                
 
                 operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
-            }
-            if (data.AfterStatus is ApplicationStatuses.AwaitingCertificateConfirmation)
-            {
-                perf.OfficeUnit = data.FileType is FileTypes.Patent ? Roles.PatentCertification : Roles.DesignCertification;
             }
             if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
             {
@@ -1157,7 +1154,23 @@ public class FileServices
                     perf.OfficeUnit = Roles.DesignCertification;
                 }
             }
-
+            if (data.AfterStatus is ApplicationStatuses.Publication)
+            {
+                var publish = new PublicationDto
+                {
+                    FileNumber = data.fileId,
+                    Comment = data.message,
+                    StaffId = data.userId,
+                    StaffName = userName,
+                };
+                var pubResult = await _publicationServices.SavePublication(publish);
+                if (pubResult is null)
+                {
+                    _log.LogError("Failed to save publication data for FileId {FileId}", data.fileId);
+                    throw new NullReferenceException("Failed to save publication data");
+                }
+                perf.OfficeUnit = Roles.TrademarkExaminer;
+            }
         }
 
         //if (data.applicationType is FormApplicationTypes.LicenseRenewal)
@@ -1189,11 +1202,7 @@ public class FileServices
         //            "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
         //    }
         //}
-        if (data.AfterStatus is ApplicationStatuses.Publication)
-        {
-            operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationAcceptance));
-            perf.OfficeUnit = Roles.TrademarkAcceptance;
-        }
+        
 
         var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", data.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == data.applicationId));

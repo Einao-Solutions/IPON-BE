@@ -36,6 +36,29 @@ public class AppUser
     public DateTime? PasswordResetTokenExpiry { get; set; }
 }
 
+public record PublicationInfo
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? FileNumber { get; set; }
+    public DateTime? FilingDate { get; set; }
+    public DateTime PublicationDate { get; set; }
+    public string? Comment { get; set; }
+    public string? StaffId { get; set; }
+    public string? StaffName { get; set; }
+    public bool IsPublished { get; set; } = false;
+    public bool IsOpposed { get; set; } = false;
+    public List<Opposition>? Opposition { get; set; }
+    public string? Title { get; set; }
+    public List<AttachmentType>? Images { get; set; }
+    public List<ApplicantInfo> Applicants { get; set; }
+    public CorrespondenceType Correspondence { get; set; }
+    public List<PriorityInfo>? PriorityInfo { get; set; }
+    public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+    public List<ApplicantInfo>? Inventors { get; set; }
+    public List<byte[]>? ImagesUrl { get; set; }
+
+}
 public record DesignForm
 {
     [Required] public ApplicantInfo ApplicantInfo { get; set; } = new();
