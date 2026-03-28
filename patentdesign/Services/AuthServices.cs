@@ -75,7 +75,7 @@ namespace patentdesign.Services
                     FirstName = req.FirstName?.Trim() ?? string.Empty,
                     LastName = req.LastName?.Trim() ?? string.Empty,
                     PhoneNumber = req.Phone?.Trim() ?? string.Empty,
-                    AccountType = req.AccountType,
+                    AccountType = (AccountType)req.AccountType,
                     PasswordHash = hashedPassword,
                     UserRoles = new List<Roles> { Roles.User },
                     CreatedAt = DateTime.UtcNow,
