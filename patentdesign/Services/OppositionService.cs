@@ -163,7 +163,7 @@ public class OppositionService
                 id = Guid.NewGuid().ToString(),
                 FileNumber = data.FileNumber,
                 Name = data.Name,
-                OppositionDate = null,
+                OppositionDate = DateTime.Now,
                 PaymentId = data.PaymentId,
                 Phone = data.Phone,
                 Email = data.Email,
@@ -312,8 +312,8 @@ public class OppositionService
                 Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
                 Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Push(f => f.Oppositions, opp),
-                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Opposition)
-                ));
+                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Opposition),
+                Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.Opposition)));
 
             return true;
         }
