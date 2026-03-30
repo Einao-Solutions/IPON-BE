@@ -1,5 +1,6 @@
 ﻿using patentdesign.Enums;
 using patentdesign.Models;
+using System.Text.Json.Serialization;
 
 namespace patentdesign.Dtos.Request
 {
@@ -20,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public PatentTypes? PatentType { get; set; }
         public PatentApplicationTypes? PatentApplicationType { get; set; }
         public DesignTypes? DesignType { get; set; }
+        public string? DesignTypeDescription { get; set; }
         public string? TitleOfInvention { get; set; }
         public string? DataChangeType { get; set; }
         public string? rrr { get; set; }
@@ -56,10 +58,27 @@ namespace patentdesign.Dtos.Request
         public string? Nationality { get; set; }
         public string? OldAddress { get; set; }
         public string? Address { get; set; }
+        public string? FileOrigin { get; set; }
+        public DesignTypes? DesignType { get; set; }
+        public string? DesignTypeDescription { get; set; }
+        public string? TitleOfDesign { get; set; }
+        public List<TT>? DeedOfMerger { get; set; }
+
+        [JsonPropertyName("DesignMergerSupportingDocuments")]
+        public List<TT>? SupportingDocuments { get; set; }
+
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
         public string? userId { get; set; }
+    }
+    public class DesignMergerDecisionDto
+    {
+        public string FileId { get; set; }
+        public string AppId { get; set; }
+        public bool Approve { get; set; }
+        public string Reason { get; set; }
+        public ApplicantInfo? MergedEntity { get; set; }
     }
     public class RegisteredUserDto
     {
