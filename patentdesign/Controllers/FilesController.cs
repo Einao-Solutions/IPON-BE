@@ -1264,7 +1264,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpPost("PublicationStatusDecision")]
     public async Task<IActionResult> PublicationStatusDecision([FromBody] PublicationStatusDecisionDto dto)
     {
-        var (success, message) = await fileService.PublicationStatusDecisionAsync(dto.FileId, dto.Approve, dto.Comment);
+        var (success, message) = await fileService.PublicationStatusDecisionAsync(dto.FileId, dto.Approve, dto.Comment, dto.UserId);
         if (!success)
             return NotFound(new { message });
 
