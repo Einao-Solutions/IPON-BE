@@ -317,6 +317,12 @@ public class StatisticsService
             ApplicationUnits.Certificate => filter.In(x => x.ApplicationType, new FormApplicationTypes?[]
             {
                 FormApplicationTypes.Assignment,
+                FormApplicationTypes.License,
+                FormApplicationTypes.Mortgage,
+                FormApplicationTypes.Merger,
+                FormApplicationTypes.CertifiedTrueCopy,
+                FormApplicationTypes.Amendment,
+                FormApplicationTypes.Assignment,
                 FormApplicationTypes.Ownership,
                 FormApplicationTypes.RegisteredUser,
                 FormApplicationTypes.Merger,
@@ -414,7 +420,7 @@ public class StatisticsService
             {
                 new(1, "Search Unit", Roles.PatentSearch, ApplicationUnits.Search),
                 new(2, "Examination Unit", Roles.PatentExaminer, ApplicationUnits.Examination),
-                new(3, "Certificate Unit", Roles.PatentCertification, ApplicationUnits.Acceptance)
+                new(3, "Certificate Unit", Roles.PatentExaminer, ApplicationUnits.Certificate)
             };
         }
 
@@ -424,7 +430,7 @@ public class StatisticsService
             {
                 new(1, "Search Unit", Roles.DesignSearch, ApplicationUnits.Search),
                 new(2, "Examination Unit", Roles.DesignExaminer, ApplicationUnits.Examination),
-                new(3, "Certificate Unit", Roles.DesignCertification, ApplicationUnits.Acceptance)
+                new(3, "Certificate Unit", Roles.DesignExaminer, ApplicationUnits.Certificate)
             };
         }
 
