@@ -13,5 +13,7 @@ namespace patentdesign.Dtos.Request
 
         public string? Reason { get; set; }
 
+        public string? AppUserId { get; set; }
+
     }
 }

@@ -1337,7 +1337,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
 
-    #region
+    #region Patent Assignment Post Registration Section
 
     //Patent Assignment Post Registration Section
     /// <summary>
@@ -1416,7 +1416,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentAssignmentDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewAssignee);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewAssignee, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1433,8 +1433,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     #endregion
 
 
-    #region
-    //Patent License Post Registration Section
+    #region Patent License Post Registration Section
     /// <summary>
     /// Submits a new patent license application.
     /// </summary>
@@ -1511,7 +1510,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentLicenseDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewLicensee);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewLicensee, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1527,9 +1526,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     #endregion
 
 
-    #region
-
-    //Patent Merger Post Registration Section
+    #region Patent Merger Post Registration Section
     /// <summary>
     /// Submits a new patent merger application.
     /// </summary>
@@ -1606,7 +1603,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentMergerDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMergedParty);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMergedParty, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1622,9 +1619,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     #endregion
 
 
-    #region
-
-    //Patent Mortgage Post Registration Section
+    #region Patent Mortgage Post Registration Section
     /// <summary>
     /// Submits a new patent mortgage application.
     /// </summary>
@@ -1701,7 +1696,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentMortgageDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMortgagee);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMortgagee, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1812,7 +1807,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     {
         try
         {
-            var (success, message) = await fileService.PatentCtcDecisionAsync(dto.FileId, dto.AppId, dto.Approve, dto.Reason);
+            var (success, message) = await fileService.PatentCtcDecisionAsync(dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1826,9 +1821,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     #endregion
-    /// <summary>
-    /// Submit a new patent amendment application.
-    /// </summary>
+    
     #region Patent Amendment Post Registration Section
 
     /// <summary>
@@ -1880,7 +1873,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentAmendmentDecisionAsync(
-                dto.fileId, dto.appId, dto.approve, dto.reason);
+                dto.fileId, dto.appId, dto.approve, dto.reason, dto.appUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
