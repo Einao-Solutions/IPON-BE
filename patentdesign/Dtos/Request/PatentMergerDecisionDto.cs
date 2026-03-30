@@ -13,5 +13,6 @@ namespace patentdesign.Dtos.Request
         public string Reason { get; set; }
 
         public ApplicantInfo? NewMergedParty { get; set; }
+        public string? AppUserId { get; set; }
     }
 }

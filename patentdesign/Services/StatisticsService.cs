@@ -58,10 +58,13 @@ public class StatisticsService
             return [];
         }
 
-        var users = await _userCollection.Find(Builders<AppUser>.Filter.Or(
-            Builders<AppUser>.Filter.In(x => x.Id, staffIdList),
-            Builders<AppUser>.Filter.In(x => x.CreatorId, staffIdList)
-        )).ToListAsync();
+        // Only include officer accounts when resolving staff names/emails.
+        var users = await _userCollection.Find(Builders<AppUser>.Filter.And(
+            Builders<AppUser>.Filter.Eq(x => x.AccountType, AccountType.Officer),
+            Builders<AppUser>.Filter.Or(
+                Builders<AppUser>.Filter.In(x => x.Id, staffIdList),
+                Builders<AppUser>.Filter.In(x => x.CreatorId, staffIdList)
+            ))).ToListAsync();
         var userLookup = BuildUserLookup(users);
 
         return staffIdList.Distinct().Select(id =>
@@ -115,30 +118,24 @@ public class StatisticsService
             .Distinct()
             .ToList();
 
+        // Only include officer accounts when resolving staff names/emails.
         var users = staffIds.Count == 0
             ? []
-            : await _userCollection.Find(Builders<AppUser>.Filter.Or(
-                Builders<AppUser>.Filter.In(x => x.Id, staffIds),
-                Builders<AppUser>.Filter.In(x => x.CreatorId, staffIds)
-            )).ToListAsync();
-        //Console.WriteLine($"StatisticsService.GetStaffPerformanceAsync: users count = {users.Count}");
-        //foreach (var user in users)
-        //{
-        //    Console.WriteLine($"StatisticsService.GetStaffPerformanceAsync: user Id={user.Id}, CreatorId={user.CreatorId}, FirstName={user.FirstName}, LastName={user.LastName}, Email={user.Email}");
-        //}
-
-        var debugFilter = Builders<AppUser>.Filter.Or(
-            Builders<AppUser>.Filter.Eq(x => x.Id, "eee7b344-1a62-4817-8bbe-140850a8d028"),
-            Builders<AppUser>.Filter.Eq(x => x.CreatorId, "3880")
-        );
-        var debugUser = await _userCollection.Find(debugFilter).FirstOrDefaultAsync();
-      //  Console.WriteLine($"StatisticsService.GetStaffPerformanceAsync: debug user Id={debugUser?.Id}, CreatorId={debugUser?.CreatorId}, FirstName={debugUser?.FirstName}, LastName={debugUser?.LastName}, Email={debugUser?.Email}");
+            : await _userCollection.Find(Builders<AppUser>.Filter.And(
+                Builders<AppUser>.Filter.Eq(x => x.AccountType, AccountType.Officer),
+                Builders<AppUser>.Filter.Or(
+                    Builders<AppUser>.Filter.In(x => x.Id, staffIds),
+                    Builders<AppUser>.Filter.In(x => x.CreatorId, staffIds)
+                ))).ToListAsync();
 
         var userLookup = BuildUserLookup(users);
+        var officerIds = userLookup.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var assignedLookup = assignedCounts.ToDictionary(x => x.StaffId ?? string.Empty, x => x.Count);
         var treatedLookup = treatedCounts.ToDictionary(x => x.StaffId ?? string.Empty, x => x.Count);
 
-        var staffPerformance = staffIds.Select(id =>
+        var staffPerformance = staffIds
+        .Where(id => officerIds.Contains(id))
+        .Select(id =>
         {
             assignedLookup.TryGetValue(id, out var assigned);
             treatedLookup.TryGetValue(id, out var treated);
@@ -320,6 +317,12 @@ public class StatisticsService
             ApplicationUnits.Certificate => filter.In(x => x.ApplicationType, new FormApplicationTypes?[]
             {
                 FormApplicationTypes.Assignment,
+                FormApplicationTypes.License,
+                FormApplicationTypes.Mortgage,
+                FormApplicationTypes.Merger,
+                FormApplicationTypes.CertifiedTrueCopy,
+                FormApplicationTypes.Amendment,
+                FormApplicationTypes.Assignment,
                 FormApplicationTypes.Ownership,
                 FormApplicationTypes.RegisteredUser,
                 FormApplicationTypes.Merger,
@@ -417,7 +420,7 @@ public class StatisticsService
             {
                 new(1, "Search Unit", Roles.PatentSearch, ApplicationUnits.Search),
                 new(2, "Examination Unit", Roles.PatentExaminer, ApplicationUnits.Examination),
-                new(3, "Certificate Unit", Roles.PatentCertification, ApplicationUnits.Acceptance)
+                new(3, "Certificate Unit", Roles.PatentExaminer, ApplicationUnits.Certificate)
             };
         }
 
@@ -427,7 +430,7 @@ public class StatisticsService
             {
                 new(1, "Search Unit", Roles.DesignSearch, ApplicationUnits.Search),
                 new(2, "Examination Unit", Roles.DesignExaminer, ApplicationUnits.Examination),
-                new(3, "Certificate Unit", Roles.DesignCertification, ApplicationUnits.Acceptance)
+                new(3, "Certificate Unit", Roles.DesignExaminer, ApplicationUnits.Certificate)
             };
         }
 

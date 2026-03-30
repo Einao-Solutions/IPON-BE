@@ -8558,7 +8558,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentAssignmentDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newAssignee = null)
+    public async Task<(bool Success, string Message)> PatentAssignmentDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newAssignee = null, string? appUserId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -8572,6 +8572,7 @@ public class FileServices
             return (false, "No assignment application found");
 
         // Prepare new status history entry
+        var beforeStatus = assignmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
@@ -8602,6 +8603,20 @@ public class FileServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(appUserId) ? file.CreatorAccount : appUserId,
+            AfterStatus = assignmentApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Assignment,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.PatentExaminer
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Assignment approved" : "Assignment refused");
     }
@@ -8807,7 +8822,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentLicenseDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newLicensee = null)
+    public async Task<(bool Success, string Message)> PatentLicenseDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newLicensee = null, string? appUserId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -8821,6 +8836,7 @@ public class FileServices
             return (false, "No license application found");
 
         // Prepare new status history entry
+        var beforeStatus = licenseApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
@@ -8842,6 +8858,20 @@ public class FileServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(appUserId) ? file.CreatorAccount : appUserId,
+            AfterStatus = licenseApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.License,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.PatentExaminer
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "License approved" : "License refused");
     }
@@ -9043,7 +9073,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentMortgageDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newMortgagee = null)
+    public async Task<(bool Success, string Message)> PatentMortgageDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newMortgagee = null, string? appUserId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -9057,6 +9087,7 @@ public class FileServices
             return (false, "No mortgage application found");
 
         // Prepare new status history entry
+        var beforeStatus = mortgageApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
@@ -9078,6 +9109,20 @@ public class FileServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(appUserId) ? file.CreatorAccount : appUserId,
+            AfterStatus = mortgageApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Mortgage,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.PatentExaminer
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Mortgage approved" : "Mortgage refused");
     }
@@ -9281,7 +9326,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentMergerDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newMergedParty = null)
+    public async Task<(bool Success, string Message)> PatentMergerDecisionAsync(string fileId, string appId, bool approve, string reason, ApplicantInfo newMergedParty = null, string? appUserId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -9292,6 +9337,7 @@ public class FileServices
         if (mergerApp == null)
             return (false, "No merger application found");
         // Prepare new status history entry
+        var beforeStatus = mergerApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
@@ -9310,6 +9356,20 @@ public class FileServices
         }
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(appUserId) ? file.CreatorAccount : appUserId,
+            AfterStatus = mergerApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Merger,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.PatentExaminer
+        };
+        SavePerformance(performance);
         return (true, approve ? "Merger approved" : "Merger refused");
     }
 
@@ -9453,7 +9513,7 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PatentCtcDecisionAsync(string fileId, string appId, bool approve, string reason)
+    public async Task<(bool Success, string Message)> PatentCtcDecisionAsync(string fileId, string appId, bool approve, string reason, string? appUserId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -9467,6 +9527,7 @@ public class FileServices
             return (false, "No CTC application found");
 
         // Prepare new status history entry
+        var beforeStatus = ctcApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
@@ -9490,6 +9551,20 @@ public class FileServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(appUserId) ? file.CreatorAccount : appUserId,
+            AfterStatus = ctcApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.PatentExaminer
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "CTC request approved - certified copies ready" : "CTC request refused");
     }
@@ -9997,7 +10072,7 @@ public class FileServices
         }
     }
 
-    public async Task<(bool Success, string Message)> PatentAmendmentDecisionAsync(string fileId, string appId, bool approve, string reason)
+    public async Task<(bool Success, string Message)> PatentAmendmentDecisionAsync(string fileId, string appId, bool approve, string reason, string? appUserId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -10018,6 +10093,7 @@ public class FileServices
             return (false, "No amendment record found");
 
         // Update status
+        var beforeStatus = amendmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
@@ -10041,6 +10117,20 @@ public class FileServices
         }
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(appUserId) ? file.CreatorAccount : appUserId,
+            AfterStatus = amendmentApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Amendment,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.PatentExaminer
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Amendment approved and applied" : "Amendment rejected");
     }
