@@ -75,11 +75,11 @@ namespace patentdesign.Services
                     FirstName = req.FirstName?.Trim() ?? string.Empty,
                     LastName = req.LastName?.Trim() ?? string.Empty,
                     PhoneNumber = req.Phone?.Trim() ?? string.Empty,
-                    AccountType = AccountType.Individual,
+                    AccountType = (AccountType)req.AccountType,
                     PasswordHash = hashedPassword,
                     UserRoles = new List<Roles> { Roles.User },
                     CreatedAt = DateTime.UtcNow,
-                    Name = req.FirstName + " " + req.LastName,
+                    Name = req.BusinessName ?? req.FirstName + " " + req.LastName,
                 };
 
                 await _users.InsertOneAsync(user);
@@ -364,7 +364,7 @@ namespace patentdesign.Services
 
             await _users.UpdateOneAsync(u => u.Id == user.Id, update);
 
-            var resetLink = $"https://portal.iponigeria.com/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
+            var resetLink = $"https://portal.iponigeria.com/auth/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
             _log.LogDebug("Reset link generated for {Email}", email);
 
             var mail = new EmailDto
@@ -373,7 +373,7 @@ namespace patentdesign.Services
                 ResetPasswordMail = new ResetPasswordMail
                     {
                         ResetLink = resetLink,
-                        UserName = user.Name,
+                        UserName = user.Name ?? user.FirstName,
                     },
                 To = email,
                 Subject = "Password Reset",

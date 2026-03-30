@@ -4036,6 +4036,7 @@ public class FileServices
         }
     }
 
+    //Design licence costs
     public async Task<RecordalDto> DesignAssignmentCost(string fileId, FileTypes fileType)
     {
         try
@@ -4071,14 +4072,10 @@ public class FileServices
             throw;
         }
     }
-
     public async Task<RecordalDto?> DesignLicenseCost(string fileId, FileTypes fileType)
     {
         try
         {
-            var (amount, narration, serviceFee) = _remitaPaymentUtils
-                .GetCost(PaymentTypes.DesignLicense, fileType, string.Empty, null, null, null);
-
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
@@ -4090,6 +4087,37 @@ public class FileServices
             }
 
             var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.License &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileInfo.FileId,
+                FileTitle = fileInfo.TitleOfDesign ?? string.Empty,
+                DesignType = fileInfo.DesignType,
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantCity = applicant.city
+            };
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var (amount, narration, serviceFee) = _remitaPaymentUtils
+                .GetCost(PaymentTypes.DesignLicense, fileType, string.Empty, null, null, null);
+
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 amount,
                 serviceFee,
@@ -4099,21 +4127,10 @@ public class FileServices
                 applicant.Email,
                 applicant.Phone);
 
-            return new RecordalDto
-            {
-                Amount = amount,
-                rrr = paymentId,
-                FileId = fileInfo.FileId,                                  // file number
-                FileTitle = fileInfo.TitleOfDesign ?? string.Empty,        // title of industrial design
-                DesignType = fileInfo.DesignType,                          // design type enum
-                ApplicantName = applicant.Name,                            // first applicant details
-                ApplicantEmail = applicant.Email,
-                ApplicantPhone = applicant.Phone,
-                ApplicantAddress = applicant.Address,
-                ApplicantNationality = applicant.country,
-                ApplicantState = applicant.State,
-                ApplicantCity = applicant.city
-            };
+            dto.Amount = amount;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception ex)
         {
@@ -9959,136 +9976,6 @@ public class FileServices
         return amendmentDetails;
     }
 
-    //Design License Post Registration Section
-    public async Task<bool> NewDesignLicenseApplication(DesignLicenseDto dto)
-    {
-        var file = await _fillingCollection
-            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
-            .FirstOrDefaultAsync();
-        if (file == null) return false;
-
-        var applicant = file.applicants.FirstOrDefault();
-
-        // Deed of License upload
-        if (dto.Deedoflicense != null && dto.Deedoflicense.Count > 0)
-        {
-            var deedLinks = await UploadAttachment(dto.Deedoflicense);
-            file.Attachments ??= new List<AttachmentType>();
-            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedoflicense");
-            if (existingDeed != null)
-            {
-                foreach (var url in deedLinks)
-                {
-                    if (!existingDeed.url.Contains(url))
-                        existingDeed.url.Add(url);
-                }
-            }
-            else
-            {
-                file.Attachments.Add(new AttachmentType
-                {
-                    name = "DesignDeedoflicense",
-                    url = deedLinks
-                });
-            }
-        }
-
-        // Supporting documents upload
-        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
-        {
-            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
-            file.Attachments ??= new List<AttachmentType>();
-            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignLicenseSupportingDocuments");
-            if (existingSupport != null)
-            {
-                foreach (var url in supportingDocsUrl)
-                {
-                    if (!existingSupport.url.Contains(url))
-                        existingSupport.url.Add(url);
-                }
-            }
-            else
-            {
-                file.Attachments.Add(new AttachmentType
-                {
-                    name = "DesignLicenseSupportingDocuments",
-                    url = supportingDocsUrl
-                });
-            }
-        }
-
-        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
-        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
-
-        var status = paymentSuccessful
-            ? ApplicationStatuses.AwaitingRecordalProcess
-            : ApplicationStatuses.AwaitingPayment;
-
-        var statusMessage = paymentSuccessful
-            ? "Payment successful, awaiting recordal process"
-            : "License application submitted, awaiting payment";
-
-        var licenseHistory = new ApplicationInfo
-        {
-            id = Guid.NewGuid().ToString(),
-            ApplicationType = FormApplicationTypes.License,
-            CurrentStatus = status,
-            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
-            PaymentId = dto.Rrr,
-            FieldToChange = "Design License Application",
-            NewValue = "",
-            StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
-            {
-                Date = dto.LicenseRequestDate ?? DateTime.Now,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
-            }
-        }
-        };
-
-        var recordal = new PostRegistrationApp
-        {
-            Id = licenseHistory.id,
-            RecordalType = "Design License Recordal",
-            FileNumber = dto.FileId,
-            rrr = dto.Rrr,
-            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
-            OldLicensorName = dto.OldLicensorName,
-            OldLicensorEmail = dto.OldLicensorEmail,
-            OldLicensorPhone = dto.OldLicensorPhone,
-            OldLicensorAddress = dto.OldLicensorAddress,
-            OldLicensorNationality = dto.OldLicensorNationality,
-            OldLicensorState = dto.OldLicensorState,
-            OldLicensorCity = dto.OldLicensorCity,
-            Name = dto.NewLicenseeName,
-            Email = dto.NewLicenseeEmail,
-            Phone = dto.NewLicenseePhone,
-            Address = dto.NewLicenseeAddress,
-            Nationality = dto.NewLicenseeNationality,
-            State = dto.NewLicenseeState,
-            City = dto.NewLicenseeCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
-        };
-
-        var update = Builders<Filling>.Update
-            .Push(f => f.PostRegApplications, recordal)
-            .Push(f => f.ApplicationHistory, licenseHistory)
-            .Set(f => f.Attachments, file.Attachments);
-
-        await _fillingCollection.UpdateOneAsync(
-            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
-            update
-        );
-
-        return true;
-    }
-
     private object GetAmendmentChanges(PostRegistrationApp amendment)
     {
         switch (amendment.AmendmentType)
@@ -10250,4 +10137,226 @@ public class FileServices
 
     #endregion
 
+    //Design License Post Registration Section
+    public async Task<bool> NewDesignLicenseApplication(DesignLicenseDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Deed of License upload
+        if (dto.Deedoflicense != null && dto.Deedoflicense.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedoflicense);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedoflicense");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignDeedoflicense",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Supporting documents upload
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignLicenseSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignLicenseSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "License application submitted, awaiting payment";
+
+        var licenseHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.License,
+            CurrentStatus = status,
+            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design License Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = dto.LicenseRequestDate ?? DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        var recordal = new PostRegistrationApp
+        {
+            Id = licenseHistory.id,
+            RecordalType = "Design License Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
+            OldLicensorName = dto.OldLicensorName,
+            OldLicensorEmail = dto.OldLicensorEmail,
+            OldLicensorPhone = dto.OldLicensorPhone,
+            OldLicensorAddress = dto.OldLicensorAddress,
+            OldLicensorNationality = dto.OldLicensorNationality,
+            OldLicensorState = dto.OldLicensorState,
+            OldLicensorCity = dto.OldLicensorCity,
+            Name = dto.NewLicenseeName,
+            Email = dto.NewLicenseeEmail,
+            Phone = dto.NewLicenseePhone,
+            Address = dto.NewLicenseeAddress,
+            Nationality = dto.NewLicenseeNationality,
+            State = dto.NewLicenseeState,
+            City = dto.NewLicenseeCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, licenseHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    // Services/FilesServices.cs
+    public async Task<object?> GetDesignLicenseDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        var deedOfLicenseAttachments = file.Attachments?
+            .Where(a => a.name == "DesignDeedoflicense")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "DesignLicenseSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var licenseApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Design License Recordal");
+
+        var newLicensee = licenseApp == null ? null : new
+        {
+            Name = licenseApp.Name,
+            Address = licenseApp.Address,
+            Email = licenseApp.Email,
+            Phone = licenseApp.Phone,
+            State = licenseApp.State,
+            Nationality = licenseApp.Nationality,
+            City = licenseApp.City,
+        };
+
+        var oldLicensor = licenseApp == null ? null : new
+        {
+            Name = licenseApp.OldLicensorName,
+            Address = licenseApp.OldLicensorAddress,
+            Email = licenseApp.OldLicensorEmail,
+            Phone = licenseApp.OldLicensorPhone,
+            State = licenseApp.OldLicensorState,
+            Nationality = licenseApp.OldLicensorNationality,
+            City = licenseApp.OldLicensorCity
+        };
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfLicenseAttachments = deedOfLicenseAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewLicensee = newLicensee,
+            OldLicensor = oldLicensor,
+            Filingdate = licenseApp?.FilingDate
+        };
+    }
+
+    public async Task<(bool Success, string Message)> DesignLicenseDecisionAsync(
+    string fileId,
+    string appId,
+    bool approve,
+    string reason,
+    ApplicantInfo newLicensee = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var licenseApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.License);
+
+        if (licenseApp == null)
+            return (false, "No license application found");
+
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = licenseApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        licenseApp.StatusHistory.Add(newStatus);
+        licenseApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+
+        if (approve && newLicensee != null)
+        {
+            file.applicants = new List<ApplicantInfo> { newLicensee };
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Design license approved" : "Design license refused");
+    }
 }
