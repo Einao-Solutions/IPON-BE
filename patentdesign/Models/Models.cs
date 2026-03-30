@@ -43,10 +43,11 @@ public record PublicationInfo
     public string? FileNumber { get; set; }
     public DateTime? FilingDate { get; set; }
     public DateTime PublicationDate { get; set; }
+    public DateTime? BatchPublishDate { get; set; }
     public string? Comment { get; set; }
     public string? StaffId { get; set; }
     public string? StaffName { get; set; }
-    public bool IsPublished { get; set; } = false;
+    public bool IsBatchPublished { get; set; } = false;
     public bool IsOpposed { get; set; } = false;
     public List<Opposition>? Opposition { get; set; } = new();
     public string? Title { get; set; }
@@ -58,7 +59,6 @@ public record PublicationInfo
     public List<byte[]>? ImagesUrl { get; set; }
     public List<PriorityInfo>? FirstPriorityInfo { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
-
 }
 public record DesignForm
 {

@@ -14,6 +14,7 @@ namespace patentdesign.Services
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
+
         private static IMongoCollection<Filling> _files; 
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
@@ -55,11 +56,11 @@ namespace patentdesign.Services
                 {
                     Id = Guid.NewGuid().ToString(),
                     FileNumber = pub.FileNumber,
-                    PublicationDate = DateTime.Now,
+                    PublicationDate = pub.PublicationDate ?? DateTime.Now,
                     Comment = pub.Comment,
                     StaffId = pub.StaffId,
                     StaffName = pub.StaffName,
-                    IsPublished = false,
+                    IsBatchPublished = false,
                     IsOpposed = false,
                     Opposition = pub.Opposition,
                     Title = file.TitleOfTradeMark ?? file.TitleOfInvention,
@@ -91,7 +92,7 @@ namespace patentdesign.Services
             var cutoffDate = DateTime.Now.AddDays(-60);
 
             var filter = Builders<PublicationInfo>.Filter.Lte(p => p.PublicationDate, cutoffDate)
-                         & Builders<PublicationInfo>.Filter.Eq(p => p.IsPublished, false);
+                         & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
 
             // Fetch matching publications to get their FileNumbers
             var publications = await _pubCollection.Find(filter).ToListAsync();
@@ -103,7 +104,10 @@ namespace patentdesign.Services
             }
 
             // Update all matching publications to IsPublished = true
-            var pubUpdate = Builders<PublicationInfo>.Update.Set(p => p.IsPublished, true);
+            var pubUpdate = Builders<PublicationInfo>.Update.Combine(
+                Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true),
+                Builders<PublicationInfo>.Update.Set(p=>p.BatchPublishDate, DateTime.Now));
+
             await _pubCollection.UpdateManyAsync(filter, pubUpdate);
 
             // Update each corresponding file's status
@@ -123,12 +127,13 @@ namespace patentdesign.Services
 
             return publications.Count;
         }
-        public async Task<byte[]> GetPublications(DateTime startDate, DateTime endDate, FileTypes type)
+        public async Task<byte[]> GetBatchPublications(DateTime startDate, DateTime endDate, FileTypes type)
         {
             var filter = Builders<PublicationInfo>.Filter.And(
                 Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
-                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate)
-            );
+                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate),
+                Builders<PublicationInfo>.Filter.Eq(x => x.IsBatchPublished, true));
+
 
             var publicationsData = await _pubCollection.Find(filter)
                 .Project(x => new PublicationInfo()

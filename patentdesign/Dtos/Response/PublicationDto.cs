@@ -9,6 +9,7 @@ namespace patentdesign.Dtos.Response
         public string? StaffId { get; set; }
         public string? StaffName { get; set; }
         public List<Opposition>? Opposition { get; set; }
+        public DateTime? PublicationDate { get; set; }
     }
     public class PublicationInfoDto
     {

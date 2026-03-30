@@ -1050,7 +1050,8 @@ public class FileServices
             ApplicationType = data.applicationType,
             AppUserId = data.userId,
             FileNumber = data.fileNumber,
-            FileType = data.FileType
+            FileType = data.FileType,
+            OfficeUnit = null
         };
         if (data.applicationType is FormApplicationTypes.NewApplication)
         {
@@ -1106,15 +1107,15 @@ public class FileServices
                     "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
                 if (data.FileType is FileTypes.TradeMark)
                 {
-                    perf.OfficeUnit = Roles.TrademarkCertification;
+                    perf.OfficeUnit = Roles.TrademarkExaminer;
                 }
                 else if (data.FileType is FileTypes.Patent)
                 {
-                    perf.OfficeUnit = Roles.PatentCertification;
+                    perf.OfficeUnit = Roles.PatentExaminer;
                 }
                 else
                 {
-                    perf.OfficeUnit = Roles.DesignCertification;
+                    perf.OfficeUnit = Roles.DesignExaminer;
                 }
             }
             if (data.AfterStatus is ApplicationStatuses.Publication)
@@ -1175,6 +1176,7 @@ public class FileServices
         _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, NewStatus {Status}",
             data.fileId, data.AfterStatus);
         return result;
+
     }
 
     public async Task<PaginatedResponse> GetPaginatedSummaryAsync(int startingIndex, int quantity, SummaryRequestObj filter)
@@ -5662,7 +5664,9 @@ public class FileServices
         var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found.");
-
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User Not found");
         // Check if publication has already been done
         if (file.PublicationDate != null)
             return (false, "Publication has already been done on the file.");
@@ -5742,8 +5746,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingStatusUpdate,
                     Message = "Publication Status Update",
-                    User = applicant.Name,
-                    UserId = file.CreatorAccount
+                    User = user.Name,
+                    UserId = user.Id
                 }
             }
         };
@@ -5968,14 +5972,15 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PublicationStatusDecisionAsync(string fileId, bool approve, string? comment)
+    public async Task<(bool Success, string Message)> PublicationStatusDecisionAsync(string fileId, bool approve, string? comment, string? userId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
 
-        var applicant = file.applicants.FirstOrDefault();
-
+        var staff = await _userCollection.Find(u=>u.Id == userId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "Unauthorized user");
         // Find the ApplicationInfo for PublicationStatusUpdate
         var publicationApp = file.ApplicationHistory
             .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.PublicationStatusUpdate);
@@ -5990,8 +5995,8 @@ public class FileServices
             Message = approve ? "Publication status approved" : "Publication status refused",
             beforeStatus = ApplicationStatuses.AwaitingStatusUpdate,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = applicant.Name,
-            UserId = file.CreatorAccount
+            User = staff.Name,
+            UserId = userId
         };
 
         file.PublicationReason = comment;
@@ -6003,7 +6008,28 @@ public class FileServices
 
         // If approved, update file status
         if (approve)
+        {
             file.FileStatus = ApplicationStatuses.AwaitingCertification;
+            var pub = new PublicationDto
+            {
+                FileNumber = fileId,
+                Comment = comment,
+                StaffName = staff.Name,
+                StaffId = staff.Id,
+                PublicationDate = file.PublicationDate
+            };
+           var pubId = await _publicationServices.SavePublication(pub);
+           if (pubId is not null)
+           {
+               var pubUpdate = Builders<PublicationInfo>.Update.Combine(
+                   Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true),
+                   Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, DateTime.Now));
+
+               await _publicationCollection.UpdateOneAsync(
+                   Builders<PublicationInfo>.Filter.Eq(p => p.Id, pubId),
+                   pubUpdate);
+            }
+        }
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
