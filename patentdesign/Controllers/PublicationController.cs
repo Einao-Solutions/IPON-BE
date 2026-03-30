@@ -16,5 +16,12 @@ namespace patentdesign.Controllers
             Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
             return File(data, "application/pdf", "journal.pdf");
         }
+        [HttpGet("GetTrademarkPublication")]
+        public async Task<IActionResult> GetTrademarkPublication([FromQuery] string? text = null,
+            [FromQuery] int? index = null, [FromQuery] int? quantity = null)
+        {
+            var data = await publicationServices.GetTrademarkPublication(text, index, quantity);
+            return Ok(data);
+        }
     }
 }

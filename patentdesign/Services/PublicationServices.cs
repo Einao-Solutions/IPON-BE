@@ -2,6 +2,7 @@
 using MongoDB.Driver;
 using patentdesign.Models;
 using System.Security.Authentication;
+using MongoDB.Bson;
 using patentdesign.Dtos.Response;
 using QuestPDF.Fluent;
 using Tfunctions.pdfs;
@@ -163,6 +164,33 @@ namespace patentdesign.Services
 
             var pdfData = new JournalDocument(publicationsData, type, startDate, endDate).GeneratePdf();
             return pdfData;
+        }
+        public async Task<PaginatedPublicationResponse> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
+        {
+            _log.LogInformation("Fetching publication list");
+            var titleFilter = text == null ? Builders<Filling>.Filter.Empty : Builders<Filling>.Filter.Regex(x => x.TitleOfTradeMark, new BsonRegularExpression(text, "i"));
+            var combinedFilter = Builders<Filling>.Filter.And([
+                Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
+                Builders<Filling>.Filter.Or([
+                    Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
+                ]),
+                titleFilter
+            ]);
+            var result = await _files.Find(combinedFilter)
+                .Project(x => new PublicationInfoDto
+                {
+                    FileId = x.Id,
+                    Title = x.TitleOfTradeMark,
+                    Class = x.TrademarkClass,
+                    Representation = x.Attachments.FirstOrDefault(att => att.name == "representation") != null ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0] : null,
+                    FileNumber = x.FileId,
+                    Applicant = x.applicants.Count > 1 ? x.applicants[0].Name + "et al." : x.applicants[0].Name,
+                    FilingDate = x.FilingDate ?? x.DateCreated,
+                    PublicationDate = x.ApplicationHistory[0].StatusHistory.FirstOrDefault(s => s.afterStatus == ApplicationStatuses.Publication).Date
+                }).Limit(quantity).Skip(index).ToListAsync();
+            var counter = await _files.CountDocumentsAsync(combinedFilter);
+            _log.LogInformation("pub fetched");
+            return new PaginatedPublicationResponse { Result = result, Count = counter };
         }
     }
 }

@@ -2884,32 +2884,6 @@ public class FileServices
         return details;
     }
 
-    public async Task<object?> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
-    {
-        var titleFilter = text == null ? Builders<Filling>.Filter.Empty : Builders<Filling>.Filter.Regex(x => x.TitleOfTradeMark, new BsonRegularExpression(text, "i"));
-        var result = await _fillingCollection.Find(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
-             Builders<Filling>.Filter.Or([
-             Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
-             ]),
-             titleFilter
-        ])).Project(x => new
-        {
-            title = x.TitleOfTradeMark,
-            tradeClass = x.TrademarkClass,
-            image = x.Attachments.FirstOrDefault(att => att.name == "representation") != null ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0] : null,
-            fileId = x.FileId,
-            id = x.Id,
-            applicant = x.applicants.Count > 1 ? x.applicants[0].Name + "et al." : x.applicants[0].Name,
-            date = x.DateCreated
-        }).Limit(quantity).Skip(index).ToListAsync();
-        var counter = _fillingCollection.CountDocuments(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
-             Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
-             titleFilter
-        ]));
-        return new { result = result, count = counter };
-    }
 
     //public async Task PaidButNotReflecting()
     //{

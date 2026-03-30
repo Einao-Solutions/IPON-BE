@@ -176,17 +176,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return File(attachmentInfo.Value.Item1, attachmentInfo.Value.Item2);
     }
 
-   
-
-
-    [HttpGet("GetTrademarkPublication")]
-    public async Task<IActionResult> GetTrademarkPublication([FromQuery] string? text = null,
-        [FromQuery] int? index = null, [FromQuery] int? quantity = null)
-    {
-        var data = await fileService.GetTrademarkPublication(text, index, quantity);
-        return Ok(data);
-    }
-
+    
     [HttpGet("GenerateOppositionRRR")]
     public async Task<IActionResult> GenerateOppositionRRR([FromQuery] string description, [FromQuery] string name,
         [FromQuery] string email, [FromQuery] string number)
