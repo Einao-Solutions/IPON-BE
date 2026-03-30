@@ -532,6 +532,8 @@ public record ApplicationInfo
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
     public List<ApplicantInfo>? Applicants { get; set; } 
+    public string? SignatoryName { get; set; }
+    public string? SignatureUrl { get; set; }
 }
 
 

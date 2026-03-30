@@ -6250,7 +6250,7 @@ public class FileServices
     {
         try
         {
-            Console.WriteLine($"Approving assignment for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
+            _log.LogInformation($"Approving assignment for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
             var file = await _fillingCollection
                  .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
                  .FirstOrDefaultAsync();
@@ -6267,6 +6267,10 @@ public class FileServices
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
+            app.SignatoryName = "Onyinye H. Emoka";
+            var signature = await _attachmentCollection.Find(a => a.Name == "TradeCertificationSignature")
+                .FirstOrDefaultAsync();
+
             // Update Applicant
             var applicant = file.applicants?.FirstOrDefault();
             if (applicant == null) return false;
