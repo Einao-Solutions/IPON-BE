@@ -4889,7 +4889,7 @@ public class FileServices
             throw;
         }
     }
->>>>>>> origin/dev
+
     public async Task<bool> NewMergerApplication(MergerApplicationDto mergerApp)
     {
         var file = await _fillingCollection
@@ -10907,7 +10907,7 @@ public class FileServices
         var fileId = dto.FileId?.Trim();
         if (string.IsNullOrWhiteSpace(fileId))
         {
-            _log.Log("Design merger submission missing file id");
+            _log.LogWarning("Design merger submission missing file id");
             return false;
         }
 
