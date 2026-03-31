@@ -471,6 +471,9 @@ public class LettersServices
                 };
 
                 return await DesignLicenseReceipt(designLicenseReceiptModel, designLicenseReceiptFile);
+            case ApplicationLetters.DesignLicenseRefusalletter:
+                var designLicenseRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignLicenseRefusal(designLicenseRefFile, applicationId);
             case ApplicationLetters.DesignAssignmentAcknowledgement:
                 var designAssignmentAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await DesignAssignmentAcknowledgement(designAssignmentAckFile, applicationId);
@@ -2856,6 +2859,43 @@ public class LettersServices
         var bytes = new DesignLicenseAcknowledgement(file,
             $"https://portal.iponigeria.com/qr?fileId={file.FileId}",
             receipt).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignLicenseRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design license refusal: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design License Recordal",
+            payType = PaymentTypes.DesignLicense,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignLicenseRefusalLetter(file, "uri", receipt, app).GeneratePdf();
         return ReturnDocument(bytes);
     }
 
