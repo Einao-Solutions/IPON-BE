@@ -97,7 +97,7 @@ public class StatisticsService
         );
 
         var assignedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildAssignedFilter(unitMapping.RuleType));
-        var treatedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildTreatedFilter(unitMapping.RuleType));
+        var treatedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildTreatedFilter(fileType, unitMapping.RuleType));
 
         var assignedCounts = await _workflowCollection.Aggregate()
             .Match(assignedFilter)
@@ -203,7 +203,7 @@ public class StatisticsService
             );
 
             var assignedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildAssignedFilter(unit.RuleType));
-            var treatedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildTreatedFilter(unit.RuleType));
+            var treatedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildTreatedFilter(fileType, unit.RuleType));
 
             var assignedCount = await _workflowCollection.CountDocumentsAsync(assignedFilter);
             var treatedCount = await _workflowCollection.CountDocumentsAsync(treatedFilter);
@@ -308,12 +308,7 @@ public class StatisticsService
             ApplicationUnits.Examination => filter.Eq(x => x.BeforeStatus, ApplicationStatuses.AwaitingExaminer),
             ApplicationUnits.Publication => filter.Eq(x => x.ApplicationType, FormApplicationTypes.PublicationStatusUpdate),
             ApplicationUnits.Opposition => filter.Eq(x => x.ApplicationType, FormApplicationTypes.NewOpposition),
-            ApplicationUnits.Acceptance => filter.In(x => x.ApplicationType, new FormApplicationTypes?[]
-            {
-                FormApplicationTypes.ClericalUpdate,
-                FormApplicationTypes.WithdrawalRequest,
-                FormApplicationTypes.AppealRequest
-            }),
+            ApplicationUnits.Acceptance => filter.Eq(x => x.BeforeStatus, ApplicationStatuses.RequestWithdrawal),
             ApplicationUnits.Certificate => filter.In(x => x.ApplicationType, new FormApplicationTypes?[]
             {
                 FormApplicationTypes.Assignment,
@@ -333,7 +328,7 @@ public class StatisticsService
         };
     }
 
-    private static FilterDefinition<StaffPerformance> BuildTreatedFilter(ApplicationUnits ruleType)
+    private static FilterDefinition<StaffPerformance> BuildTreatedFilter(FileTypes fileType, ApplicationUnits ruleType)
     {
         var filter = Builders<StaffPerformance>.Filter;
         return ruleType switch
@@ -342,10 +337,15 @@ public class StatisticsService
                 filter.Eq(x => x.BeforeStatus, ApplicationStatuses.AwaitingSearch),
                 filter.Eq(x => x.AfterStatus, ApplicationStatuses.AwaitingExaminer)
             ),
-            ApplicationUnits.Examination => filter.And(
-                filter.Eq(x => x.BeforeStatus, ApplicationStatuses.AwaitingExaminer),
-                filter.In(x => x.AfterStatus, new ApplicationStatuses?[] { ApplicationStatuses.Rejected, ApplicationStatuses.Publication })
-            ),
+            ApplicationUnits.Examination => fileType == FileTypes.TradeMark
+                ? filter.And(
+                    filter.Eq(x => x.BeforeStatus, ApplicationStatuses.AwaitingExaminer),
+                    filter.In(x => x.AfterStatus, new ApplicationStatuses?[] { ApplicationStatuses.Rejected, ApplicationStatuses.Publication })
+                )
+                : filter.And(
+                    filter.Eq(x => x.BeforeStatus, ApplicationStatuses.AwaitingExaminer),
+                    filter.In(x => x.AfterStatus, new ApplicationStatuses?[] { ApplicationStatuses.Rejected, ApplicationStatuses.AwaitingCertificateConfirmation })
+                ),
             ApplicationUnits.Publication => filter.And(
                 filter.Eq(x => x.ApplicationType, FormApplicationTypes.PublicationStatusUpdate),
                 filter.In(x => x.AfterStatus, new ApplicationStatuses?[] { ApplicationStatuses.Approved, ApplicationStatuses.Rejected })
@@ -355,13 +355,8 @@ public class StatisticsService
                 filter.Eq(x => x.AfterStatus, ApplicationStatuses.Approved)
             ),
             ApplicationUnits.Acceptance => filter.And(
-                filter.In(x => x.ApplicationType, new FormApplicationTypes?[]
-                {
-                    FormApplicationTypes.ClericalUpdate,
-                    FormApplicationTypes.WithdrawalRequest,
-                    FormApplicationTypes.AppealRequest
-                }),
-                filter.Eq(x => x.AfterStatus, ApplicationStatuses.Approved)
+                filter.Eq(x => x.BeforeStatus, ApplicationStatuses.RequestWithdrawal),
+                filter.In(x => x.AfterStatus, new ApplicationStatuses?[] { ApplicationStatuses.Approved, ApplicationStatuses.Rejected })
             ),
             ApplicationUnits.Certificate => filter.And(
                 filter.Eq(x => x.BeforeStatus, ApplicationStatuses.AwaitingRecordalProcess),
