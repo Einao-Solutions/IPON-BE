@@ -14,6 +14,8 @@ public class OppositionRequestDto
     public List<IFormFile>? SupportingDocs { get; set; }
     public DateTime? OppositionDate { get; set; }
     public string? PaymentId { get; set; }
+    public bool? StaffOpposition { get; set; } = false;
+    public string? StaffId { get; set; }
 }
 
 public class OppositionSearchDto

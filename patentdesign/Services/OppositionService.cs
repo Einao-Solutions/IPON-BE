@@ -21,6 +21,7 @@ public class OppositionService
     private static IMongoCollection<Opposition> _oppositionCollection;
     private static IMongoCollection<FinanceHistory> _financeCollection;
     private static IMongoCollection<PublicationInfo> _publicationCollection;
+    private static IMongoCollection<AppUser> _userCollection;
     private readonly ILogger<OppositionService> _log;
 
     private PaymentUtils _remitaPaymentUtils;
@@ -55,6 +56,7 @@ public class OppositionService
         _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
         _log = log;
         _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
+        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
     }
     public async Task<OppositionSearchDto> OppositionSearch(string fileNumber)
     {
@@ -136,7 +138,7 @@ public class OppositionService
             
             if (data?.SupportingDocs?.Count > 0)
             {
-                Console.WriteLine("Uploading supporting docs");
+                _log.LogDebug("Uploading supporting docs");
                 foreach (var (doc, i) in data.SupportingDocs.Select((doc, idx) => (doc, idx)))
                 {
                     using var ms = new MemoryStream();
@@ -157,7 +159,7 @@ public class OppositionService
                 }
             }
 
-            Console.WriteLine("Creating new opposition");
+            _log.LogDebug("Creating new opposition");
             var oppose = new Opposition
             {
                 id = Guid.NewGuid().ToString(),
@@ -178,9 +180,6 @@ public class OppositionService
             await _oppositionCollection.InsertOneAsync(oppose);
             _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
             
-
-            
-            _log.LogInformation("File Opposed Succesfully");
             return true;
         }
         catch (Exception e)
@@ -196,7 +195,7 @@ public class OppositionService
         if (pub is null)
         {
             _log.LogError("Publication not found");
-            return false;
+            throw new KeyNotFoundException("Pub not found");
         }
         if (pub.Opposition is null)
         {
@@ -213,6 +212,87 @@ public class OppositionService
         ));
         _log.LogInformation($"Publication {opp.FileNumber} has been opposed");
         return true;
+    }
+
+    public async Task<bool> StaffOpposition(OppositionRequestDto dto)
+    {
+        _log.LogInformation($"Staff Opposing Publication {dto.FileNumber}...");
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
+            if (file is null || file.ApplicationHistory is null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException("File not found");
+            }
+            var staff = await _userCollection.Find(u => u.Id == dto.StaffId).FirstOrDefaultAsync();
+            if (staff is null)
+            {
+                _log.LogError("Staff user not found");
+                throw new KeyNotFoundException("Staff user not found");
+            }
+            var userName = staff.Name ?? $"{staff.FirstName} {staff.LastName}";
+            file.FileStatus = ApplicationStatuses.Opposition;
+            file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Opposition;
+            file.ApplicationHistory[0].StatusHistory.Add(new ApplicationHistory
+            { 
+               afterStatus = ApplicationStatuses.Opposition,
+               beforeStatus = ApplicationStatuses.Publication,
+               Date = DateTime.Now,
+               Message = dto.Reason,
+               User = userName,
+               UserId = dto.StaffId,
+            });
+            _log.LogDebug("Creating new opposition");
+            var oppose = new Opposition
+            {
+                id = Guid.NewGuid().ToString(),
+                FileNumber = dto.FileNumber,
+                Name = userName,
+                OppositionDate = DateTime.Now,
+                PaymentId = null,
+                Phone = staff.PhoneNumber,
+                Email = staff.Email,
+                Address = staff.Address,
+                Nationality = staff.Nationality,
+                Reason = dto.Reason,
+                SupportingDocs = null,
+                Status = ApplicationStatuses.NewOpposition,
+                FileTitle = file.TitleOfTradeMark,
+                FileId = dto.FileNumber,
+                IsStaffOpposition = true
+            };
+            await _oppositionCollection.InsertOneAsync(oppose);
+            _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
+            await OpposePublication(oppose);
+            _log.LogDebug("Updating file status to Opposition");
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+                Builders<Filling>.Update.Combine(
+                    Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Opposition),
+                    Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory)
+                ));
+            _log.LogInformation($"Publication {dto.FileNumber} has been opposed by staff {staff.Name}");
+            var perf = new PerformanceDto
+            {
+                AfterStatus = ApplicationStatuses.Opposition,
+                ApplicationId = oppose.id,
+                AppUserId = staff.Id,
+                ApplicationType = FormApplicationTypes.NewApplication,
+                BeforeStatus = ApplicationStatuses.Publication,
+                Date = DateTime.Now,
+                OfficeUnit = Roles.TrademarkOpposition,
+                FileNumber = oppose.FileNumber,
+                FileType = FileTypes.TradeMark
+            };
+            _fileServices.SavePerformance(perf);
+            return true;
+        }
+        catch (Exception e)
+        {
+            _log.LogError(e,"Failed to Oppose by staff");
+            throw;
+        }
     }
     public async Task<bool> UpdateOppositionPaymentStatus(string paymentId)
     {

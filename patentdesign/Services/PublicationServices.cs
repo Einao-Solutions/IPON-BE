@@ -14,7 +14,7 @@ namespace patentdesign.Services
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
-
+            
         private static IMongoCollection<Filling> _files; 
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
@@ -50,6 +50,14 @@ namespace patentdesign.Services
                 _log.LogError("File with number {FileNumber} not found. Cannot save publication info.", pub.FileNumber);
                 throw new KeyNotFoundException("File not found");
             }
+
+            var existing = await _pubCollection.Find(p => p.FileNumber == pub.FileNumber && !p.IsOpposed).FirstOrDefaultAsync();
+            if (existing is not null)
+            {
+                _log.LogWarning("Publication for file {FileNumber} already exists and is not opposed. Skipping duplicate.", pub.FileNumber);
+                return existing.Id;
+            }
+
             try
             {
                 var publicationInfo = new PublicationInfo
@@ -73,12 +81,12 @@ namespace patentdesign.Services
                     PriorityInfo = file.PriorityInfo,
                     FirstPriorityInfo = file.FirstPriorityInfo,
                     Attachments = file.Attachments,
-
+                    IsManualPublication = pub.IsManualPublication ?? false
                 };
 
                 await _pubCollection.InsertOneAsync(publicationInfo);
                 _log.LogInformation("Publication info saved successfully for file number: {FileNumber}", pub.FileNumber);
-                return publicationInfo.Id; 
+                return publicationInfo.Id;
             }
             catch (Exception e)
             {
@@ -86,7 +94,6 @@ namespace patentdesign.Services
                 throw;
             }
         }
-
         public async Task<int> PublishTrademarks()
         {
             _log.LogInformation("Publishing trademarks with publication date at least 60 days ago");
@@ -196,32 +203,75 @@ namespace patentdesign.Services
             var pdfData = new JournalDocumentNewspaper(publicationsData, type, startDate, endDate).GeneratePdf();
             return pdfData;
         }
+        //public async Task<PaginatedPublicationResponse> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
+        //{
+        //    _log.LogInformation("Fetching publication list");
+        //    var titleFilter = text == null ? Builders<Filling>.Filter.Empty : Builders<Filling>.Filter.Regex(x => x.TitleOfTradeMark, new BsonRegularExpression(text, "i"));
+        //    var combinedFilter = Builders<Filling>.Filter.And([
+        //        Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
+        //        Builders<Filling>.Filter.Or([
+        //            Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
+        //        ]),
+        //        titleFilter
+        //    ]);
+        //    var result = await _files.Find(combinedFilter)
+        //        .Project(x => new PublicationInfoDto
+        //        {
+        //            FileId = x.Id,
+        //            Title = x.TitleOfTradeMark,
+        //            Class = x.TrademarkClass,
+        //            Representation = x.Attachments.FirstOrDefault(att => att.name == "representation") != null ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0] : null,
+        //            FileNumber = x.FileId,
+        //            Applicant = x.applicants.Count > 1 ? x.applicants[0].Name + "et al." : x.applicants[0].Name,
+        //            FilingDate = x.FilingDate ?? x.DateCreated,
+        //            PublicationDate = x.ApplicationHistory[0].StatusHistory.FirstOrDefault(s => s.afterStatus == ApplicationStatuses.Publication).Date
+        //        }).Limit(quantity).Skip(index).ToListAsync();
+        //    var counter = await _files.CountDocumentsAsync(combinedFilter);
+        //    _log.LogInformation("pub fetched");
+        //    return new PaginatedPublicationResponse { Result = result, Count = counter };
+        //}
+        
         public async Task<PaginatedPublicationResponse> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
         {
-            _log.LogInformation("Fetching publication list");
-            var titleFilter = text == null ? Builders<Filling>.Filter.Empty : Builders<Filling>.Filter.Regex(x => x.TitleOfTradeMark, new BsonRegularExpression(text, "i"));
-            var combinedFilter = Builders<Filling>.Filter.And([
-                Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
-                Builders<Filling>.Filter.Or([
-                    Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
-                ]),
-                titleFilter
-            ]);
-            var result = await _files.Find(combinedFilter)
+            _log.LogInformation("Fetching batch publications by search text: {Text}", text);
+
+            var titleFilter = text == null
+                ? Builders<PublicationInfo>.Filter.Empty
+                : Builders<PublicationInfo>.Filter.Regex(x => x.Title, new BsonRegularExpression(text, "i"));
+
+            var combinedFilter = Builders<PublicationInfo>.Filter.And(
+                Builders<PublicationInfo>.Filter.Eq(x => x.IsBatchPublished, false),
+                titleFilter);
+
+            var result = await _pubCollection.Find(combinedFilter)
                 .Project(x => new PublicationInfoDto
                 {
                     FileId = x.Id,
-                    Title = x.TitleOfTradeMark,
-                    Class = x.TrademarkClass,
-                    Representation = x.Attachments.FirstOrDefault(att => att.name == "representation") != null ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0] : null,
-                    FileNumber = x.FileId,
-                    Applicant = x.applicants.Count > 1 ? x.applicants[0].Name + "et al." : x.applicants[0].Name,
-                    FilingDate = x.FilingDate ?? x.DateCreated,
-                    PublicationDate = x.ApplicationHistory[0].StatusHistory.FirstOrDefault(s => s.afterStatus == ApplicationStatuses.Publication).Date
-                }).Limit(quantity).Skip(index).ToListAsync();
-            var counter = await _files.CountDocumentsAsync(combinedFilter);
-            _log.LogInformation("pub fetched");
-            return new PaginatedPublicationResponse { Result = result, Count = counter };
+                    Title = x.Title ?? "",
+                    FileNumber = x.FileNumber,
+                    Class = x.Class,
+                    Representation = x.Attachments != null
+                        ? x.Attachments.FirstOrDefault(att => att.name == "representation") != null
+                            ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0]
+                            : null
+                        : null,
+                    Applicant = x.Applicants != null && x.Applicants.Count > 0
+                        ? x.Applicants.Count > 1
+                            ? x.Applicants[0].Name + "et al."
+                            : x.Applicants[0].Name
+                        : null,
+                    PublicationDate = x.PublicationDate,
+                    FilingDate = x.FilingDate ?? x.PublicationDate
+                })
+                .Skip(index)
+                .Limit(quantity)
+                .ToListAsync();
+
+            var count = await _pubCollection.CountDocumentsAsync(combinedFilter);
+            _log.LogInformation("Fetched {Count} of {Total} batch publications", result.Count, count);
+
+            return new PaginatedPublicationResponse { Result = result, Count = count };
         }
     }
 }
+    

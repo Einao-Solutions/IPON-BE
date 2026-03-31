@@ -62,6 +62,7 @@ public record PublicationInfo
     public string? ClassDescription { get; set; }
     public int? Class { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
+    public bool? IsManualPublication { get; set; } = false;
 }
 public record DesignForm
 {
@@ -1694,6 +1695,7 @@ public record Opposition
     public DateTime? ApplicantNotifiedDate { get; set; }
     public DateTime? ResolvedDate { get; set; }
     public bool? Paid { get; set; } = false;
+    public bool? IsStaffOpposition = false;
 }
 
 public class StatusChangeLog

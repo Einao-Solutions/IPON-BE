@@ -67,8 +67,8 @@ public class FileServices
     private PublicationServices _publicationServices;
 
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    //private string attachmentBaseUrl = "https://integration.iponigeria.com";
-     private string attachmentBaseUrl = "http://localhost:5044";
+    private string attachmentBaseUrl = "https://integration.iponigeria.com";
+     //private string attachmentBaseUrl = "http://localhost:5044";
 
     public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService, PublicationServices publicationServices)
     {
@@ -2863,7 +2863,7 @@ public class FileServices
         return result;
     }
 
-    private void SavePerformance(PerformanceDto perf)
+    public void SavePerformance(PerformanceDto perf)
     {
         var performance = new StaffPerformance
         {
