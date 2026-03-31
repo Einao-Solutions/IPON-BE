@@ -176,24 +176,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return File(attachmentInfo.Value.Item1, attachmentInfo.Value.Item2);
     }
 
-    [HttpGet("GetPublication")]
-    public async Task<IActionResult> GetJournal([FromQuery] int type, [FromQuery] DateTime start,
-        [FromQuery] DateTime end)
-    {
-        var data = await fileService.GetTypePublication(start, end, Enum.GetValues<FileTypes>()[type]);
-        Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
-        return File(data, "application/pdf", "journal.pdf");
-    }
-
-
-    [HttpGet("GetTrademarkPublication")]
-    public async Task<IActionResult> GetTrademarkPublication([FromQuery] string? text = null,
-        [FromQuery] int? index = null, [FromQuery] int? quantity = null)
-    {
-        var data = await fileService.GetTrademarkPublication(text, index, quantity);
-        return Ok(data);
-    }
-
+    
     [HttpGet("GenerateOppositionRRR")]
     public async Task<IActionResult> GenerateOppositionRRR([FromQuery] string description, [FromQuery] string name,
         [FromQuery] string email, [FromQuery] string number)
@@ -961,6 +944,38 @@ public class FilesController(FileServices fileService) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Retrieves the cost and payment reference for a design mortgage application.
+    /// </summary>
+    /// <param name="fileId">The unique file identifier.</param>
+    /// <param name="fileType">The type of file (expected to be Design).</param>
+    /// <returns>
+    /// 200: Success, returns cost and payment details.<br/>
+    /// 204: No content if the file or applicant is not found.<br/>
+    /// 500: Internal server error.
+    /// </returns>
+    [HttpGet("GetDesignMortgageCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignMortgageCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.DesignMortgageCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
     [HttpPost("DesignLicenseApplication")]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
@@ -1021,6 +1036,274 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.Approve,
                 dto.Reason,
                 dto.NewLicensee);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignMortgageApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignMortgageApplication([FromBody] DesignMortgageDto dto)
+    {
+        try
+        {
+            var created = await fileService.NewDesignMortgageApplication(dto);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Design mortgage application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Design mortgage application submitted successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpGet("GetDesignMortgageDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignMortgageDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetDesignMortgageDetailsAsync(fileId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Design mortgage recordal not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignMortgageDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignMortgageDecision([FromBody] DesignMortgageDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.DesignMortgageDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.NewMortgagee);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    //Design Assignment Post Registration Section
+    [HttpGet("GetDesignAssignmentCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignAssignmentCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.DesignAssignmentCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignAssignmentApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignAssignmentApplication([FromBody] DesignAssignmentDto dto)
+    {
+        try
+        {
+            var created = await fileService.NewDesignAssignmentApplication(dto);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Design assignment application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Design assignment application submitted successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpGet("GetDesignAssignmentDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignAssignmentDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetDesignAssignmentDetailsAsync(fileId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Design assignment recordal not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignAssignmentDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignAssignmentDecision([FromBody] DesignAssignmentDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.DesignAssignmentDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.NewAssignee);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    //Design Merger Post Registration Section
+    [HttpGet("GetDesignMergerCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignMergerCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.DesignMergerCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignMergerApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignMergerApplication([FromBody] DesignMergerDto dto)
+    {
+        try
+        {
+            var created = await fileService.NewDesignMergerApplication(dto);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Design merger application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Design merger application submitted successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpGet("GetDesignMergerDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignMergerDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetDesignMergerDetailsAsync(fileId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Design merger recordal not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignMergerDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignMergerDecision([FromBody] DesignMergerDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.DesignMergerDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.MergedEntity);
 
             if (!success)
             {
@@ -1281,7 +1564,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpPost("PublicationStatusDecision")]
     public async Task<IActionResult> PublicationStatusDecision([FromBody] PublicationStatusDecisionDto dto)
     {
-        var (success, message) = await fileService.PublicationStatusDecisionAsync(dto.FileId, dto.Approve, dto.Comment);
+        var (success, message) = await fileService.PublicationStatusDecisionAsync(dto.FileId, dto.Approve, dto.Comment, dto.UserId);
         if (!success)
             return NotFound(new { message });
 
@@ -1355,8 +1638,6 @@ public class FilesController(FileServices fileService) : ControllerBase
 
 
     #region Patent Assignment Post Registration Section
-
-    //Patent Assignment Post Registration Section
     /// <summary>
     /// Submits a new patent assignment application.
     /// </summary>

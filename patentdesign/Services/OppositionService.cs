@@ -1,8 +1,4 @@
-﻿using System.Security.Authentication;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
@@ -11,6 +7,11 @@ using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;
 using QuestPDF.Fluent;
+using System.Reflection.Emit;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Tfunctions.pdfs;
 
 public class OppositionService
@@ -19,6 +20,8 @@ public class OppositionService
     private static IMongoCollection<AttachmentInfo> _attachmentCollection;
     private static IMongoCollection<Opposition> _oppositionCollection;
     private static IMongoCollection<FinanceHistory> _financeCollection;
+    private static IMongoCollection<PublicationInfo> _publicationCollection;
+    private readonly ILogger<OppositionService> _log;
 
     private PaymentUtils _remitaPaymentUtils;
     private FileServices _fileServices;
@@ -27,7 +30,7 @@ public class OppositionService
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
-    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FileServices fileServices, EmailServices emailServices)
+    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FileServices fileServices, EmailServices emailServices, ILogger<OppositionService> log)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -50,15 +53,27 @@ public class OppositionService
         _oppositionCollection =
             pdDb.GetCollection<Opposition>(patentDesignDbSettings.Value.OppositionCollectionName);
         _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
-
-
+        _log = log;
+        _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
     }
     public async Task<OppositionSearchDto> OppositionSearch(string fileNumber)
     {
         try
         {
-            var file = await _fillingCollection.Find(f=>f.FileId == fileNumber).FirstOrDefaultAsync(); 
-            if (file == null) throw new Exception("File not found");
+            _log.LogInformation($"Searching to Oppose {fileNumber}...");
+            var file = await _fillingCollection.Find(f=>f.FileId == fileNumber).FirstOrDefaultAsync();
+            if (file == null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException("File not found");
+            }
+
+            if (file.FileStatus != ApplicationStatuses.Publication)
+            {
+                _log.LogError("Only Files in Publication can be opposed.");
+                throw new NotSupportedException("Only Files in Publication can be opposed.");
+            }
+
             string title;
             switch (file.Type)
             {
@@ -77,7 +92,6 @@ public class OppositionService
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            if(file.FileStatus != ApplicationStatuses.Publication) throw new Exception("Only Files in Publication can be opposed.");
             var repAttachment = file?.Attachments.FirstOrDefault(a => a.name == "representation" && a.url != null && a.url.Count > 0);
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.Opposition, file?.Type, applicant?.country, null, null,
                 null);
@@ -114,8 +128,10 @@ public class OppositionService
     }
     public async Task<bool> SubmitOpposition(OppositionRequestDto data)
     {
+        _log.LogInformation($"Submitting Opposition {data.FileNumber}...");
         try
         {
+
             var oppDocUrls = new List<string>();
             
             if (data?.SupportingDocs?.Count > 0)
@@ -144,9 +160,10 @@ public class OppositionService
             Console.WriteLine("Creating new opposition");
             var oppose = new Opposition
             {
+                id = Guid.NewGuid().ToString(),
                 FileNumber = data.FileNumber,
                 Name = data.Name,
-                OppositionDate = null,
+                OppositionDate = DateTime.Now,
                 PaymentId = data.PaymentId,
                 Phone = data.Phone,
                 Email = data.Email,
@@ -159,6 +176,11 @@ public class OppositionService
                 FileId = data.FileId,
             };
             await _oppositionCollection.InsertOneAsync(oppose);
+            _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
+            
+
+            
+            _log.LogInformation("File Opposed Succesfully");
             return true;
         }
         catch (Exception e)
@@ -168,6 +190,30 @@ public class OppositionService
         }
     }
 
+    private async Task<bool> OpposePublication(Opposition opp)
+    {
+        var pub = await _publicationCollection.Find(p => p.FileNumber == opp.FileNumber).FirstOrDefaultAsync();
+        if (pub is null)
+        {
+            _log.LogError("Publication not found");
+            return false;
+        }
+        if (pub.Opposition is null)
+        {
+            await _publicationCollection.UpdateOneAsync(
+                Builders<PublicationInfo>.Filter.Eq(p => p.FileNumber, opp.FileNumber),
+                Builders<PublicationInfo>.Update.Set(p => p.Opposition, new List<Opposition>())
+            );
+        }
+        await _publicationCollection.UpdateOneAsync(
+            Builders<PublicationInfo>.Filter.Eq(p => p.FileNumber, opp.FileNumber),
+            Builders<PublicationInfo>.Update.Combine(
+        Builders<PublicationInfo>.Update.Set(p => p.IsOpposed, true),
+            Builders<PublicationInfo>.Update.Push(p=>p.Opposition, opp)
+        ));
+        _log.LogInformation($"Publication {opp.FileNumber} has been opposed");
+        return true;
+    }
     public async Task<bool> UpdateOppositionPaymentStatus(string paymentId)
     {
         try
@@ -181,7 +227,19 @@ public class OppositionService
                     Builders<Opposition>.Update.Set(x => x.Paid, true),
                     Builders<Opposition>.Update.Set(x => x.OppositionDate, DateTime.Now)
                 ));
-
+            var oppResult = await OpposePublication(opp);
+            if (!oppResult)
+            {
+                _log.LogError("Failed to oppose publication");
+                return false;
+            }
+            var notice = await NotifyApplicant(opp.id);
+            if (!notice)
+            {
+                _log.LogError("Failed to Notify Applicant");
+                return false;
+            }
+            _log.LogInformation($"Opposition with payment ID {paymentId} has been marked as paid and applicant notified");
             return true;
         }
         catch (Exception e)
@@ -217,22 +275,23 @@ public class OppositionService
             if (app == null) throw new Exception("Applicant not found");
             var mail = new OppositionMail
             {
-                To = app.Email,
+                To = file.Correspondence.email ?? app.Email,
                 Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
                 OppositionDate = date,
                 ApplicantName = app.Name,
                 FileNumber = file.FileId,
                 Reason = opp.Reason,
-                SignatoryName = "John Doe",
+                SignatoryName = "",
                 OpposerName = opp.Name,
                 Title = opp.FileTitle
             };
             var email = new EmailDto
             {
-                To = app.Email,
+                To = file.Correspondence.email ?? app.Email,
                 CarbonCopy = app.Email,
                 OppositionMail = mail,
                 Subject = "Important Notice! Opposition Filed Against Your Trademark Application",
+                EmailType = EmailType.Opposition
             };
             await _emailServices.SendMail(email);
             
@@ -253,8 +312,8 @@ public class OppositionService
                 Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
                 Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Push(f => f.Oppositions, opp),
-                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Opposition)
-                ));
+                Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.Opposition),
+                Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.Opposition)));
 
             return true;
         }
@@ -269,246 +328,7 @@ public class OppositionService
         var total = await _oppositionCollection.CountDocumentsAsync(o => o.Paid == true);
         return total;
     }
-    // public async Task<object> AddNewOpposition(
-    //     string description,
-    //     string name, string email,
-    //     string number, string address, string fileUrl, string fileID, string title, string userId, string userName)
-    // {
-    //     var details =
-    //         await _remitaPaymentUtils.GenerateOppositionID(PaymentTypes.OppositionCreation, description, name, email,
-    //             number);
-    //     var fileCreator=await _fillingCollection.Find(x => x.Id == fileID).Project(x => x.CreatorAccount).FirstOrDefaultAsync();
-    //     var opposition = new OppositionType()
-    //     {
-    //         fileId = fileID,
-    //         creatorId = userId,
-    //         fileCreatorId = fileCreator,
-    //         address = address,
-    //         email = email,
-    //         number = number,
-    //         name = name,
-    //         title = title,
-    //         creationPaymentID = details.Item1,
-    //         currentStatus = ApplicationStatuses.AwaitingPayment,
-    //         created = DateTime.Now,
-    //         oppositionFile = fileUrl,
-    //         history =
-    //         [
-    //             new ApplicationHistory()
-    //             {
-    //                 beforeStatus = ApplicationStatuses.None,
-    //                 afterStatus = ApplicationStatuses.AwaitingPayment,
-    //                 Date = DateTime.Now,
-    //                 Message = "Opposition saved, awaiting payment",
-    //                 User = userName,
-    //                 UserId = userId
-    //             }
-    //         ],
-    //
-    //     };
-    //     await _oppositionCollection.InsertOneAsync(opposition);
-    //     return new
-    //     {
-    //         rrr = details.Item1,
-    //         amount = details.Item2,
-    //         id = opposition.Id
-    //     };
-    // }
-    //
-    // public async Task<OppositionType> AddResponse(OppResReq data)
-    // {
-    //
-    //     var status=await ValidatePayment(data.paymentId);
-    //     if (status.status == "00")
-    //     {
-    //         AddToFinance("Opposition Response Application", "-", "-",
-    //             "-", FileTypes.TradeMark, status);
-    //     }
-    //     var response = await _oppositionCollection.FindOneAndUpdateAsync(
-    //         Builders<OppositionType>.Filter.Eq(x => x.Id, data.oppositionID),
-    //         Builders<OppositionType>.Update.Combine([
-    //             Builders<OppositionType>.Update.Set(x => x.responseFile, data.fileUrl),
-    //             Builders<OppositionType>.Update.Set(x => x.responseReceiptUrl, ApplicationLetters.OppositionResponseReceipt),
-    //             Builders<OppositionType>.Update.Set(x => x.responseAckUrl, ApplicationLetters.OppositionResponseAck),
-    //             Builders<OppositionType>.Update.Set(x => x.responseName, data.name),
-    //             Builders<OppositionType>.Update.Set(x => x.responsePaymentId, data.paymentId),
-    //             Builders<OppositionType>.Update.Set(x => x.responseAddress, data.address),
-    //             Builders<OppositionType>.Update.Set(x => x.responseEmail, data.email),
-    //             Builders<OppositionType>.Update.Set(x => x.responseNumber, data.number),
-    //             Builders<OppositionType>.Update.Set(x => x.currentStatus, ApplicationStatuses.AwaitingResolution),
-    //             Builders<OppositionType>.Update.Push(x => x.history, new ApplicationHistory()
-    //             {
-    //                 Message = "Counter statement added, awaiting resolution",
-    //                 UserId = data.userId,
-    //                 User = data.userName,
-    //                 Date = DateTime.Now,
-    //                 afterStatus = ApplicationStatuses.AwaitingResolution,
-    //                 beforeStatus = ApplicationStatuses.AwaitingResponse
-    //             }),
-    //         ]), new FindOneAndUpdateOptions<OppositionType>()
-    //         {
-    //             ReturnDocument = ReturnDocument.After
-    //         });
-    //     return response;
-    // }
-    //
-    // public async Task<object?> AddResolution(OppResReq data)
-    // {
-    //     // var receipt =
-    //     //     await GenerateAndSaveReceipt("", data.amount, data.paymentId, data.name, data.description, DateTime.Now);
-    //     // var ack = await GenerateAndSaveAcknowledgement(new OppositionAckType()
-    //     // {
-    //     //     address = data.address,
-    //     //     description = data.description,
-    //     //     email = data.email,
-    //     //     number = data.number,
-    //     //     name = data.name,
-    //     //     date = DateTime.Now,
-    //     //     paymentId = data.paymentId,
-    //     // });
-    //     var status = await ValidatePayment(data.paymentId);
-    //     if (status.status == "00")
-    //     {
-    //         AddToFinance("Opposition Resolution Application", "-", "-",
-    //             "-", FileTypes.TradeMark, status);
-    //     }
-    //
-    //     var response = await _oppositionCollection.FindOneAndUpdateAsync(
-    //         Builders<OppositionType>.Filter.Eq(x => x.Id, data.oppositionID),
-    //         Builders<OppositionType>.Update.Combine([
-    //             Builders<OppositionType>.Update.Set(x => x.resolutionFile, data.fileUrl),
-    //             Builders<OppositionType>.Update.Set(x => x.resolutionReceipt, ApplicationLetters.OppositionResolutionReceipt),
-    //             Builders<OppositionType>.Update.Set(x => x.resolutionAcknowledgement, ApplicationLetters.OppositionResolutionAck),
-    //             Builders<OppositionType>.Update.Set(x => x.resolutionpaymentId, data.paymentId),
-    //             Builders<OppositionType>.Update.Set(x => x.currentStatus, ApplicationStatuses.AwaitingOppositionStaff),
-    //             Builders<OppositionType>.Update.Push(x => x.history, new ApplicationHistory()
-    //             {
-    //                 Message = "Resolution added, awaiting opposition office",
-    //                 UserId = data.userId,
-    //                 User = data.userName,
-    //                 Date = DateTime.Now,
-    //                 afterStatus = ApplicationStatuses.AwaitingOppositionStaff,
-    //                 beforeStatus = ApplicationStatuses.AwaitingResolution
-    //             }),
-    //         ]));
-    //     return response;
-    // }
-    //
-    // public async Task<OppositionType?> UpdateOppositionStatus(AssUpdateReq data)
-    // {
-    //     var latestStatus = new ApplicationHistory()
-    //     {
-    //         Message = data.reason,
-    //         UserId = data.userId,
-    //         User = data.userName,
-    //         Date = DateTime.Now,
-    //         afterStatus = data.newStatus,
-    //         beforeStatus = data.currentStatus
-    //     };
-    //     var operations = new List<UpdateDefinition<OppositionType>>()
-    //     {
-    //         Builders<OppositionType>.Update.Set(x => x.currentStatus, data.newStatus),
-    //         Builders<OppositionType>.Update.Push(x => x.history, latestStatus)
-    //     };
-    //     if (data is
-    //         {
-    //             currentStatus: ApplicationStatuses.AwaitingPayment, newStatus: ApplicationStatuses.AwaitingResponse
-    //         })
-    //     {
-    //         var oppositionInfo = await _oppositionCollection.Find(x => x.Id == data.applicationId)
-    //             .FirstOrDefaultAsync();
-    //         operations.Add(
-    //             Builders<OppositionType>.Update.Set(x => x.recepitUrl, ApplicationLetters.NewOppositionReceipt));
-    //         operations.Add(Builders<OppositionType>.Update.Set(x => x.ackUrl, ApplicationLetters.NewOppositionAck));
-    //         var updated=await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, oppositionInfo.fileId),
-    //             Builders<Filling>.Update.Combine([
-    //                 Builders<Filling>.Update.Push(x => x.ApplicationHistory[0].StatusHistory, new ApplicationHistory()
-    //                 {
-    //                     beforeStatus = ApplicationStatuses.Publication,
-    //                     afterStatus = ApplicationStatuses.Opposition,
-    //                     Message = "New opposition filled",
-    //                     Date = DateTime.Now,
-    //                     User = data.userName,
-    //                     UserId = data.userId
-    //                 }),
-    //             ]), new FindOneAndUpdateOptions<Filling>()
-    //             {
-    //                 ReturnDocument = ReturnDocument.After
-    //             });
-    //
-    //         var status=await ValidatePayment(data.paymentId);
-    //         if (status.status == "00")
-    //         {
-    //             AddToFinance("New Opposition Application", updated.applicants[0].country, updated.Id,
-    //                 updated.ApplicationHistory[0].id, updated.Type, status);
-    //         }
-    //     }
-    //
-    //     if (data.newStatus == ApplicationStatuses.Resolved &&
-    //         data.currentStatus == ApplicationStatuses.AwaitingOppositionStaff)
-    //     {
-    //     }
-    //
-    //     var updatedAck = await _oppositionCollection.FindOneAndUpdateAsync(
-    //         Builders<OppositionType>.Filter.Eq(x => x.Id, data.applicationId),
-    //         Builders<OppositionType>.Update.Combine(operations), new FindOneAndUpdateOptions<OppositionType>()
-    //         {
-    //             ReturnDocument = ReturnDocument.After
-    //         });
-    //     return updatedAck;
-    // }
-    //
-    //
-    // private async Task<string> GenerateAndSaveReceipt(
-    //     string type, string amount, string paymentId, string name, string title, DateTime date)
-    // {
-    //     var trustedFileName = Path.GetRandomFileName();
-    //     trustedFileName = trustedFileName.Split(".")[0] + $".pdf";
-    //     var uri =
-    //         $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
-    //     var bytes = new OppositionReceipt(new OppositionReceiptType()
-    //     {
-    //        amount=amount,
-    //        paymentId = paymentId, 
-    //        name=name, 
-    //        description=title, 
-    //        date = date
-    //     }, uri).GeneratePdf();
-    //     using (var ms = new MemoryStream(bytes))
-    //     {
-    //         await _attachmentCollection.InsertOneAsync(new AttachmentInfo
-    //         {
-    //             Id = trustedFileName,
-    //             ContentType = "application/pdf",
-    //             Data = ms.ToArray()
-    //         });
-    //     }
-    //     return uri;
-    // }
-    //
-    //
-    //
-    // private async Task<string> GenerateAndSaveAcknowledgement(OppositionAckType data)
-    // {
-    //     var trustedFileName = Path.GetRandomFileName();
-    //     trustedFileName = trustedFileName.Split(".")[0] + $".pdf";
-    //     var uri =
-    //         $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
-    //     var bytes = new OppositionAcknowledgement(data, uri).GeneratePdf();
-    //     using (var ms = new MemoryStream(bytes))
-    //     {
-    //         await _attachmentCollection.InsertOneAsync(new AttachmentInfo
-    //         {
-    //             Id = trustedFileName,
-    //             ContentType = "application/pdf",
-    //             Data = ms.ToArray()
-    //         });
-    //     }
-    //
-    //     return uri;
-    // }
-    //
-    //
+
     public async Task<Object> LoadSummary(int quantity, int skip, ApplicationStatuses? status)
     {
         var filter = Builders<Opposition>.Filter.And([
@@ -610,7 +430,10 @@ public class OppositionService
         long awaitingCounter = _oppositionCollection.CountDocuments(Builders<Opposition>.Filter.Eq(x => x.Status, ApplicationStatuses.AwaitingCounter));
         long newOpps =
             _oppositionCollection.CountDocuments(
-                Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.NewOpposition));
+                Builders<Opposition>.Filter.And(
+                    Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.NewOpposition),
+                    Builders<Opposition>.Filter.Eq(o => o.Paid, true)
+                )); 
         
         stats.AwaitingCounter = awaitingCounter;
         stats.NewOpposition = newOpps;

@@ -32,7 +32,7 @@ public class OppositionMail
     public string OpposerName { get; set; }
     public string Reason { get; set; }
     public string OppositionDate { get; set; }
-    public string SignatoryName { get; set; }
+    public string? SignatoryName { get; set; }
 }
 public class ResetPasswordMail
 {

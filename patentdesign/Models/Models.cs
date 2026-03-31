@@ -36,6 +36,30 @@ public class AppUser
     public DateTime? PasswordResetTokenExpiry { get; set; }
 }
 
+public record PublicationInfo
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? FileNumber { get; set; }
+    public DateTime? FilingDate { get; set; }
+    public DateTime PublicationDate { get; set; }
+    public DateTime? BatchPublishDate { get; set; }
+    public string? Comment { get; set; }
+    public string? StaffId { get; set; }
+    public string? StaffName { get; set; }
+    public bool IsBatchPublished { get; set; } = false;
+    public bool IsOpposed { get; set; } = false;
+    public List<Opposition>? Opposition { get; set; } = new();
+    public string? Title { get; set; }
+    public List<AttachmentType>? Attachments { get; set; }
+    public List<AttachmentType>? Images { get; set; }
+    public List<ApplicantInfo> Applicants { get; set; }
+    public CorrespondenceType Correspondence { get; set; }
+    public List<PriorityInfo>? PriorityInfo { get; set; }
+    public List<byte[]>? ImagesUrl { get; set; }
+    public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+    public List<ApplicantInfo>? Inventors { get; set; }
+}
 public record DesignForm
 {
     [Required] public ApplicantInfo ApplicantInfo { get; set; } = new();
@@ -860,7 +884,11 @@ public enum ApplicationLetters
     ChangeOfNameCert, ChangeOfAddressCert, WithdrawalRequestAcknowledgement, WithdrawalRequestReceipt, WithdrawalRequestApproval, WithdrawalRequestRefusal,
     PatentAssignmentAcknowlegement, PatentLicenseAcknowledgement, PatentMortgageAcknowledgement, PatentMergerAcknowledgement, PatentCtcAcknowledgement, PatentAmendmentAcknowledgement,
     PatentAssignmentRefusalLetter, PatentLicenseRefusalLetter, PatentMortgageRefusalLetter, PatentMergerRefusalLetter, PatentCtcRefusalLetter, PatentAmendmentRefusalLetter,
-    PatentAssignmentReceipt, PatentLicenseReceipt, PatentMortgageReceipt, PatentMergerReceipt, PatentCtcReceipt, PatentAmendmentReceipt,
+    PatentAssignmentReceipt, PatentLicenseReceipt, PatentMortgageReceipt, PatentMergerReceipt, PatentCtcReceipt, PatentAmendmentReceipt, DesignAssignmentAcknowledgement, DesignLicenseAcknowledgement,
+    DesignMortgageAcknowledgement, DesignMergerAcknowledgement, DesignCtcAcnowledgement, DesignAmendmentAcknowledgement, DesignAssignmentRefusalletter,
+    DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
+    DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
+    
 
 }
 public class SearchInfo

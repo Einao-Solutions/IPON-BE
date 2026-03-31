@@ -56,6 +56,7 @@ public class FileServices
     private static IMongoCollection<StaffPerformance> _performanceCollection;
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
+    private static IMongoCollection<PublicationInfo> _publicationCollection;
     private readonly ILogger<FileServices> _log;
 
 
@@ -63,12 +64,13 @@ public class FileServices
     private MongoClient _mongoClient;
     private FinanceService _financeService;
     private PaymentService _paymentService;
+    private PublicationServices _publicationServices;
 
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
 
-    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService)
+    public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService, PublicationServices publicationServices)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -96,7 +98,8 @@ public class FileServices
         _paymentService = paymentService;
         _log = log;
         _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
-
+        _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
+        _publicationServices = publicationServices;
     }
 
     public async Task<Filling?> GetFileAsync(string id)
@@ -667,43 +670,6 @@ public class FileServices
         return res;
     }
 
-    public async Task<byte[]> GetTypePublication(DateTime startDate, DateTime endDate, FileTypes type)
-    {
-        var publicationsData = await _fillingCollection.Find(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x => x.Type, type),
-            Builders<Filling>.Filter.Gte(x => x.DateCreated, startDate),
-            Builders<Filling>.Filter.Lte(x => x.DateCreated, endDate),
-            Builders<Filling>.Filter.In(x => x.FileStatus,
-                new List<ApplicationStatuses>() { ApplicationStatuses.Active, ApplicationStatuses.Inactive })
-        ])).Project(x => new PublicationType()
-        {
-            Title = type == FileTypes.Design ? x.TitleOfDesign : type == FileTypes.Patent ? x.TitleOfInvention : "",
-            FileId = x.FileId,
-            Id = x.Id,
-            inventorsCreators = x.Type == FileTypes.Design ? x.DesignCreators : x.Type == FileTypes.Patent ? x.Inventors : new List<ApplicantInfo>() { },
-            Date = x.DateCreated,
-            Correspondence = x.Correspondence,
-            Applicants = x.applicants,
-            Images = type == FileTypes.Design ? x.Attachments : null,
-            PriorityInfos = type == FileTypes.Patent ? x.PriorityInfo : null
-        }).ToListAsync();
-        if (type == FileTypes.Design)
-        {
-            foreach (var dt in publicationsData)
-            {
-                List<byte[]> image_ = [];
-                var urls = dt.Images.FirstOrDefault(x => x.name == "designs").url;
-                foreach (var url in urls)
-                {
-                    image_.Add(await (new HttpClient()).GetByteArrayAsync(url));
-                }
-
-                publicationsData[publicationsData.IndexOf(dt)].ImagesUrl = image_;
-            }
-        }
-        var pdfData = new JournalDocument(publicationsData, type, startDate, endDate).GeneratePdf();
-        return pdfData;
-    }
 
     public async Task<List<string>> LoadListOfIds(int startingIndex,
         SummaryRequestObj filter)
@@ -1027,7 +993,7 @@ public class FileServices
     {
         _log.LogInformation("UpdateApplicationStatus started for FileId {FileId}, AppId {AppId}, {Before} → {After}",
             data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
-
+        var userName = data.user ?? await _userCollection.Find(x => x.Id == data.userId).Project(x => x.Name).FirstOrDefaultAsync() ?? "Unknown User";
         RemitaResponseClass? remi = null;
         bool paymentSuccessful = false;
         if (data.simulate == false)
@@ -1037,8 +1003,7 @@ public class FileServices
                 {
                     AfterStatus: ApplicationStatuses.AwaitingSearch,
                     beforeStatus: ApplicationStatuses.AwaitingPayment,
-                    applicationType: FormApplicationTypes.NewApplication or FormApplicationTypes.DataUpdate
-                    or FormApplicationTypes.LicenseRenewal
+                    applicationType: FormApplicationTypes.NewApplication
                 })
             {
                 _log.LogDebug("Checking payment status for RRR {Rrr}", data.paymentId);
@@ -1064,7 +1029,7 @@ public class FileServices
             afterStatus = data.AfterStatus,
             Date = DateTime.Now,
             Message = data.message,
-            User = data.user,
+            User = userName,
             UserId = data.userId
         };
         List<UpdateDefinition<Filling>> operations =
@@ -1085,67 +1050,40 @@ public class FileServices
             ApplicationType = data.applicationType,
             AppUserId = data.userId,
             FileNumber = data.fileNumber,
-            FileType = data.FileType
+            FileType = data.FileType,
+            OfficeUnit = null
         };
         if (data.applicationType is FormApplicationTypes.NewApplication)
         {
             operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
-            if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
+            if (data.AfterStatus is ApplicationStatuses.Active)
             {
                 var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.NewApplication);
                 _log.LogDebug("Calculated expiry date {ExpiryDate} for FileId {FileId}", nextDate, data.fileId);
 
-                if (data.applicationType == FormApplicationTypes.NewApplication)
+                
+                if (data.FileType != FileTypes.TradeMark)
                 {
-                    if (data.FileType != FileTypes.TradeMark)
-                    {
-                        operations.Add(Builders<Filling>.Update.AddToSetEach(
-                            "ApplicationHistory.$.ApplicationLetters",
-                            [
-                                ApplicationLetters.NewApplicationAcceptance,
-                                ApplicationLetters.NewApplicationCertificate
-                            ]));
-                    }
-                    //assign RTM
-                    if (data.FileType is FileTypes.TradeMark)
-                    {
-                        var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
-                        _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
-                        operations.Add(Builders<Filling>.Update.AddToSetEach(
-                            "ApplicationHistory.$.ApplicationLetters",
-                            [
-                                ApplicationLetters.NewApplicationCertificate
-                            ]));
-                        operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmNumber.ToString()));
-                        await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
-                            Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
-                        perf.OfficeUnit = Roles.TrademarkCertification;
-                    }
-                    else if (data.FileType is FileTypes.Patent)
-                    {
-                        perf.OfficeUnit = Roles.PatentCertification;
-                    }
-                    else
-                    {
-                        perf.OfficeUnit = Roles.DesignCertification;
-                    }
+                    operations.Add(Builders<Filling>.Update.AddToSetEach(
+                        "ApplicationHistory.$.ApplicationLetters",
+                        [
+                            ApplicationLetters.NewApplicationAcceptance,
+                            ApplicationLetters.NewApplicationCertificate
+                        ]));
                 }
-
-                operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
-            }
-            if (data.AfterStatus is ApplicationStatuses.AwaitingCertificateConfirmation)
-            {
-                perf.OfficeUnit = data.FileType is FileTypes.Patent ? Roles.PatentCertification : Roles.DesignCertification;
-            }
-            if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
-            {
-                _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
-                var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1)
-                    .ToListAsync()).First();
-                operations.Add(Builders<Filling>.Update.Push(
-                    "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
+                //assign RTM
                 if (data.FileType is FileTypes.TradeMark)
                 {
+                    var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
+                    _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
+                    operations.Add(Builders<Filling>.Update.AddToSetEach(
+                        "ApplicationHistory.$.ApplicationLetters",
+                        [
+                            ApplicationLetters.NewApplicationCertificate
+                        ]));
+                    operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmNumber.ToString()));
+                    await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
+                        Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
                     perf.OfficeUnit = Roles.TrademarkCertification;
                 }
                 else if (data.FileType is FileTypes.Patent)
@@ -1156,8 +1094,47 @@ public class FileServices
                 {
                     perf.OfficeUnit = Roles.DesignCertification;
                 }
-            }
+                
 
+                operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
+            }
+            if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
+            {
+                _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
+                var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1)
+                    .ToListAsync()).First();
+                operations.Add(Builders<Filling>.Update.Push(
+                    "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
+                if (data.FileType is FileTypes.TradeMark)
+                {
+                    perf.OfficeUnit = Roles.TrademarkExaminer;
+                }
+                else if (data.FileType is FileTypes.Patent)
+                {
+                    perf.OfficeUnit = Roles.PatentExaminer;
+                }
+                else
+                {
+                    perf.OfficeUnit = Roles.DesignExaminer;
+                }
+            }
+            if (data.AfterStatus is ApplicationStatuses.Publication)
+            {
+                var publish = new PublicationDto
+                {
+                    FileNumber = data.fileNumber,
+                    Comment = data.message,
+                    StaffId = data.userId,
+                    StaffName = userName,
+                };
+                var pubResult = await _publicationServices.SavePublication(publish);
+                if (pubResult is null)
+                {
+                    _log.LogError("Failed to save publication data for FileId {FileId}", data.fileId);
+                    throw new NullReferenceException("Failed to save publication data");
+                }
+                perf.OfficeUnit = Roles.TrademarkExaminer;
+            }
         }
 
         //if (data.applicationType is FormApplicationTypes.LicenseRenewal)
@@ -1189,11 +1166,7 @@ public class FileServices
         //            "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
         //    }
         //}
-        if (data.AfterStatus is ApplicationStatuses.Publication)
-        {
-            operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationAcceptance));
-            perf.OfficeUnit = Roles.TrademarkAcceptance;
-        }
+        
 
         var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", data.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == data.applicationId));
@@ -1203,6 +1176,7 @@ public class FileServices
         _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, NewStatus {Status}",
             data.fileId, data.AfterStatus);
         return result;
+
     }
 
     public async Task<PaginatedResponse> GetPaginatedSummaryAsync(int startingIndex, int quantity, SummaryRequestObj filter)
@@ -2912,32 +2886,6 @@ public class FileServices
         return details;
     }
 
-    public async Task<object?> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
-    {
-        var titleFilter = text == null ? Builders<Filling>.Filter.Empty : Builders<Filling>.Filter.Regex(x => x.TitleOfTradeMark, new BsonRegularExpression(text, "i"));
-        var result = await _fillingCollection.Find(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
-             Builders<Filling>.Filter.Or([
-             Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
-             ]),
-             titleFilter
-        ])).Project(x => new
-        {
-            title = x.TitleOfTradeMark,
-            tradeClass = x.TrademarkClass,
-            image = x.Attachments.FirstOrDefault(att => att.name == "representation") != null ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0] : null,
-            fileId = x.FileId,
-            id = x.Id,
-            applicant = x.applicants.Count > 1 ? x.applicants[0].Name + "et al." : x.applicants[0].Name,
-            date = x.DateCreated
-        }).Limit(quantity).Skip(index).ToListAsync();
-        var counter = _fillingCollection.CountDocuments(Builders<Filling>.Filter.And([
-            Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
-             Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
-             titleFilter
-        ]));
-        return new { result = result, count = counter };
-    }
 
     //public async Task PaidButNotReflecting()
     //{
@@ -4051,18 +3999,45 @@ public class FileServices
                 return null;
             }
             var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Assignment &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var designAssignmentCost = new RecordalDto
+            {
+                FileId = fileInfo.FileId,
+                FileTitle = fileInfo.TitleOfDesign ?? string.Empty,
+                TitleOfInvention = fileInfo.TitleOfDesign ?? string.Empty,
+                FileOrigin = fileInfo.FileOrigin ?? fileInfo.FilingCountry,
+                DesignType = fileInfo.DesignType,
+                DesignTypeDescription = fileInfo.DesignType?.ToString(),
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantCity = applicant.city,
+                TrademarkClass = fileInfo.TrademarkClass
+            };
+
+            if (existingApp != null)
+            {
+                designAssignmentCost.HasExistingApplication = true;
+                designAssignmentCost.ExistingApplicationId = existingApp.id;
+                designAssignmentCost.ExistingRRR = existingApp.PaymentId;
+                return designAssignmentCost;
+            }
+
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "Design Assignment",
                 applicant.Name, applicant.Email, applicant.Phone);
-            var designAssignmentCost = new RecordalDto
-            {
-                Amount = data.Item1,
-                rrr = paymentId,
-                FileId = fileId,
-                FileTitle = fileInfo.TitleOfDesign ?? "",
-                ApplicantName = applicant.Name,
-                TrademarkClass = fileInfo.TrademarkClass
-            };
+
+            designAssignmentCost.Amount = data.Item1;
+            designAssignmentCost.rrr = paymentId;
+
             return designAssignmentCost;
         }
         catch (Exception up)
@@ -4160,8 +4135,18 @@ public class FileServices
                 Amount = data.Item1,
                 rrr = paymentId,
                 FileId = fileId,
-                FileTitle = fileInfo.TitleOfDesign ?? "",
+                FileTitle = fileInfo.TitleOfDesign ?? string.Empty,
+                TitleOfInvention = fileInfo.TitleOfDesign ?? string.Empty,
+                FileOrigin = fileInfo.FileOrigin ?? fileInfo.FilingCountry,
+                DesignType = fileInfo.DesignType,
+                DesignTypeDescription = fileInfo.DesignType?.ToString(),
                 ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantCity = applicant.city,
                 TrademarkClass = fileInfo.TrademarkClass
             };
             return designMergerCost;
@@ -4257,18 +4242,44 @@ public class FileServices
                 return null;
             }
             var applicant = fileInfo.applicants[0];
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Mortgage &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var designMortgageCost = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfDesign ?? "",
+                TitleOfInvention = fileInfo.TitleOfDesign ?? string.Empty,
+                FileOrigin = fileInfo.FileOrigin ?? fileInfo.FilingCountry,
+                DesignType = fileInfo.DesignType,
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantPhone = applicant.Phone,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantCity = applicant.city
+              //  TrademarkClass = fileInfo.TrademarkClass
+            };
+
+            if (existingApp != null)
+            {
+                designMortgageCost.HasExistingApplication = true;
+                designMortgageCost.ExistingApplicationId = existingApp.id;
+                designMortgageCost.ExistingRRR = existingApp.PaymentId;
+                return designMortgageCost;
+            }
+
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "Design Mortgage",
                 applicant.Name, applicant.Email, applicant.Phone);
-            var designMortgageCost = new RecordalDto
-            {
-                Amount = data.Item1,
-                rrr = paymentId,
-                FileId = fileId,
-                FileTitle = fileInfo.TitleOfDesign ?? "",
-                ApplicantName = applicant.Name,
-              //  TrademarkClass = fileInfo.TrademarkClass
-            };
+
+            designMortgageCost.Amount = data.Item1;
+            designMortgageCost.rrr = paymentId;
+
             return designMortgageCost;
         }
         catch (Exception up)
@@ -4764,6 +4775,7 @@ public class FileServices
             throw;
         }
     }
+
     public async Task<RecordalDto> ReclassificationCost(string fileId, FileTypes fileType)
     {
         try
@@ -4877,6 +4889,7 @@ public class FileServices
             throw;
         }
     }
+
     public async Task<bool> NewMergerApplication(MergerApplicationDto mergerApp)
     {
         var file = await _fillingCollection
@@ -5042,6 +5055,7 @@ public class FileServices
             return false;
         }
     }
+
     public async Task<MergerApplicationDto> GetMergerApplication(string fileId, string appId)
     {
         var file = await _fillingCollection
@@ -5073,6 +5087,7 @@ public class FileServices
 
         return mergerDetails;
     }
+
     public async Task<RecordalDto> GetChangeDataCost(string fileId, FileTypes fileType, string changeType)
     {
         try
@@ -5716,7 +5731,9 @@ public class FileServices
         var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found.");
-
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User Not found");
         // Check if publication has already been done
         if (file.PublicationDate != null)
             return (false, "Publication has already been done on the file.");
@@ -5796,8 +5813,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingStatusUpdate,
                     Message = "Publication Status Update",
-                    User = applicant.Name,
-                    UserId = file.CreatorAccount
+                    User = user.Name,
+                    UserId = user.Id
                 }
             }
         };
@@ -6022,14 +6039,15 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> PublicationStatusDecisionAsync(string fileId, bool approve, string? comment)
+    public async Task<(bool Success, string Message)> PublicationStatusDecisionAsync(string fileId, bool approve, string? comment, string? userId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
 
-        var applicant = file.applicants.FirstOrDefault();
-
+        var staff = await _userCollection.Find(u=>u.Id == userId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "Unauthorized user");
         // Find the ApplicationInfo for PublicationStatusUpdate
         var publicationApp = file.ApplicationHistory
             .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.PublicationStatusUpdate);
@@ -6044,8 +6062,8 @@ public class FileServices
             Message = approve ? "Publication status approved" : "Publication status refused",
             beforeStatus = ApplicationStatuses.AwaitingStatusUpdate,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = applicant.Name,
-            UserId = file.CreatorAccount
+            User = staff.Name,
+            UserId = userId
         };
 
         file.PublicationReason = comment;
@@ -6057,7 +6075,28 @@ public class FileServices
 
         // If approved, update file status
         if (approve)
+        {
             file.FileStatus = ApplicationStatuses.AwaitingCertification;
+            var pub = new PublicationDto
+            {
+                FileNumber = fileId,
+                Comment = comment,
+                StaffName = staff.Name,
+                StaffId = staff.Id,
+                PublicationDate = file.PublicationDate
+            };
+           var pubId = await _publicationServices.SavePublication(pub);
+           if (pubId is not null)
+           {
+               var pubUpdate = Builders<PublicationInfo>.Update.Combine(
+                   Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true),
+                   Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, DateTime.Now));
+
+               await _publicationCollection.UpdateOneAsync(
+                   Builders<PublicationInfo>.Filter.Eq(p => p.Id, pubId),
+                   pubUpdate);
+            }
+        }
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
@@ -10266,8 +10305,6 @@ public class FileServices
 
         return true;
     }
-
-    // Services/FilesServices.cs
     public async Task<object?> GetDesignLicenseDetailsAsync(string fileId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
@@ -10358,5 +10395,764 @@ public class FileServices
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
         return (true, approve ? "Design license approved" : "Design license refused");
+    }
+    //Design Mortgage Post Registration Section
+    public async Task<bool> NewDesignMortgageApplication(DesignMortgageDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        if (dto.Deedofmortgage != null && dto.Deedofmortgage.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedofmortgage);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedofmortgage");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignDeedofmortgage",
+                    url = deedLinks
+                });
+            }
+        }
+
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignMortgageSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignMortgageSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Mortgage application submitted, awaiting payment";
+
+        var mortgageHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Mortgage,
+            CurrentStatus = status,
+            ApplicationDate = dto.MortgageDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design Mortgage Application",
+            NewValue = string.Empty,
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.MortgageRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
+            }
+        };
+
+        var recordal = new PostRegistrationApp
+        {
+            Id = mortgageHistory.id,
+            RecordalType = "Design Mortgage Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.MortgageDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.MortgageRequestDate ?? DateTime.Now).ToString(),
+            OldMortgagorName = dto.OldMortgageeName,
+            OldMortgagorEmail = dto.OldMortgageeEmail,
+            OldMortgagorPhone = dto.OldMortgageePhone,
+            OldMortgagorAddress = dto.OldMortgageeAddress,
+            OldMortgagorNationality = dto.OldMortgageeNationality,
+            OldMortgagorState = dto.OldMortgageeState,
+            OldMortgagorCity = dto.OldMortgageeCity,
+            Name = dto.NewMortgagorName,
+            Email = dto.NewMortgagorEmail,
+            Phone = dto.NewMortgagorPhone,
+            Address = dto.NewMortgagorAddress,
+            Nationality = dto.NewMortgagorNationality,
+            State = dto.NewMortgagorState,
+            City = dto.NewMortgagorCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : string.Empty
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, mortgageHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+
+        return true;
+    }
+
+    public async Task<object?> GetDesignMortgageDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        var deedOfMortgageAttachments = file.Attachments?
+            .Where(a => a.name == "DesignDeedofmortgage")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "DesignMortgageSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var mortgageApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Design Mortgage Recordal");
+
+        var newMortgagee = mortgageApp == null ? null : new
+        {
+            Name = mortgageApp.Name,
+            Address = mortgageApp.Address,
+            Email = mortgageApp.Email,
+            Phone = mortgageApp.Phone,
+            State = mortgageApp.State,
+            Nationality = mortgageApp.Nationality,
+            City = mortgageApp.City
+        };
+
+        var oldMortgagor = mortgageApp == null ? null : new
+        {
+            Name = mortgageApp.OldMortgagorName,
+            Address = mortgageApp.OldMortgagorAddress,
+            Email = mortgageApp.OldMortgagorEmail,
+            Phone = mortgageApp.OldMortgagorPhone,
+            State = mortgageApp.OldMortgagorState,
+            Nationality = mortgageApp.OldMortgagorNationality,
+            City = mortgageApp.OldMortgagorCity
+        };
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfMortgageAttachments = deedOfMortgageAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewMortgagee = newMortgagee,
+            OldMortgagor = oldMortgagor,
+            Filingdate = mortgageApp?.FilingDate
+        };
+    }
+
+    public async Task<(bool Success, string Message)> DesignMortgageDecisionAsync(
+        string fileId,
+        string appId,
+        bool approve,
+        string reason,
+        ApplicantInfo newMortgagee = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var mortgageApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Mortgage);
+
+        if (mortgageApp == null)
+            return (false, "No mortgage application found");
+
+        var statusEntry = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = mortgageApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        mortgageApp.StatusHistory ??= new List<ApplicationHistory>();
+        mortgageApp.StatusHistory.Add(statusEntry);
+        mortgageApp.CurrentStatus = statusEntry.afterStatus.Value;
+
+        var recordal = file.PostRegApplications?
+            .FirstOrDefault(a => a.Id == appId && a.RecordalType == "Design Mortgage Recordal");
+
+        if (recordal != null)
+        {
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = reason;
+        }
+
+        if (approve && newMortgagee != null)
+        {
+            file.applicants = new List<ApplicantInfo> { newMortgagee };
+
+            if (recordal != null)
+            {
+                recordal.Name = newMortgagee.Name;
+                recordal.Email = newMortgagee.Email;
+                recordal.Phone = newMortgagee.Phone;
+                recordal.Address = newMortgagee.Address;
+                recordal.Nationality = newMortgagee.country;
+                recordal.State = newMortgagee.State;
+                recordal.City = newMortgagee.city;
+            }
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Design mortgage approved" : "Design mortgage refused");
+    }
+
+    //Design Assignment Post Registration Section
+    public async Task<bool> NewDesignAssignmentApplication(DesignAssignmentDto dto)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants?.FirstOrDefault();
+
+        if (dto.DeedOfAssignment != null && dto.DeedOfAssignment.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.DeedOfAssignment);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedofassignment");
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignDeedofassignment",
+                    url = deedLinks
+                });
+            }
+        }
+
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignAssignmentSupportingDocuments");
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignAssignmentSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Assignment application submitted, awaiting payment";
+
+        var assignmentHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Assignment,
+            CurrentStatus = status,
+            ApplicationDate = dto.AssignmentDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design Assignment Application",
+            NewValue = string.Empty,
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.AssignmentRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
+                }
+            }
+        };
+
+        var recordal = new PostRegistrationApp
+        {
+            Id = assignmentHistory.id,
+            RecordalType = "Design Assignment Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = (dto.AssignmentDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.AssignmentRequestDate ?? DateTime.Now).ToString(),
+            OldAssignorName = dto.OldAssignorName,
+            OldAssignorEmail = dto.OldAssignorEmail,
+            OldAssignorPhone = dto.OldAssignorPhone,
+            OldAssignorAddress = dto.OldAssignorAddress,
+            OldAssignorNationality = dto.OldAssignorNationality,
+            OldAssignorState = dto.OldAssignorState,
+            OldAssignorCity = dto.OldAssignorCity,
+            Name = dto.NewAssigneeName,
+            Email = dto.NewAssigneeEmail,
+            Phone = dto.NewAssigneePhone,
+            Address = dto.NewAssigneeAddress,
+            Nationality = dto.NewAssigneeNationality,
+            State = dto.NewAssigneeState,
+            City = dto.NewAssigneeCity,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : string.Empty
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, assignmentHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update);
+
+        return true;
+    }
+
+    public async Task<object?> GetDesignAssignmentDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        var deedAttachments = file.Attachments?
+            .Where(a => a.name == "DesignDeedofassignment")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var supportingAttachments = file.Attachments?
+            .Where(a => a.name == "DesignAssignmentSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var assignmentApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Design Assignment Recordal");
+
+        var newAssignee = assignmentApp == null ? null : new
+        {
+            Name = assignmentApp.Name,
+            Address = assignmentApp.Address,
+            Email = assignmentApp.Email,
+            Phone = assignmentApp.Phone,
+            State = assignmentApp.State,
+            Nationality = assignmentApp.Nationality,
+            City = assignmentApp.City
+        };
+
+        var oldAssignor = assignmentApp == null ? null : new
+        {
+            Name = assignmentApp.OldAssignorName,
+            Address = assignmentApp.OldAssignorAddress,
+            Email = assignmentApp.OldAssignorEmail,
+            Phone = assignmentApp.OldAssignorPhone,
+            State = assignmentApp.OldAssignorState,
+            Nationality = assignmentApp.OldAssignorNationality,
+            City = assignmentApp.OldAssignorCity
+        };
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfAssignmentAttachments = deedAttachments,
+            SupportingDocumentAttachments = supportingAttachments,
+            DesignType = file.DesignType,
+            DesignTypeDescription = file.DesignType?.ToString(),
+            TitleOfDesign = file.TitleOfDesign,
+            NewAssignee = newAssignee,
+            OldAssignor = oldAssignor,
+            Filingdate = assignmentApp?.FilingDate
+        };
+    }
+
+    public async Task<(bool Success, string Message)> DesignAssignmentDecisionAsync(
+        string fileId,
+        string appId,
+        bool approve,
+        string reason,
+        ApplicantInfo newAssignee = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var assignmentApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Assignment);
+
+        if (assignmentApp == null)
+            return (false, "No assignment application found");
+
+        var newStatus = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = assignmentApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants?.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        assignmentApp.StatusHistory.Add(newStatus);
+        assignmentApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
+
+        var recordal = file.PostRegApplications?
+            .FirstOrDefault(p => p.Id == appId) ??
+                       file.PostRegApplications?
+                           .FirstOrDefault(p => p.RecordalType == "Design Assignment Recordal");
+
+        if (recordal != null)
+        {
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = reason;
+        }
+
+        if (approve)
+        {
+            if (newAssignee == null && recordal != null)
+            {
+                newAssignee = new ApplicantInfo
+                {
+                    Name = recordal.Name,
+                    Address = recordal.Address,
+                    Email = recordal.Email,
+                    Phone = recordal.Phone,
+                    State = recordal.State,
+                    country = recordal.Nationality,
+                    city = recordal.City
+                };
+            }
+
+            if (newAssignee == null || string.IsNullOrWhiteSpace(newAssignee.Name))
+            {
+                return (false, "Assignee information is required to approve assignment");
+            }
+
+            file.applicants = new List<ApplicantInfo>
+            {
+                new ApplicantInfo
+                {
+                    Name = newAssignee.Name,
+                    Address = newAssignee.Address,
+                    Email = newAssignee.Email,
+                    Phone = newAssignee.Phone,
+                    State = newAssignee.State,
+                    country = newAssignee.country,
+                    city = newAssignee.city
+                }
+            };
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Design assignment approved" : "Design assignment refused");
+    }
+
+    //Design Merger Post Registration Section
+    public async Task<bool> NewDesignMergerApplication(DesignMergerDto dto)
+    {
+        var fileId = dto.FileId?.Trim();
+        if (string.IsNullOrWhiteSpace(fileId))
+        {
+            _log.LogWarning("Design merger submission missing file id");
+            return false;
+        }
+
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants?.FirstOrDefault();
+
+        // Upload deed of merger
+        if (dto.Deedofmerger != null && dto.Deedofmerger.Count > 0)
+        {
+            var deedLinks = await UploadAttachment(dto.Deedofmerger);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingDeed = file.Attachments.FirstOrDefault(a => a.name == "DesignDeedofmerger");
+
+            if (existingDeed != null)
+            {
+                foreach (var url in deedLinks)
+                {
+                    if (!existingDeed.url.Contains(url))
+                        existingDeed.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignDeedofmerger",
+                    url = deedLinks
+                });
+            }
+        }
+
+        // Upload supporting documents
+        if (dto.SupportingDocuments != null && dto.SupportingDocuments.Count > 0)
+        {
+            var supportingDocsUrl = await UploadAttachment(dto.SupportingDocuments);
+            file.Attachments ??= new List<AttachmentType>();
+            var existingSupport = file.Attachments.FirstOrDefault(a => a.name == "DesignMergerSupportingDocuments");
+
+            if (existingSupport != null)
+            {
+                foreach (var url in supportingDocsUrl)
+                {
+                    if (!existingSupport.url.Contains(url))
+                        existingSupport.url.Add(url);
+                }
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "DesignMergerSupportingDocuments",
+                    url = supportingDocsUrl
+                });
+            }
+        }
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        var paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "Merger application submitted, awaiting payment";
+
+        var mergerDate = dto.MergerDate ?? DateTime.Now;
+        var requestDate = dto.MergerRequestDate ?? DateTime.Now;
+
+        // Application history entry
+        var mergerHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.Merger,
+            CurrentStatus = status,
+            ApplicationDate = mergerDate,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design Merger Application",
+            NewValue = string.Empty,
+            StatusHistory = new List<ApplicationHistory>
+        {
+            new ApplicationHistory
+            {
+                Date = requestDate,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = status,
+                Message = statusMessage,
+                User = applicant?.Name,
+                UserId = file.CreatorAccount
+            }
+        }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = mergerHistory.id,
+            RecordalType = "Design Merger Recordal",
+            FileNumber = fileId,
+            rrr = dto.Rrr,
+            dateOfRecordal = mergerDate.ToString(),
+            FilingDate = requestDate.ToString(),
+            OldMergerName = dto.OldMergerName ?? applicant?.Name,
+            OldMergerEmail = dto.OldMergerEmail ?? applicant?.Email,
+            OldMergerPhone = dto.OldMergerPhone ?? applicant?.Phone,
+            OldMergerAddress = dto.OldMergerAddress ?? applicant?.Address,
+            OldMergerNationality = dto.OldMergerNationality ?? applicant?.country,
+            OldMergerState = dto.OldMergerState ?? applicant?.State,
+            OldMergerCity = dto.OldMergerCity ?? applicant?.city,
+            Name = dto.NewMergerName ?? applicant?.Name,
+            Email = dto.NewMergerEmail ?? applicant?.Email,
+            Phone = dto.NewMergerPhone ?? applicant?.Phone,
+            Address = dto.NewMergerAddress ?? applicant?.Address,
+            Nationality = dto.NewMergerNationality ?? applicant?.country,
+            State = dto.NewMergerState ?? applicant?.State,
+            City = dto.NewMergerCity ?? applicant?.city,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : string.Empty
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, mergerHistory)
+            .Set(f => f.Attachments, file.Attachments);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update);
+
+        return true;
+    }
+    public async Task<object?> GetDesignMergerDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        var deedOfMergerAttachments = file.Attachments?
+            .Where(a => a.name == "DesignDeedofmerger")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var supportingDocumentAttachments = file.Attachments?
+            .Where(a => a.name == "DesignMergerSupportingDocuments")
+            .Select(a => new { a.name, a.url })
+            .ToList();
+
+        var mergerApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Design Merger Recordal");
+
+        var newMergedParty = mergerApp == null ? null : new
+        {
+            Name = mergerApp.Name,
+            Address = mergerApp.Address,
+            Email = mergerApp.Email,
+            Phone = mergerApp.Phone,
+            State = mergerApp.State,
+            Nationality = mergerApp.Nationality,
+            City = mergerApp.City,
+        };
+
+        var oldMergerParty = mergerApp == null ? null : new
+        {
+            Name = mergerApp.OldMergerName,
+            Address = mergerApp.OldMergerAddress,
+            Email = mergerApp.OldMergerEmail,
+            Phone = mergerApp.OldMergerPhone,
+            State = mergerApp.OldMergerState,
+            Nationality = mergerApp.OldMergerNationality,
+            City = mergerApp.OldMergerCity
+        };
+
+        return new
+        {
+            FileId = file.FileId,
+            DeedOfMergerAttachments = deedOfMergerAttachments,
+            SupportingDocumentAttachments = supportingDocumentAttachments,
+            NewMergedParty = newMergedParty,
+            OldMergerParty = oldMergerParty,
+            filingDate = mergerApp?.FilingDate
+        };
+    }
+    public async Task<(bool Success, string Message)> DesignMergerDecisionAsync(
+    string fileId,
+    string appId,
+    bool approve,
+    string reason,
+    ApplicantInfo mergedEntity = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var mergerApp = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Merger);
+
+        if (mergerApp == null)
+            return (false, "No merger application found");
+
+        var statusEntry = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = mergerApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = file.applicants?.FirstOrDefault()?.Name,
+            UserId = file.CreatorAccount
+        };
+
+        mergerApp.StatusHistory ??= new List<ApplicationHistory>();
+        mergerApp.StatusHistory.Add(statusEntry);
+        mergerApp.CurrentStatus = statusEntry.afterStatus.Value;
+
+        var recordal = file.PostRegApplications?
+            .FirstOrDefault(r => r.Id == appId && r.RecordalType == "Design Merger Recordal");
+
+        if (recordal != null)
+        {
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = reason;
+        }
+
+        if (approve && mergedEntity != null)
+        {
+            file.applicants = new List<ApplicantInfo> { mergedEntity };
+
+            if (recordal != null)
+            {
+                recordal.Name = mergedEntity.Name;
+                recordal.Email = mergedEntity.Email;
+                recordal.Phone = mergedEntity.Phone;
+                recordal.Address = mergedEntity.Address;
+                recordal.Nationality = mergedEntity.country;
+                recordal.State = mergedEntity.State;
+                recordal.City = mergedEntity.city;
+            }
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        return (true, approve ? "Design merger approved" : "Design merger refused");
     }
 }
