@@ -1593,7 +1593,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpPost("withdrawalrequestdecision")]
     public async Task<IActionResult> WithdrawalRequestDecision([FromBody] PublicationStatusDecisionDto dto)
     {
-        var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment);
+        var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment, dto.UserId);
         if (!success)
             return NotFound(new { message });
 

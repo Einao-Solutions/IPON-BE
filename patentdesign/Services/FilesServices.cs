@@ -5833,6 +5833,10 @@ public class FileServices
         if (file == null)
             return (false, "File not found.");
 
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User Not found");
+
         if (file.WithdrawalDate != null)
             return (false, "Withdrawal has already been done on the file.");
 
@@ -5935,8 +5939,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.RequestWithdrawal,
                     Message = "Withdrawal Request Submitted",
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = user.Name,
+                    UserId = user.Id
                 }
             }
         };
@@ -5977,11 +5981,15 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> WithdrawalRequestDecisionAsync(string fileId, bool approve, string? comment)
+    public async Task<(bool Success, string Message)> WithdrawalRequestDecisionAsync(string fileId, bool approve, string? comment, string? userId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var staff = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "Unauthorized user");
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -5999,8 +6007,8 @@ public class FileServices
             Message = approve ? "Withdrawal request approved" : "Withdrawal request refused",
             beforeStatus = ApplicationStatuses.RequestWithdrawal,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = applicant?.Name,
-            UserId = file.CreatorAccount
+            User = staff.Name,
+            UserId = userId
         };
 
         file.WithdrawalReason = comment;
