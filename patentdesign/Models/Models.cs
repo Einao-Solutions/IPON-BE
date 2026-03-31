@@ -57,7 +57,10 @@ public record PublicationInfo
     public CorrespondenceType Correspondence { get; set; }
     public List<PriorityInfo>? PriorityInfo { get; set; }
     public List<byte[]>? ImagesUrl { get; set; }
+    public byte[]? Representation { get; set; }
     public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+    public string? ClassDescription { get; set; }
+    public int? Class { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
 }
 public record DesignForm
