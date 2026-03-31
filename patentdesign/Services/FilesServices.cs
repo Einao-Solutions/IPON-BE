@@ -4117,23 +4117,25 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
+
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
                 Console.WriteLine("No file or applicants found.");
                 return null;
             }
+
             var applicant = fileInfo.applicants[0];
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Design Merger",
-                applicant.Name, applicant.Email, applicant.Phone);
-            var designMergerCost = new RecordalDto
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Merger &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfDesign ?? string.Empty,
                 TitleOfInvention = fileInfo.TitleOfDesign ?? string.Empty,
@@ -4149,7 +4151,25 @@ public class FileServices
                 ApplicantCity = applicant.city,
                 TrademarkClass = fileInfo.TrademarkClass
             };
-            return designMergerCost;
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception up)
         {
@@ -11135,19 +11155,38 @@ public class FileServices
             recordal.Reason = reason;
         }
 
-        if (approve && mergedEntity != null)
+        if (approve)
         {
-            file.applicants = new List<ApplicantInfo> { mergedEntity };
-
-            if (recordal != null)
+            // If mergedEntity is provided, use it; otherwise extract from recordal
+            if (mergedEntity == null && recordal != null)
             {
-                recordal.Name = mergedEntity.Name;
-                recordal.Email = mergedEntity.Email;
-                recordal.Phone = mergedEntity.Phone;
-                recordal.Address = mergedEntity.Address;
-                recordal.Nationality = mergedEntity.country;
-                recordal.State = mergedEntity.State;
-                recordal.City = mergedEntity.city;
+                // Extract the new merged party from the recordal data
+                mergedEntity = new ApplicantInfo
+                {
+                    Name = recordal.Name,
+                    Email = recordal.Email,
+                    Phone = recordal.Phone,
+                    Address = recordal.Address,
+                    country = recordal.Nationality,
+                    State = recordal.State,
+                    city = recordal.City
+                };
+            }
+
+            if (mergedEntity != null)
+            {
+                file.applicants = new List<ApplicantInfo> { mergedEntity };
+
+                if (recordal != null)
+                {
+                    recordal.Name = mergedEntity.Name;
+                    recordal.Email = mergedEntity.Email;
+                    recordal.Phone = mergedEntity.Phone;
+                    recordal.Address = mergedEntity.Address;
+                    recordal.Nationality = mergedEntity.country;
+                    recordal.State = mergedEntity.State;
+                    recordal.City = mergedEntity.city;
+                }
             }
         }
 

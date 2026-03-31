@@ -806,6 +806,45 @@ public class LettersServices
                 };
                 return await PatentAmendmentReceipt(amendmentReceiptModel, amendmentFile);
 
+            case ApplicationLetters.DesignMergerAcknowledgement:
+                var designMergerAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignMergerAcknowledgement(designMergerAckFile, applicationId);
+            case ApplicationLetters.DesignMergerReceipt:
+                var designMergerReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (designMergerReceiptFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var designMergerApp = designMergerReceiptFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (designMergerApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var designMergerRemitaResponse = await GetPaymentData(designMergerReceiptFile.Comment, designMergerApp.PaymentId);
+                if (designMergerRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var designMergerReceiptModel = new Receipt()
+                {
+                    rrr = designMergerRemitaResponse?.rrr ?? "-",
+                    Amount = designMergerRemitaResponse?.amount.ToString() ?? "",
+                    Date = designMergerRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = designMergerReceiptFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.DesignMerger,
+                    FileId = designMergerReceiptFile.FileId,
+                    Title = designMergerReceiptFile.TitleOfDesign,
+                    Category = designMergerReceiptFile.Type.ToString(),
+                    PaymentFor = "Design Merger"
+                };
+                return await DesignMergerReceipt(designMergerReceiptModel, designMergerReceiptFile);
+            case ApplicationLetters.DesignMergerRefusalLetter:
+                var designMergerRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignMergerRefusal(designMergerRefFile, applicationId);
+
             default:
                 return new Dictionary<string, object>() { };
         }
@@ -1072,8 +1111,20 @@ public class LettersServices
                             documents.Add(ApplicationLetters.PatentMergerRefusalLetter);
                         }
                     }
+                    else if (file.Type == FileTypes.Design)
+                    {
+                        // DESIGN POST-REG: merger letters
+                        documents.Add(ApplicationLetters.DesignMergerAcknowledgement);
+                        documents.Add(ApplicationLetters.DesignMergerReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.DesignMergerRefusalLetter);
+                        }
+                    }
                     else
                     {
+                        // TRADEMARK: merger letters
                         documents.AddRange(new[]
 {
                         ApplicationLetters.MergerAck,
@@ -3294,6 +3345,82 @@ public class LettersServices
     public async Task<Dictionary<string, object>> PatentMergerReceipt(Receipt data, Filling fileData)
     {
         var bytes = new PatentMergerReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignMergerAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for merger application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Design Merger",
+            payType = PaymentTypes.DesignMerger,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignMergerAcknowledgementletter(file, "uri", receipt).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> DesignMergerReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new DesignMergerReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignMergerRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for merger application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Design Merger",
+            payType = PaymentTypes.DesignMerger,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignMergerRefusalLetter(file, "uri", receipt, app).GeneratePdf();
         return ReturnDocument(bytes);
     }
 
