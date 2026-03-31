@@ -9,6 +9,7 @@ using Org.BouncyCastle.Asn1.Cms;
 using patentdesign.Enums;
 
 namespace patentdesign.Models;
+[BsonIgnoreExtraElements]
 public class AppUser
 {
     [BsonId]
@@ -30,9 +31,35 @@ public class AppUser
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
-    public string? Name { get; set; } 
+    public string? Name { get; set; }
+    public string? PasswordResetToken { get; set; }
+    public DateTime? PasswordResetTokenExpiry { get; set; }
 }
 
+public record PublicationInfo
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? FileNumber { get; set; }
+    public DateTime? FilingDate { get; set; }
+    public DateTime PublicationDate { get; set; }
+    public DateTime? BatchPublishDate { get; set; }
+    public string? Comment { get; set; }
+    public string? StaffId { get; set; }
+    public string? StaffName { get; set; }
+    public bool IsBatchPublished { get; set; } = false;
+    public bool IsOpposed { get; set; } = false;
+    public List<Opposition>? Opposition { get; set; } = new();
+    public string? Title { get; set; }
+    public List<AttachmentType>? Attachments { get; set; }
+    public List<AttachmentType>? Images { get; set; }
+    public List<ApplicantInfo> Applicants { get; set; }
+    public CorrespondenceType Correspondence { get; set; }
+    public List<PriorityInfo>? PriorityInfo { get; set; }
+    public List<byte[]>? ImagesUrl { get; set; }
+    public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+    public List<ApplicantInfo>? Inventors { get; set; }
+}
 public record DesignForm
 {
     [Required] public ApplicantInfo ApplicantInfo { get; set; } = new();
@@ -319,6 +346,7 @@ public record ClericalUpdate
     public DesignTypes? NewDesignType { get; set; }
     public List<ApplicantInfo>? OldDesignCreators { get; set; }
     public List<ApplicantInfo>? NewDesignCreators { get; set; }
+    public List<ApplicantInfo>? OldInventors { get; set; }
     public List<string>? OldDesignCreatorNames { get; set; }
     public List<string>? NewDesignCreatorNames { get; set; }
     public List<string>? OldDesignCreatorPhones { get; set; }
@@ -355,6 +383,8 @@ public record PostRegistrationApp
     public string? OldName { get; set; } = String.Empty;
     public string? Email { get; set; }
     public string? OldEmail { get; set; } = String.Empty;
+    public int? Class { get; set; }
+    public int? OldClass { get; set; }
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
     public string? OldAddress { get; set; } = String.Empty;
@@ -822,7 +852,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy,
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification
 }
 public enum ApplicationLetters
 {
@@ -992,7 +1022,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment,
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment,Reclassification
 }
 
 
@@ -1375,6 +1405,11 @@ public record PaymentInfo
     public string? DesignAmendmentCost { get; set; }
     public string? DesignAmendmentServiceFee { get; set; }
     public string? DesignAmendmentServiceID { get; set; }
+
+    //TM Reclassification
+    public string? ReclassificationCost { get; set; }
+    public string? ReclassificationServiceFee { get; set; }
+    public string? ReclassificationServiceID { get; set; }
 }
 
 public record PaymentRecord

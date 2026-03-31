@@ -49,56 +49,99 @@ stages:
     - download: current
       artifact: backend
 
-    # ---------------------- 1️⃣ Inject env vars into IIS App Pool ----------------------
+    # ---------------------- 1️⃣ Inject production secrets into appsettings.Production.json ----------------------
+    - task: FileTransform@2
+      displayName: 'Inject production secrets'
+      inputs:
+        folderPath: '$(Pipeline.Workspace)/backend'
+        fileType: 'json'
+        targetFiles: '**/appsettings.Production.json'
+
+    # ---------------------- 2️⃣ Set ASPNETCORE_ENVIRONMENT=Production for this App Pool ----------------------
     - task: PowerShell@2
-      displayName: 'Inject environment variables into IIS App Pool'
+      displayName: 'Set ASPNETCORE_ENVIRONMENT=Production for App Pool'
       inputs:
         targetType: 'inline'
         script: |
           Import-Module WebAdministration
 
-          $appPool = "IPONigeriaBackend"
+          $appPool = "integration.iponigeria.com(domain)(4.0)(pool)"
 
-          $envVars = @{
-              MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
-              JWT_KEY                   = "$(JWT_KEY)"
+          # Get the environment variable collection
+          $envVars = Get-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" -PSPath "IIS:\" -Name "Collection"
+
+          # Check if ASPNETCORE_ENVIRONMENT exists
+          $existingVar = $envVars | Where-Object { $_.Name -eq "ASPNETCORE_ENVIRONMENT" }
+
+          if ($existingVar) {
+              # Update its value
+              Set-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables/add[@name='ASPNETCORE_ENVIRONMENT']" `
+                  -PSPath "IIS:\" -Name "value" -Value "Production"
+          } else {
+              # Add it
+              Add-WebConfigurationProperty -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
+                  -PSPath "IIS:\" -Name "." -Value @{name="ASPNETCORE_ENVIRONMENT"; value="Production"}
           }
 
-          Write-Host "Clearing existing environment variables for App Pool: $appPool"
-          Clear-WebConfiguration -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" -PSPath "IIS:\" -ErrorAction SilentlyContinue
+          Write-Host "ASPNETCORE_ENVIRONMENT set to Production for $appPool"
 
-          Write-Host "Injecting environment variables into App Pool: $appPool"
-          foreach ($name in $envVars.Keys) {
-              Add-WebConfigurationProperty -PSPath "IIS:\" `
-                  -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
-                  -Name "." `
-                  -Value @{name=$name; value=$envVars[$name]}
-              Write-Host " - $name set"
-          }
-
-    # ---------------------- 2️⃣ Stop App Pool, deploy files ----------------------
+    # ---------------------- 3️⃣ Stop App Pool, deploy files & restart ----------------------
     - task: PowerShell@2
-      displayName: 'Stop App Pool, clear old files & deploy new'
+      displayName: 'Stop App Pool, deploy files & start'
       inputs:
         targetType: 'inline'
         script: |
           Import-Module WebAdministration
 
-          $appPool = "IPONigeriaBackend"
+          $appPool = "integration.iponigeria.com(domain)(4.0)(pool)"
           $source = "$(Pipeline.Workspace)\backend\*"
-          $destination = "C:\inetpub\wwwroot\IPO Nigeria Backend"
+          $destination = "C:\inetpub\vhosts\iponigeria.com\integration.iponigeria.com"
 
+          # Stop the App Pool
           Write-Host "Stopping App Pool: $appPool"
           if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
               Stop-WebAppPool -Name $appPool
           }
 
+          # Wait for worker processes to exit
+          $maxWait = 30
+          $elapsed = 0
+          while ($elapsed -lt $maxWait) {
+              $workers = Get-ChildItem "IIS:\AppPools\$appPool\WorkerProcesses" -ErrorAction SilentlyContinue
+              if (-not $workers -or $workers.Count -eq 0) { break }
+              Write-Host "Waiting for worker processes to exit... ($elapsed s)"
+              Start-Sleep -Seconds 2
+              $elapsed += 2
+          }
+
+          # Force kill remaining workers if needed
+          if ($elapsed -ge $maxWait) {
+              Write-Host "Force-killing remaining worker processes."
+              $workers = Get-ChildItem "IIS:\AppPools\$appPool\WorkerProcesses" -ErrorAction SilentlyContinue
+              foreach ($w in $workers) { Stop-Process -Id $w.processId -Force -ErrorAction SilentlyContinue }
+              Start-Sleep -Seconds 2
+          }
+
+          # Remove old files
           Write-Host "Removing old files in $destination"
           Remove-Item -Path "$destination\*" -Recurse -Force -ErrorAction SilentlyContinue
 
-          Write-Host "Copying new build from $source to $destination"
-          Copy-Item -Path $source -Destination $destination -Recurse -Force
+          # Copy new files with retry
+          $retries = 3
+          for ($i = 1; $i -le $retries; $i++) {
+              try {
+                  Write-Host "Copying new build (attempt $i of $retries)..."
+                  Copy-Item -Path $source -Destination $destination -Recurse -Force -ErrorAction Stop
+                  Write-Host "Copy succeeded."
+                  break
+              } catch {
+                  Write-Host "Copy failed: $_"
+                  if ($i -eq $retries) { throw }
+                  Start-Sleep -Seconds 5
+              }
+          }
 
+          # Start the App Pool
           Write-Host "Starting App Pool: $appPool"
           if ((Get-WebAppPoolState -Name $appPool).Value -ne "Started") {
               Start-WebAppPool -Name $appPool

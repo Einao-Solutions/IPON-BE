@@ -330,6 +330,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.DesignAmendmentServiceID;
                 serviceFee = _paymentInfo.DesignAmendmentServiceFee;
                 break;
+            case PaymentTypes.Reclassification:
+                amount = _paymentInfo.ReclassificationCost;
+                serviceFee = _paymentInfo.ReclassificationServiceFee;
+                serviceId = _paymentInfo.ReclassificationServiceID;
+                break;
         }
 
         return (amount, serviceId, serviceFee);

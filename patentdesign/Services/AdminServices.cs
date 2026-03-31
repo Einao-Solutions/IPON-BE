@@ -3,7 +3,6 @@ using MongoDB.Driver;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
-using patentdesign.Services.Interface;
 using patentdesign.Utils;
 using System.Security.Authentication;
 
@@ -22,18 +21,20 @@ namespace patentdesign.Services
         private static IMongoCollection<OppositionType> _oppositionCollection;
         private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
         private static IMongoCollection<StatusChangeLog> _statusLogs;
-
+        private readonly ILogger<AdminServices> _log;
+        
         private PaymentUtils _remitaPaymentUtils;
         private MongoClient _mongoClient;
         private FinanceService _financeService;
         private PaymentService _paymentService;
-
+        private EmailServices _emailServices;
+        private UsersService _userServices;
+        
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
         //private string attachmentBaseUrl = "http://localhost:5044";
 
-        //adding log service
-        private ILoggerService _log;
-        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILoggerService log, PaymentService paymentService)
+       
+        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<AdminServices> log, PaymentService paymentService, EmailServices emailServices)
         {
             var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -62,7 +63,7 @@ namespace patentdesign.Services
             _paymentService = paymentService;
             _log = log;
             _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
-
+            _emailServices = emailServices;
         }
         public async Task<StatusChangeLog> ChangeFileStatus(StatusChangeDto dto)
         {
@@ -112,14 +113,17 @@ namespace patentdesign.Services
                 var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
                 if (file == null)
                 {
-                    throw new Exception("File not found");
+                    _log.LogError("File not found for FileId: {FileId}", dto.FileNumber);
+                    throw new KeyNotFoundException("File not found");
                 }
                 var user = await _userCollection.Find(x => x.Id == dto.UserId).FirstOrDefaultAsync();
                 if (user == null)
                 {
-                    throw new Exception("User not found");
+                    _log.LogError("User not found for UserId: {UserId}", dto.UserId);
+                    throw new KeyNotFoundException("User not found");
                 }
                 var userName = $"{user.FirstName} {user.LastName}";
+                _log.LogInformation("Creating application history for FileId: {FileId} by User: {UserName}", dto.FileNumber, userName);
                 var app = new ApplicationInfo
                 {
                     id = Guid.NewGuid().ToString(),
@@ -144,6 +148,7 @@ namespace patentdesign.Services
                 var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber);
                 var update = Builders<Filling>.Update.Push(f => f.ApplicationHistory, app);
                 await _fillingCollection.UpdateOneAsync(filter, update);
+                _log.LogInformation("Application history created successfully for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, app.id);
                 return true;
             }
             catch (Exception ex)
@@ -162,13 +167,20 @@ namespace patentdesign.Services
                     .FirstOrDefaultAsync();
 
                 if (file == null || file.ApplicationHistory == null || !file.ApplicationHistory.Any())
-                    return false;
+                {
+                    _log.LogError("File not found or has no application history for FileId: {FileId}", dto.FileNumber);
+                    throw new KeyNotFoundException("File not found or has no application history");
+                }
 
                 var applicationIndex = file.ApplicationHistory
                     .FindIndex(a => a.id == dto.ApplicationId);
 
                 if (applicationIndex < 0)
-                    return false;
+                {
+                    _log.LogError("Application not found in history for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, dto.ApplicationId);
+                    throw new KeyNotFoundException("Application not found in history");
+                }
+                    
 
                 var isFirstApplication = applicationIndex == 0;
 
@@ -221,22 +233,53 @@ namespace patentdesign.Services
                 }
 
                 if (!updates.Any())
+                {
+                    _log.LogWarning("No updates to apply for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, dto.ApplicationId);
                     return false;
+                }
 
                 // 5. Execute update
                 var result = await _fillingCollection.UpdateOneAsync(
                     filter,
                     Builders<Filling>.Update.Combine(updates)
                 );
-
+                _log.LogInformation("Application history updated for FileId: {FileId}, ApplicationId: {ApplicationId}. ModifiedCount: {ModifiedCount}", dto.FileNumber, dto.ApplicationId, result.ModifiedCount);
                 return result.ModifiedCount > 0;
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Error updating application history");
-                return false;
+                throw;
             }
         }
 
+        public async Task<bool> SendAnnouncementMail(AnnouncementMailDto dto)
+        {
+            _log.LogInformation("Sending announcement mail...");
+            try
+            {
+                var recipients = await _userServices.GetAllUserEmails();
+                if (recipients is null)
+                {
+                    _log.LogError("No recipients found for announcement mail");
+                    throw new KeyNotFoundException("No Recipients found");
+                }
+
+                var mail = new BulkEmailDto
+                {
+                    Recipients = recipients,
+                    Body = dto.Message,
+                    Subject = dto.Subject
+                };
+                await _emailServices.SendBulkEmailAsync(mail);
+                _log.LogInformation("Announcement mail sent successfully to {RecipientCount} recipients", recipients.Count);
+                return true;
+            }
+            catch (Exception e)
+            {
+                _log.LogError(e, "Failed to send announcement mail");
+                throw;
+            }
+        }
     }
 }

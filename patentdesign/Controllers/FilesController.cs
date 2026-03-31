@@ -176,24 +176,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         return File(attachmentInfo.Value.Item1, attachmentInfo.Value.Item2);
     }
 
-    [HttpGet("GetPublication")]
-    public async Task<IActionResult> GetJournal([FromQuery] int type, [FromQuery] DateTime start,
-        [FromQuery] DateTime end)
-    {
-        var data = await fileService.GetTypePublication(start, end, Enum.GetValues<FileTypes>()[type]);
-        Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
-        return File(data, "application/pdf", "journal.pdf");
-    }
-
-
-    [HttpGet("GetTrademarkPublication")]
-    public async Task<IActionResult> GetTrademarkPublication([FromQuery] string? text = null,
-        [FromQuery] int? index = null, [FromQuery] int? quantity = null)
-    {
-        var data = await fileService.GetTrademarkPublication(text, index, quantity);
-        return Ok(data);
-    }
-
+    
     [HttpGet("GenerateOppositionRRR")]
     public async Task<IActionResult> GenerateOppositionRRR([FromQuery] string description, [FromQuery] string name,
         [FromQuery] string email, [FromQuery] string number)
@@ -643,11 +626,12 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpPost("ChangeDataRecordal")]
     public async Task<IActionResult> ChangeDataRecordal([FromForm] ChangeDataRecordalDto data)
     {
-        var res = await fileService.ChangeDataRecordal(data);
-        if (res == false)
+        var changeClass = data.ChangeType == "Class";
+        var res = changeClass ? await fileService.TrademarkReclassification(data) : await fileService.ChangeDataRecordal(data);
+        if (res == null)
         {
-            Console.WriteLine("Failed to submit");
-            return NotFound();
+        
+            return BadRequest("Failed to submit");
         }
         return Ok(res);
     }
@@ -1580,7 +1564,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     [HttpPost("PublicationStatusDecision")]
     public async Task<IActionResult> PublicationStatusDecision([FromBody] PublicationStatusDecisionDto dto)
     {
-        var (success, message) = await fileService.PublicationStatusDecisionAsync(dto.FileId, dto.Approve, dto.Comment);
+        var (success, message) = await fileService.PublicationStatusDecisionAsync(dto.FileId, dto.Approve, dto.Comment, dto.UserId);
         if (!success)
             return NotFound(new { message });
 
@@ -1730,7 +1714,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentAssignmentDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewAssignee);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewAssignee, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1824,7 +1808,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentLicenseDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewLicensee);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewLicensee, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -1917,7 +1901,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentMergerDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMergedParty);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMergedParty, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -2010,7 +1994,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentMortgageDecisionAsync(
-                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMortgagee);
+                dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.NewMortgagee, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -2121,7 +2105,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     {
         try
         {
-            var (success, message) = await fileService.PatentCtcDecisionAsync(dto.FileId, dto.AppId, dto.Approve, dto.Reason);
+            var (success, message) = await fileService.PatentCtcDecisionAsync(dto.FileId, dto.AppId, dto.Approve, dto.Reason, dto.AppUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));
@@ -2135,9 +2119,7 @@ public class FilesController(FileServices fileService) : ControllerBase
     }
 
     #endregion
-    /// <summary>
-    /// Submit a new patent amendment application.
-    /// </summary>
+    
     #region Patent Amendment Post Registration Section
 
     /// <summary>
@@ -2189,7 +2171,7 @@ public class FilesController(FileServices fileService) : ControllerBase
         try
         {
             var (success, message) = await fileService.PatentAmendmentDecisionAsync(
-                dto.fileId, dto.appId, dto.approve, dto.reason);
+                dto.fileId, dto.appId, dto.approve, dto.reason, dto.appUserId);
 
             if (!success)
                 return NotFound(ApiResponse<string>.Fail(message));

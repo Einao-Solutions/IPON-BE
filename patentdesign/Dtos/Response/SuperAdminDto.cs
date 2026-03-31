@@ -48,3 +48,9 @@ public class UpdateApplicationHistoryDto
     public string? PaymentId { get; set; }
     public string? CertificatePaymentId { get; set; }
 }
+
+public class AnnouncementMailDto
+{
+    public string? Subject { get; set; }
+    public string? Message { get; set; }
+}

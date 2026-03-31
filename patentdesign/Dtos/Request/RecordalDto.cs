@@ -102,6 +102,10 @@ namespace patentdesign.Dtos.Request
         public string? ChangeType { get; set; }
         public string? OldAddress { get; set; }
         public string? NewAddress { get; set; }
+        public int? OldClass { get; set; }
+        public string? OldClassDescription { get; set; }
+        public int? NewClass { get; set; }
+        public string? NewClassDescription { get; set; }
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
@@ -147,4 +151,6 @@ namespace patentdesign.Dtos.Request
         public string? AssigneeNationality { get; set; }
         public string? userId { get; set; }
     }
+
+    
 }

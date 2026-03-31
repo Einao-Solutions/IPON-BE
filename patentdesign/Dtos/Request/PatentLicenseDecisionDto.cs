@@ -14,5 +14,6 @@ namespace patentdesign.Dtos.Request
         public string Reason { get; set; }
 
         public ApplicantInfo? NewLicensee { get; set; }
+        public string? AppUserId { get; set; }
     }
 }

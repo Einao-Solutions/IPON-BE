@@ -21,6 +21,10 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
         catch (Exception e)
         {
+            if (e.Message == "File not found")
+            {
+                return NotFound(new { message = e.Message });
+            }
             return BadRequest(new { message = e.Message });
         }
     }
@@ -67,60 +71,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
         var count = await oppositionService.GetOppositionCount();
         return Ok(count);
     }
-    // [HttpPost("create")]
-    // public async Task<ActionResult> CreateOpposition([FromBody] OppostionCreateType type)
-    // {
-    //     var data = await oppositionService.AddNewOpposition(
-    //         type.description,
-    //         type.name,
-    //         type.email,
-    //         type.number,
-    //         type.address,
-    //         type.fileUrl,
-    //         type.fileID,
-    //         type.title,
-    //         type.userId,
-    //         type.userName
-    //     );
-    //     return Ok(data);
-    // }
-    //
-    // [HttpPost("respond")]
-    // public async Task<ActionResult<List<TicketSummary>?>> Respond([FromBody] OppResReq data)
-    // {
-    //     var res = await oppositionService.AddResponse(data);
-    //     return Ok(res);
-    // }
-    // [HttpPost("generate")]
-    // public async Task<ActionResult<Object>> Generate([FromBody] GenerateOpReq data)
-    // {
-    //     var res = await oppositionService.Generate(data);
-    //     return Ok(res);
-    // }
-    // [HttpPost("resolution")]
-    // public async Task<ActionResult<List<TicketSummary>?>> Resolution([FromBody] OppResReq data)
-    // {
-    //     var res = await oppositionService.AddResolution(data);
-    //     return Ok(res);
-    // }
-    //
-    // [HttpPost("resolve")]
-    // public async Task<ActionResult<OppositionType?>> Resolve([FromBody] AssUpdateReq data)
-    // {
-    //     var res = await oppositionService.UpdateOppositionStatus(data);
-    //     if (res != null)
-    //         return Ok(res);
-    //     else return NotFound("omo....");
-    // }
-    // [HttpPost("payment")]
-    // public async Task<ActionResult<OppositionType?>> Payment([FromBody] AssUpdateReq data)
-    // {
-    //     var res = await oppositionService.UpdateOppositionStatus(data);
-    //     if (res != null)
-    //         return Ok(res);
-    //     else return NotFound("omo....");
-    // }
-    //
+   
     [HttpGet("loadSummary")]
     public async Task<ActionResult> LoadSummary(
         [FromQuery] int quantity, 
@@ -131,13 +82,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
         var result=await oppositionService.LoadSummary(quantity, skip, tt);
         return Ok(result);
     }
-    // [HttpGet("count")]
-    // public async Task<ActionResult> Count([FromQuery]string?userId=null)
-    // {
-    //     var result = await oppositionService.Count(userId);
-    //     return Ok(result);
-    //     
-    // }
+   
     [HttpGet("get")]
     public async Task<ActionResult<OppositionType>> GetOpposition([FromQuery]string id)
     {
