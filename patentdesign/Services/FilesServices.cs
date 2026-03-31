@@ -10204,6 +10204,10 @@ public class FileServices
             .FirstOrDefaultAsync();
         if (file == null) return false;
 
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
+
         var applicant = file.applicants.FirstOrDefault();
 
         // Deed of License upload
@@ -10254,6 +10258,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+                ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+                : applicant?.Name ?? "Unknown";
+
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
 
@@ -10275,17 +10283,17 @@ public class FileServices
             FieldToChange = "Design License Application",
             NewValue = "",
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = dto.LicenseRequestDate ?? DateTime.Now,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = dto.LicenseRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = userName,
+                    UserId = user?.Id
+                }
             }
-        }
         };
 
         var recordal = new PostRegistrationApp
@@ -10325,6 +10333,7 @@ public class FileServices
 
         return true;
     }
+
     public async Task<object?> GetDesignLicenseDetailsAsync(string fileId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
@@ -10382,11 +10391,14 @@ public class FileServices
     string appId,
     bool approve,
     string reason,
-    ApplicantInfo newLicensee = null)
+    ApplicantInfo newLicensee = null, string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
 
         var licenseApp = file.ApplicationHistory
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.License);
@@ -10394,14 +10406,15 @@ public class FileServices
         if (licenseApp == null)
             return (false, "No license application found");
 
+        var beforeStatus = licenseApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = licenseApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         licenseApp.StatusHistory.Add(newStatus);
@@ -10414,8 +10427,23 @@ public class FileServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = licenseApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.License,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design license approved" : "Design license refused");
     }
+
     //Design Mortgage Post Registration Section
     public async Task<bool> NewDesignMortgageApplication(DesignMortgageDto dto)
     {
@@ -10423,6 +10451,10 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
+
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -10472,6 +10504,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+        ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+        : applicant?.Name ?? "Unknown";
+
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
 
@@ -10500,8 +10536,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = userName,
+                    UserId = user?.Id
                 }
             }
         };
@@ -10601,11 +10637,14 @@ public class FileServices
         string appId,
         bool approve,
         string reason,
-        ApplicantInfo newMortgagee = null)
+        ApplicantInfo newMortgagee = null, string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
 
         var mortgageApp = file.ApplicationHistory
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Mortgage);
@@ -10613,14 +10652,15 @@ public class FileServices
         if (mortgageApp == null)
             return (false, "No mortgage application found");
 
+        var beforeStatus = mortgageApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = mortgageApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         mortgageApp.StatusHistory ??= new List<ApplicationHistory>();
@@ -10654,6 +10694,20 @@ public class FileServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(userId) ? user.CreatorId : userId,
+            AfterStatus = mortgageApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Mortgage,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design mortgage approved" : "Design mortgage refused");
     }
 
@@ -10664,6 +10718,10 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
+
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
 
         var applicant = file.applicants?.FirstOrDefault();
 
@@ -10713,6 +10771,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+        ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+        : applicant?.Name ?? "Unknown";
+
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
 
@@ -10741,8 +10803,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = userName,
+                    UserId = user?.Id
                 }
             }
         };
@@ -10844,11 +10906,16 @@ public class FileServices
         string appId,
         bool approve,
         string reason,
-        ApplicantInfo newAssignee = null)
+        ApplicantInfo newAssignee = null,
+        string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("Unauthorized User");
 
         var assignmentApp = file.ApplicationHistory
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Assignment);
@@ -10856,14 +10923,15 @@ public class FileServices
         if (assignmentApp == null)
             return (false, "No assignment application found");
 
+        var beforeStatus = assignmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = assignmentApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants?.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         assignmentApp.StatusHistory.Add(newStatus);
@@ -10918,6 +10986,20 @@ public class FileServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = assignmentApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Assignment,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design assignment approved" : "Design assignment refused");
     }
 
@@ -10935,6 +11017,10 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
+
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
 
         var applicant = file.applicants?.FirstOrDefault();
 
@@ -10988,6 +11074,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+        ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+        : applicant?.Name ?? "Unknown";
+
         // Verify payment
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         var paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
@@ -11014,17 +11104,17 @@ public class FileServices
             FieldToChange = "Design Merger Application",
             NewValue = string.Empty,
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = requestDate,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = requestDate,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = userName,
+                    UserId = user?.Id
+                }
             }
-        }
         };
 
         // Recordal info
@@ -11064,6 +11154,7 @@ public class FileServices
 
         return true;
     }
+
     public async Task<object?> GetDesignMergerDetailsAsync(string fileId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
@@ -11115,16 +11206,22 @@ public class FileServices
             filingDate = mergerApp?.FilingDate
         };
     }
+
     public async Task<(bool Success, string Message)> DesignMergerDecisionAsync(
     string fileId,
     string appId,
     bool approve,
     string reason,
-    ApplicantInfo mergedEntity = null)
+    ApplicantInfo mergedEntity = null,
+    string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("Unauthorized User");
 
         var mergerApp = file.ApplicationHistory?
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Merger);
@@ -11132,14 +11229,15 @@ public class FileServices
         if (mergerApp == null)
             return (false, "No merger application found");
 
+        var beforeStatus = mergerApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = mergerApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants?.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         mergerApp.StatusHistory ??= new List<ApplicationHistory>();
@@ -11191,6 +11289,20 @@ public class FileServices
         }
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = mergerApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Merger,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Design merger approved" : "Design merger refused");
     }

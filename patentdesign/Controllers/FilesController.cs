@@ -1035,7 +1035,8 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.NewLicensee);
+                dto.NewLicensee,
+                dto.UserId);
 
             if (!success)
             {
@@ -1109,7 +1110,7 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.NewMortgagee);
+                dto.NewMortgagee, dto.UserId);
 
             if (!success)
             {
@@ -1206,7 +1207,7 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.NewAssignee);
+                dto.NewAssignee, dto.UserId);
 
             if (!success)
             {
@@ -1303,7 +1304,7 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.MergedEntity);
+                dto.MergedEntity, dto.UserId);
 
             if (!success)
             {

@@ -29,5 +29,6 @@ namespace patentdesign.Dtos.Request
         public string? NewMergerNationality { get; set; }
         public string? NewMergerState { get; set; }
         public string? NewMergerCity { get; set; }
+        public string? UserId { get; set; } = string.Empty;
     }
 }

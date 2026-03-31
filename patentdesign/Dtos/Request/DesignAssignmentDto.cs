@@ -32,6 +32,7 @@ namespace patentdesign.Dtos.Request
         public string? NewAssigneeNationality { get; set; } = string.Empty;
         public string? NewAssigneeState { get; set; } = string.Empty;
         public string? NewAssigneeCity { get; set; } = string.Empty;
+        public string? UserId { get; set; } = string.Empty;
     }
 
     public class DesignAssignmentDecisionDto
@@ -41,5 +42,6 @@ namespace patentdesign.Dtos.Request
         public bool Approve { get; set; }
         public string Reason { get; set; }
         public ApplicantInfo? NewAssignee { get; set; }
+        public string UserId { get; set; } = string.Empty;
     }
 }
