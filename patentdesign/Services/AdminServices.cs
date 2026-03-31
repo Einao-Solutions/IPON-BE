@@ -23,13 +23,15 @@ namespace patentdesign.Services
         private static IMongoCollection<StatusChangeLog> _statusLogs;
         private readonly ILogger<AdminServices> _log;
         
+        
         private PaymentUtils _remitaPaymentUtils;
         private MongoClient _mongoClient;
         private FinanceService _financeService;
         private PaymentService _paymentService;
         private EmailServices _emailServices;
         private UsersService _userServices;
-        
+        private FileServices _fileServices;
+
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
         //private string attachmentBaseUrl = "http://localhost:5044";
 
@@ -278,6 +280,65 @@ namespace patentdesign.Services
             catch (Exception e)
             {
                 _log.LogError(e, "Failed to send announcement mail");
+                throw;
+            }
+        }
+
+        public async Task<bool> ResetUserPassword(string email)
+        {
+            try
+            {
+                _log.LogInformation($"Resetting password for {email}");
+                var user = _userCollection.Find(u => u.Email == email).FirstOrDefaultAsync();
+                if (user == null)
+                {
+                    _log.LogError("User not found");
+                    return false;
+                }
+
+                var hashedPassword = BCrypt.Net.BCrypt.HashPassword("Ipo@1234");
+                var update = Builders<AppUser>.Update
+                    .Set(u => u.PasswordHash, hashedPassword);
+
+                var result = await _userCollection.UpdateOneAsync(u => u.Email == email, update);
+                _log.LogInformation("Password reset completed for {Email}, ModifiedCount: {Count}", email, result.ModifiedCount);
+                return true;
+            }
+            catch (Exception e)
+            {
+                _log.LogError(e, "Error resetting user password for {Email}", email);
+                throw;
+            }
+        }
+
+        public async Task<bool> AdminUploadAttach(AdminUploadAttachmentDto req)
+        {
+            try
+            {
+                if (req.Attachment == null) throw new Exception("Document is required");
+
+                // Read the uploaded file into a byte array
+                using var ms = new MemoryStream();
+                await req.Attachment.CopyToAsync(ms);
+                var attachmentData = ms.ToArray();
+
+                // Generate a unique filename and save to attachments collection
+                var trustedFileName = Path.GetRandomFileName();
+                trustedFileName = trustedFileName.Split(".")[0] + Path.GetExtension(req.Attachment.FileName);
+
+                await _attachmentCollection.InsertOneAsync(new AttachmentInfo
+                {
+                    Id = trustedFileName,
+                    ContentType = req.Attachment.ContentType,
+                    Data = attachmentData,
+                    Name = "TradeCertificationSignature"
+                });
+
+                return true;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
                 throw;
             }
         }

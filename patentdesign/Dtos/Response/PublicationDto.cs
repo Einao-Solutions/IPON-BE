@@ -10,6 +10,7 @@ namespace patentdesign.Dtos.Response
         public string? StaffName { get; set; }
         public List<Opposition>? Opposition { get; set; }
         public DateTime? PublicationDate { get; set; }
+        public bool? IsManualPublication { get; set; } = false;
     }
     public class PublicationInfoDto
     {
