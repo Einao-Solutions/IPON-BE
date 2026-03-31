@@ -68,7 +68,7 @@ public class FileServices
 
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
-    // private string attachmentBaseUrl = "http://localhost:5044";
+     //private string attachmentBaseUrl = "http://localhost:5044";
 
     public FileServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FileServices> log, PaymentService paymentService, PublicationServices publicationServices)
     {
@@ -2863,7 +2863,7 @@ public class FileServices
         return result;
     }
 
-    private void SavePerformance(PerformanceDto perf)
+    public void SavePerformance(PerformanceDto perf)
     {
         var performance = new StaffPerformance
         {
@@ -6325,7 +6325,7 @@ public class FileServices
     {
         try
         {
-            Console.WriteLine($"Approving assignment for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
+            _log.LogInformation($"Approving assignment for fileId: {recordalApp.fileId}, appId: {recordalApp.appId}");
             var file = await _fillingCollection
                  .Find(Builders<Filling>.Filter.Eq(f => f.FileId, recordalApp.fileId))
                  .FirstOrDefaultAsync();
@@ -6342,6 +6342,10 @@ public class FileServices
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
+            app.SignatoryName = "Onyinye H. Emoka";
+            var signature = await _attachmentCollection.Find(a => a.Name == "TradeCertificationSignature")
+                .FirstOrDefaultAsync();
+
             // Update Applicant
             var applicant = file.applicants?.FirstOrDefault();
             if (applicant == null) return false;
@@ -10313,6 +10317,7 @@ public class FileServices
 
         return true;
     }
+
     public async Task<object?> GetDesignLicenseDetailsAsync(string fileId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
@@ -10404,6 +10409,7 @@ public class FileServices
 
         return (true, approve ? "Design license approved" : "Design license refused");
     }
+
     //Design Mortgage Post Registration Section
     public async Task<bool> NewDesignMortgageApplication(DesignMortgageDto dto)
     {
@@ -11052,6 +11058,7 @@ public class FileServices
 
         return true;
     }
+
     public async Task<object?> GetDesignMergerDetailsAsync(string fileId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
@@ -11103,6 +11110,7 @@ public class FileServices
             filingDate = mergerApp?.FilingDate
         };
     }
+
     public async Task<(bool Success, string Message)> DesignMergerDecisionAsync(
     string fileId,
     string appId,

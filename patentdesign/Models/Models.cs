@@ -57,8 +57,12 @@ public record PublicationInfo
     public CorrespondenceType Correspondence { get; set; }
     public List<PriorityInfo>? PriorityInfo { get; set; }
     public List<byte[]>? ImagesUrl { get; set; }
+    public byte[]? Representation { get; set; }
     public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+    public string? ClassDescription { get; set; }
+    public int? Class { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
+    public bool? IsManualPublication { get; set; } = false;
 }
 public record DesignForm
 {
@@ -532,6 +536,8 @@ public record ApplicationInfo
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
     public List<ApplicantInfo>? Applicants { get; set; } 
+    public string? SignatoryName { get; set; }
+    public string? SignatureUrl { get; set; }
 }
 
 
@@ -1693,6 +1699,7 @@ public record Opposition
     public DateTime? ApplicantNotifiedDate { get; set; }
     public DateTime? ResolvedDate { get; set; }
     public bool? Paid { get; set; } = false;
+    public bool? IsStaffOpposition = false;
 }
 
 public class StatusChangeLog

@@ -1,4 +1,5 @@
 using patentdesign.Models;
+using patentdesign.Utils;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -6,12 +7,12 @@ using QuestPDF.Infrastructure;
 namespace Tfunctions.pdfs
 {
     /// <summary>
-    /// IPO Nigeria branded publication journal document.
-    /// Design: forest-green left accent bar, Georgia serif titles,
-    /// two-column field grid, green-rule section headers.
+    /// IPO Nigeria branded publication journal document — newspaper style.
+    /// Design: forest-green accents, Georgia serif body, double-column layout,
+    /// paragraph-format publication details (editorial/magazine style).
     /// Brand: iponigeria.com — Federal Ministry of Industry, Trade & Investment
     /// </summary>
-    public class JournalDocument(
+    public class JournalDocumentNewspaper(
         List<PublicationInfo> models,
         FileTypes type,
         DateTime start,
@@ -23,9 +24,8 @@ namespace Tfunctions.pdfs
         private const string GreenBorder = "#C2D4C2";
         private const string GreenMuted = "#5A7A5A";
         private const string GreenFaint = "#E8F0E8";
-        private const string AvatarBg = "#EAF3EA";
-        private const string AvatarBorder = "#A8C8A8";
         private const string TextDark = "#1A3A1A";
+        private const string TextBody = "#2A2A2A";
         private const string White = "#FFFFFF";
 
         // ── Labels ────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ namespace Tfunctions.pdfs
         {
             FileTypes.Design => "Title of Design",
             FileTypes.Patent => "Title of Invention",
-            _ => "Title"
+            _ => "Title"    
         };
         private string CreatorLabel => type switch
         {
@@ -66,7 +66,7 @@ namespace Tfunctions.pdfs
         void ComposeHeader(IContainer container)
         {
             container
-                .BorderBottom(4).BorderColor(GreenDark)
+                .BorderBottom(3).BorderColor(GreenDark)
                 .Row(header =>
                 {
                     header.ConstantItem(8).Background(GreenDark);
@@ -78,7 +78,6 @@ namespace Tfunctions.pdfs
                             // Coat of arms
                             inner.ConstantItem(50).AlignMiddle()
                                 .Width(44).Height(44)
-                                .Background(GreenLight)
                                 .AlignCenter().AlignMiddle()
                                 .Image("assets/Commeciallawdepartmentlogo.png")
                                 .FitArea();
@@ -124,7 +123,7 @@ namespace Tfunctions.pdfs
                     {
                         left.ConstantItem(3).Background(GreenDark);
                         left.RelativeItem().PaddingLeft(8).AlignMiddle()
-                            .Text("IPO Nigeria  ·  iponigeria.com  ·  Commercial Law Department  ·  Confidential")
+                            .Text("IPO Nigeria  ·  iponigeria.com  ·  Commercial Law Department")
                             .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
                     });
 
@@ -138,275 +137,204 @@ namespace Tfunctions.pdfs
                 });
         }
 
-        // ── Body ──────────────────────────────────────────────────────────────
+        // ── Body — Double-column layout ───────────────────────────────────────
         void ComposeBody(IContainer container)
         {
             container.Background(White).Padding(24).Column(col =>
             {
-                col.Spacing(18);
-                foreach (var model in models)
-                    col.Item().Element(c => ComposeEntry(c, model, models.IndexOf(model) + 1));
-            });
-        }
+                // Distribute publications across two columns
+                var midpoint = (models.Count + 1) / 2;
+                var leftColumn = models.Take(midpoint).ToList();
+                var rightColumn = models.Skip(midpoint).ToList();
 
-        // ── Entry card ────────────────────────────────────────────────────────
-        void ComposeEntry(IContainer container, PublicationInfo model, int index)
-        {
-            container
-                .Border(0.5f).BorderColor(GreenBorder)
-                .Row(card =>
-                {
-                    // Left green accent bar
-                    card.ConstantItem(5).Background(GreenDark);
-
-                    card.RelativeItem().Column(body =>
+                col.Item()
+                    .Row(columns =>
                     {
-                        // Top bar
-                        body.Item()
-                            .Background(GreenLight)
-                            .BorderBottom(0.5f).BorderColor(GreenBorder)
-                            .Padding(10).PaddingLeft(14).PaddingRight(14)
-                            .Row(top =>
+                        // Left column
+                        columns.RelativeItem()
+                            .PaddingRight(16)
+                            .Column(leftCol =>
                             {
-                                top.ConstantItem(30).AlignMiddle()
-                                    .Width(26).Height(26).Background(GreenDark)
-                                    .AlignCenter().AlignMiddle()
-                                    .Text($"{index:D2}")
-                                    .FontSize(10).Bold().FontColor(White).FontFamily("Arial");
-
-                                top.RelativeItem().PaddingLeft(10).AlignMiddle().Column(d =>
+                                leftCol.Spacing(20);
+                                foreach (var model in leftColumn)
                                 {
-                                    d.Item().Text("Publication Date")
-                                        .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
-                                    d.Item().Text(model.PublicationDate.ToString("d MMMM yyyy"))
-                                        .FontSize(11).Bold().FontColor(GreenDark).FontFamily("Arial");
-                                });
-
-                                if (!string.IsNullOrWhiteSpace(model.FileNumber))
-                                {
-                                    top.ConstantItem(155).AlignMiddle()
-                                        .Background(GreenDark)
-                                        .Padding(4).PaddingLeft(10).PaddingRight(10)
-                                        .Text(model.FileNumber)
-                                        .FontSize(9).FontColor(White).FontFamily("Arial");
+                                    var index = models.IndexOf(model) + 1;
+                                    leftCol.Item().Element(c => ComposeEntryNewspaper(c, model, index));
                                 }
                             });
 
-                        // Title block
-                        if (!string.IsNullOrWhiteSpace(model.Title))
-                        {
-                            body.Item()
-                                .BorderBottom(0.5f).BorderColor(GreenFaint)
-                                .Padding(14).PaddingLeft(14).PaddingRight(14)
-                                .Column(t =>
-                                {
-                                    t.Item().Text(TitleLabel.ToUpper())
-                                        .FontSize(8).Bold().FontColor(GreenMuted).FontFamily("Arial");
-                                    t.Item().PaddingTop(4).Text(model.Title)
-                                        .FontSize(13).Bold().FontColor(TextDark).FontFamily("Georgia");
-                                });
-                        }
-
-                        // Two-column meta grid
-                        body.Item()
-                            .BorderBottom(0.5f).BorderColor(GreenFaint)
-                            .Row(grid =>
+                        // Right column
+                        columns.RelativeItem()
+                            .PaddingLeft(16)
+                            .Column(rightCol =>
                             {
-                                grid.RelativeItem()
-                                    .BorderRight(0.5f).BorderColor(GreenFaint)
-                                    .Padding(10).PaddingLeft(14).Column(c =>
-                                    {
-                                        c.Item().Text("Type".ToUpper())
-                                            .FontSize(8).Bold().FontColor(GreenMuted).FontFamily("Arial");
-                                        c.Item().PaddingTop(3).Text(TypeLabel)
-                                            .FontSize(11).Bold().FontColor(GreenDark).FontFamily("Arial");
-                                    });
+                                rightCol.Spacing(20);
+                                foreach (var model in rightColumn)
+                                {
+                                    var index = models.IndexOf(model) + 1;
+                                    rightCol.Item().Element(c => ComposeEntryNewspaper(c, model, index));
+                                }
                             });
-
-                        // Sections
-                        if (model.Applicants?.Count > 0)
-                            body.Item().Element(c => ComposePeopleSection(c, "Applicants", model.Applicants));
-
-                        if (model.Inventors?.Count > 0)
-                            body.Item().Element(c => ComposePeopleSection(c, CreatorLabel, model.Inventors));
-
-                        if (model.Correspondence is not null)
-                            body.Item().Element(c => ComposeCorrespondence(c, model.Correspondence));
-
-                        if (type == FileTypes.Design && model.ImagesUrl?.Count > 0)
-                            body.Item().Element(c => ComposeImages(c, model.ImagesUrl));
                     });
-                });
+            });
         }
 
-        // ── Section bar ───────────────────────────────────────────────────────
-        void SectionBar(ColumnDescriptor col, string label)
+        // ── Entry card — Newspaper style ──────────────────────────────────────
+        void ComposeEntryNewspaper(IContainer container, PublicationInfo model, int index)
         {
-            col.Item()
-                .Background(GreenLight)
-                .BorderTop(0.5f).BorderColor(GreenBorder)
-                .BorderBottom(0.5f).BorderColor(GreenBorder)
-                .Padding(6).PaddingLeft(14)
-                .Row(r =>
-                {
-                    r.ConstantItem(3).Background(GreenDark);
-                    r.RelativeItem().PaddingLeft(8).AlignMiddle()
-                        .Text(label.ToUpper())
-                        .FontSize(8).Bold().FontColor(GreenDark).FontFamily("Arial");
-                });
-        }
-
-        // ── People section ────────────────────────────────────────────────────
-        void ComposePeopleSection(IContainer container, string heading, List<ApplicantInfo> people)
-        {
-            container.Column(col =>
+            container.Column(card =>
             {
-                SectionBar(col, heading);
-                foreach (var person in people)
-                {
-                    if (string.IsNullOrWhiteSpace(person.Name))
-                        continue;
-
-                    col.Item()
-                        .BorderBottom(0.5f).BorderColor(GreenFaint)
-                        .Padding(10).PaddingLeft(14).PaddingRight(14)
-                        .Row(row =>
+                // Headline with publication number and date
+                card.Item()
+                    .BorderBottom(2).BorderColor(GreenDark)
+                    .PaddingBottom(8)
+                    .Row(headlineRow =>
+                    {
+                            
+                        if (model.Representation is { Length: > 0 })
                         {
-                            row.ConstantItem(34).AlignTop().PaddingTop(1)
-                                .Width(30).Height(30)
-                                .Border(1.5f).BorderColor(AvatarBorder)
-                                .Background(AvatarBg)
+                            headlineRow.ConstantItem(60)
+                                .PaddingRight(10)
+                                .Height(50)
                                 .AlignCenter().AlignMiddle()
-                                .Text(Initials(person.Name))
-                                .FontSize(9).Bold().FontColor(GreenDark).FontFamily("Arial");
-
-                            row.RelativeItem().PaddingLeft(10).Column(info =>
-                            {
-                                info.Item().Text(person.Name)
-                                    .FontSize(11).Bold().FontColor(TextDark).FontFamily("Arial");
-
-                                var hasPhone = !string.IsNullOrWhiteSpace(person.Phone);
-                                var hasEmail = !string.IsNullOrWhiteSpace(person.Email);
-
-                                if (hasPhone || hasEmail)
-                                {
-                                    info.Item().PaddingTop(2).Text(text =>
-                                    {
-                                        if (hasPhone)
-                                            text.Span(person.Phone!)
-                                                .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
-
-                                        if (hasPhone && hasEmail)
-                                            text.Span("  ·  ").FontSize(9).FontColor(GreenBorder).FontFamily("Arial");
-
-                                        if (hasEmail)
-                                            text.Span(person.Email!).FontSize(9).FontColor(GreenDark).FontFamily("Arial");
-                                    });
-                                }
-
-                                var address = FormatAddress(person.Address, person.country);
-                                if (!string.IsNullOrWhiteSpace(address))
-                                {
-                                    info.Item().PaddingTop(1)
-                                        .Text(address)
-                                        .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
-                                }
-                            });
-                        });
-                }
-            });
-        }
-
-        // ── Correspondence section ────────────────────────────────────────────
-        void ComposeCorrespondence(IContainer container, CorrespondenceType corr)
-        {
-            if (string.IsNullOrWhiteSpace(corr.name))
-                return;
-
-            container.Column(col =>
-            {
-                SectionBar(col, "Correspondence");
-                col.Item()
-                    .Padding(10).PaddingLeft(14).PaddingRight(14)
-                    .Row(row =>
-                    {
-                        row.ConstantItem(34).AlignTop().PaddingTop(1)
-                            .Width(30).Height(30)
-                            .Border(1.5f).BorderColor(AvatarBorder)
-                            .Background(AvatarBg)
-                            .AlignCenter().AlignMiddle()
-                            .Text(Initials(corr.name))
-                            .FontSize(9).Bold().FontColor(GreenDark).FontFamily("Arial");
-
-                        row.RelativeItem().PaddingLeft(10).Column(info =>
-                        {
-                            info.Item()
-                                .Text($"{corr.name}{(string.IsNullOrWhiteSpace(corr.state) ? "" : $"  ·  {corr.state}")}")
-                                .FontSize(11).Bold().FontColor(TextDark).FontFamily("Arial");
-
-                            var hasPhone = !string.IsNullOrWhiteSpace(corr.phone);
-                            var hasEmail = !string.IsNullOrWhiteSpace(corr.email);
-
-                            if (hasPhone || hasEmail)
-                            {
-                                info.Item().PaddingTop(2).Text(text =>
-                                {
-                                    if (hasPhone)
-                                        text.Span(corr.phone!).FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
-
-                                    if (hasPhone && hasEmail)
-                                        text.Span("  ·  ").FontSize(9).FontColor(GreenBorder).FontFamily("Arial");
-
-                                    if (hasEmail)
-                                        text.Span(corr.email!).FontSize(9).FontColor(GreenDark).FontFamily("Arial");
-                                });
-                            }
-
-                            if (!string.IsNullOrWhiteSpace(corr.address))
-                                info.Item().PaddingTop(1).Text(corr.address)
-                                    .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
-                        });
-                    });
-            });
-        }
-
-        // ── Design images ─────────────────────────────────────────────────────
-        void ComposeImages(IContainer container, List<byte[]> images)
-        {
-            container.Column(col =>
-            {
-                SectionBar(col, "Design Representations");
-                col.Item()
-                    .Padding(12).PaddingLeft(14).PaddingRight(14)
-                    .Row(imgRow =>
-                    {
-                        imgRow.Spacing(10);
-                        foreach (var bytes in images)
-                        {
-                            var img = Image.FromBinaryData(bytes);
-                            imgRow.ConstantItem(95)
                                 .Border(0.5f).BorderColor(GreenBorder)
-                                .Background(GreenLight)
-                                .Height(95)
-                                .Image(img).FitArea();
+                                .Background(GreenFaint)
+                                .Image(model.Representation)
+                                .FitArea();
                         }
+
+                        // Title and publication info
+                        headlineRow.RelativeItem().Column(headline =>
+                        {
+                            headline.Item()
+                                .Text(model.Title)
+                                .FontSize(14).Bold().FontColor(TextDark).FontFamily("Georgia");
+
+                            headline.Item().PaddingTop(4)
+                                .Text(text =>
+                                {
+                                    text.Span($"{model.FileNumber}  ·  ")
+                                        .FontSize(9).FontColor(GreenDark).FontFamily("Arial");
+                                    text.Span(model.PublicationDate.ToString("d MMMM yyyy"))
+                                        .FontSize(9).Bold().FontColor(GreenDark).FontFamily("Arial");
+                                });
+                        });
+                    });
+
+                // Body text — Details in paragraph format
+                card.Item().PaddingTop(10)
+                    .Column(body =>
+                    {
+                        // Type and File Number paragraph
+                        body.Item()
+                            .Text(text =>
+                            {
+                                text.Justify();
+                                text.Span($"Class: {model.Class} - ")
+                                    .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
+
+                                text.Span(model.ClassDescription)
+                                    .FontSize(9).FontColor(TextBody).FontFamily("Georgia");
+                            });
+
+                        // Applicants section
+                        if (model.Applicants?.Count > 0)
+                        {
+                            body.Item().PaddingTop(10)
+                                .Text(text =>
+                                {
+                                    text.Justify();
+                                    text.Span("APPLICANTS: ")
+                                        .FontSize(9).Bold().FontColor(GreenDark).FontFamily("Arial");
+                                    text.Span(string.Join("; ", model.Applicants
+                                        .Where(a => !string.IsNullOrWhiteSpace(a.Name))
+                                        .Select(a => FormatPersonForParagraph(a))))
+                                        .FontSize(9).FontColor(TextBody).FontFamily("Georgia");
+                                });
+                        }
+
+                        // Inventors section
+                        if (model.Inventors?.Count > 0)
+                        {
+                            body.Item().PaddingTop(8)
+                                .Text(text =>
+                                {
+                                    text.Justify();
+                                    text.Span($"{CreatorLabel.ToUpper()}: ")
+                                        .FontSize(9).Bold().FontColor(GreenDark).FontFamily("Arial");
+                                    text.Span(string.Join("; ", model.Inventors
+                                        .Where(i => !string.IsNullOrWhiteSpace(i.Name))
+                                        .Select(i => FormatPersonForParagraph(i))))
+                                        .FontSize(9).FontColor(TextBody).FontFamily("Georgia");
+                                });
+                        }
+
+                        // Correspondence section
+                        if (model.Correspondence is not null && !string.IsNullOrWhiteSpace(model.Correspondence.name))
+                        {
+                            body.Item().PaddingTop(8)
+                                .Text(text =>
+                                {
+                                    text.Justify();
+                                    text.Span("CORRESPONDENCE: ")
+                                        .FontSize(9).Bold().FontColor(GreenDark).FontFamily("Arial");
+                                    text.Span(FormatCorrespondenceForParagraph(model.Correspondence))
+                                        .FontSize(9).FontColor(TextBody).FontFamily("Georgia");
+                                });
+                        }
+
                     });
             });
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────
-        private static string Initials(string? name)
+        // ── Paragraph formatting helpers ──────────────────────────────────────
+        private static string FormatPersonForParagraph(ApplicantInfo person)
         {
-            if (string.IsNullOrWhiteSpace(name)) return "?";
-            var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return parts.Length >= 2
-                ? $"{parts[0][0]}{parts[^1][0]}".ToUpper()
-                : name[..Math.Min(2, name.Length)].ToUpper();
+            if (string.IsNullOrWhiteSpace(person.Name))
+                return string.Empty;
+
+            var parts = new List<string> { person.Name };
+
+            if (!string.IsNullOrWhiteSpace(person.Phone))
+                parts.Add(person.Phone);
+
+            if (!string.IsNullOrWhiteSpace(person.Email))
+                parts.Add(person.Email);
+
+            var address = FormatAddress(person.Address, person.country);
+            if (!string.IsNullOrWhiteSpace(address))
+                parts.Add(address);
+
+            return string.Join(" | ", parts);
+        }
+
+        private static string FormatCorrespondenceForParagraph(CorrespondenceType corr)
+        {
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(corr.name))
+            {
+                var nameWithState = corr.name;
+                if (!string.IsNullOrWhiteSpace(corr.state))
+                    nameWithState += $", {corr.state}";
+                parts.Add(nameWithState);
+            }
+
+            if (!string.IsNullOrWhiteSpace(corr.phone))
+                parts.Add(corr.phone);
+
+            if (!string.IsNullOrWhiteSpace(corr.email))
+                parts.Add(corr.email);
+
+            if (!string.IsNullOrWhiteSpace(corr.address))
+                parts.Add(corr.address);
+
+            return string.Join(" | ", parts);
         }
 
         private static string FormatAddress(string? address, string? country)
         {
-            return string.Join("  ·  ",
+            return string.Join(", ",
                 new[] { address, country }.Where(s => !string.IsNullOrWhiteSpace(s)));
         }
     }

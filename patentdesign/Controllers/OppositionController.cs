@@ -42,7 +42,20 @@ public class OppositionController(OppositionService oppositionService) :Controll
             return BadRequest(new { message = e.Message });
         }
     }
+    [HttpPost("StaffOpposition")]
 
+    public async Task<IActionResult> StaffOpposition([FromBody]OppositionRequestDto req)
+    {
+        try
+        {
+            bool result = await oppositionService.StaffOpposition(req);
+            return Ok();
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { message = e.Message });
+        }
+    }
     [HttpPost("UpdateOppositionPayment")]
     public async Task<IActionResult> UpdateOppositionPayment([FromQuery] string paymentId)
     {
@@ -97,13 +110,6 @@ public class OppositionController(OppositionService oppositionService) :Controll
         bool result = await oppositionService.NotifyApplicant(oppId);
         return Ok(result);
     }
-    // [HttpGet("getHistory")]
-    // public async Task<ActionResult<List<ApplicationHistory>>> GetOppositionHistory([FromQuery]string id)
-    // {
-    //     var result = await oppositionService.GetOppositionHistory(id);
-    //     return Ok(result);
-    //     
-    // }
     [HttpGet("stats")]
     public async Task<IActionResult> GetStats()
     {

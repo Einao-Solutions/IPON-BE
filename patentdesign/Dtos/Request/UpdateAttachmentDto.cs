@@ -10,7 +10,7 @@ namespace patentdesign.Dtos.Request
 
 public class AdminUploadAttachmentDto
 {
-    public string FileNumber { get; set; }
+    public string? FileNumber { get; set; }
     public IFormFile Attachment { get; set; }
-    public string AttachmentName { get; set; }
+    public string? AttachmentName { get; set; }
 }
