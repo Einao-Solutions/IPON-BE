@@ -98,71 +98,52 @@ namespace patentdesign.pdfs
                     ("Fee title:",   F(receipt.PaymentFor)),
                 });
 
+                // ASSIGNOR INFORMATION (original applicant/owner)
+                var applicant = model.applicants?.FirstOrDefault();
+                TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
+                {
+                    ("Name:",        F(applicant?.Name)),
+                    ("Email:",       F(applicant?.Email)),
+                    ("Phone number:", F(applicant?.Phone)),
+                    ("Nationality:", F(applicant?.country)),
+                });
+                FullWidthBox(col, "Address:", F(applicant?.Address));
+
+                // Get assignment recordal
                 var assignmentRecordal = model.PostRegApplications?
                     .FirstOrDefault(p => p.RecordalType == "Design Assignment Recordal");
 
+                // ASSIGNEE INFORMATION (new assignee from recordal)
                 if (assignmentRecordal != null)
                 {
-                    TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                    {
-                        ("Name:",        F(assignmentRecordal.OldAssignorName)),
-                        ("Email:",       F(assignmentRecordal.OldAssignorEmail)),
-                        ("Phone:",       F(assignmentRecordal.OldAssignorPhone)),
-                        ("State:",       F(assignmentRecordal.OldAssignorState)),
-                        ("City:",        F(assignmentRecordal.OldAssignorCity)),
-                        ("Address:",     F(assignmentRecordal.OldAssignorAddress)),
-                        ("Nationality:", F(assignmentRecordal.OldAssignorNationality))
-                    });
-
                     TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
                     {
                         ("Name:",        F(assignmentRecordal.Name)),
                         ("Email:",       F(assignmentRecordal.Email)),
-                        ("Phone:",       F(assignmentRecordal.Phone)),
-                        ("State:",       F(assignmentRecordal.State)),
-                        ("City:",        F(assignmentRecordal.City)),
-                        ("Address:",     F(assignmentRecordal.Address)),
-                        ("Nationality:", F(assignmentRecordal.Nationality))
+                        ("Phone number:", F(assignmentRecordal.Phone)),
+                        ("Nationality:", F(assignmentRecordal.Nationality)),
                     });
+                    FullWidthBox(col, "Address:", F(assignmentRecordal.Address));
                 }
                 else
                 {
-                    TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                    {
-                        ("Name:",        "N/A"),
-                        ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
-                    });
-
                     TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
                     {
                         ("Name:",        "N/A"),
                         ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
+                        ("Phone number:", "N/A"),
+                        ("Nationality:", "N/A"),
                     });
+                    FullWidthBox(col, "Address:", "N/A");
                 }
 
                 col.Item().Element(Header)
                     .Text("DESIGN INFORMATION")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                FullWidthBox(col, "Title Of Design:", F(model.TitleOfDesign));
-
-                TwoColumnSection(col, string.Empty, new[]
-                {
-                    ("File Origin:", F(model.FileOrigin)),
-                    ("Design type:", F(model.DesignType))
-                });
-
-                FullWidthBox(col, "Application Type:", F(model.ApplicationHistory?.FirstOrDefault()?.ApplicationType));
+                FullWidthBox(col, "Design Title:", F(model.TitleOfDesign));
+                FullWidthBox(col, "Design Type:", F(model.DesignType));
+                FullWidthBox(col, "Statement of Novelty:", F(model.StatementOfNovelty));
 
                 col.Item().AlignCenter().PaddingTop(30)
                     .Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")

@@ -848,6 +848,16 @@ public class LettersServices
                 var designMergerRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await DesignMergerRefusal(designMergerRefFile, applicationId);
 
+            case ApplicationLetters.DesignCtcAcnowledgement:
+                var designCtcAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignCtcAcknowledgement(designCtcAckFile, applicationId);
+            case ApplicationLetters.DesignCtcReceipt:
+                var designCtcReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignCtcReceipt(designCtcReceiptFile, applicationId);
+            case ApplicationLetters.DesignCtcRefusalLetter:
+                var designCtcRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignCtcRefusal(designCtcRefFile, applicationId);
+
             default:
                 return new Dictionary<string, object>() { };
         }
@@ -1074,7 +1084,18 @@ public class LettersServices
                             documents.Add(ApplicationLetters.PatentCtcRefusalLetter);
                         }
                     }
-                    // If you later add TM or Design ctc-docs, handle the else branch here.
+                    else if (file.Type == FileTypes.Design)
+                    {
+                        // DESIGN POST-REG: ctc letters
+                        documents.Add(ApplicationLetters.DesignCtcAcnowledgement);
+                        documents.Add(ApplicationLetters.DesignCtcReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.DesignCtcRefusalLetter);
+                        }
+                    }
+                    // If you later add TM ctc-docs, handle the else branch here.
                     break;
 
                 case FormApplicationTypes.Amendment:
@@ -3426,6 +3447,120 @@ public class LettersServices
     public async Task<Dictionary<string, object>> DesignMergerReceipt(Receipt data, Filling fileData)
     {
         var bytes = new DesignMergerReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignCtcAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design CTC application: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? string.Empty,
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design CTC",
+            payType = PaymentTypes.DesignCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignCtcAcknowledgement(file,
+            $"https://portal.iponigeria.com/qr?fileId={file.FileId}",
+            receipt,
+            applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignCtcReceipt(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design CTC receipt: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design CTC",
+            payType = PaymentTypes.DesignCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignCtcReceipt(receipt, "uri", file).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignCtcRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design CTC refusal: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design CTC",
+            payType = PaymentTypes.DesignCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignCtcRefusalLetter(file, "uri", receipt, app, applicationId).GeneratePdf();
         return ReturnDocument(bytes);
     }
 

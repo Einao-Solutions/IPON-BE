@@ -150,15 +150,9 @@ namespace patentdesign.pdfs
                     .Text("DESIGN INFORMATION")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                FullWidthBox(col, "Title Of Design:", F(model.TitleOfDesign));
-
-                TwoColumnSection(col, string.Empty, new[]
-                {
-                    ("File Origin:", F(model.FileOrigin)),
-                    ("Design type:", F(model.DesignType))
-                });
-
-                FullWidthBox(col, "Application Type:", F(model.ApplicationHistory?.FirstOrDefault()?.ApplicationType));
+                FullWidthBox(col, "Title of Industrial Design:", F(model.TitleOfDesign));
+                FullWidthBox(col, "Design Type:", F(model.DesignType));
+                FullWidthBox(col, "Statement of Novelty:", F(model.StatementOfNovelty));
 
                 col.Item().AlignCenter().PaddingTop(30)
                     .Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
