@@ -88,77 +88,58 @@ namespace patentdesign.pdfs
 
                 TwoColumnSection(col, "PAYMENT INFORMATION", new[]
                 {
-                    ("Filing date:", F(receipt.Date)),
+                    ("Filing date:", F(date)),
                     ("Payment rrr:", F(receipt.rrr)),
                     ("File number:", F(model.FileId)),
                     ("Fee title:",   F(receipt.PaymentFor)),
                 });
 
+                // LICENSOR INFORMATION (original applicant/owner)
+                var applicant = model.applicants?.FirstOrDefault();
+                TwoColumnSection(col, "LICENSOR INFORMATION", new[]
+                {
+                    ("Name:",        F(applicant?.Name)),
+                    ("Email:",       F(applicant?.Email)),
+                    ("Phone number:", F(applicant?.Phone)),
+                    ("Nationality:", F(applicant?.country)),
+                });
+                FullWidthBox(col, "Address:", F(applicant?.Address));
+
+                // Get license recordal
                 var licenseRecordal = model.PostRegApplications?
                     .FirstOrDefault(p => p.RecordalType == "Design License Recordal");
 
+                // LICENSEE INFORMATION (new licensee from recordal)
                 if (licenseRecordal != null)
                 {
-                    TwoColumnSection(col, "LICENSOR INFORMATION", new[]
-                    {
-                        ("Name:",        F(licenseRecordal.OldLicensorName)),
-                        ("Email:",       F(licenseRecordal.OldLicensorEmail)),
-                        ("Phone:",       F(licenseRecordal.OldLicensorPhone)),
-                        ("State:",       F(licenseRecordal.OldLicensorState)),
-                        ("City:",        F(licenseRecordal.OldLicensorCity)),
-                        ("Address:",     F(licenseRecordal.OldLicensorAddress)),
-                        ("Nationality:", F(licenseRecordal.OldLicensorNationality))
-                    });
-
                     TwoColumnSection(col, "LICENSEE INFORMATION", new[]
                     {
                         ("Name:",        F(licenseRecordal.Name)),
                         ("Email:",       F(licenseRecordal.Email)),
-                        ("Phone:",       F(licenseRecordal.Phone)),
-                        ("State:",       F(licenseRecordal.State)),
-                        ("City:",        F(licenseRecordal.City)),
-                        ("Address:",     F(licenseRecordal.Address)),
-                        ("Nationality:", F(licenseRecordal.Nationality))
+                        ("Phone number:", F(licenseRecordal.Phone)),
+                        ("Nationality:", F(licenseRecordal.Nationality)),
                     });
+                    FullWidthBox(col, "Address:", F(licenseRecordal.Address));
                 }
                 else
                 {
-                    TwoColumnSection(col, "LICENSOR INFORMATION", new[]
-                    {
-                        ("Name:",        "N/A"),
-                        ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
-                    });
-
                     TwoColumnSection(col, "LICENSEE INFORMATION", new[]
                     {
                         ("Name:",        "N/A"),
                         ("Email:",       "N/A"),
-                        ("Phone:",       "N/A"),
-                        ("State:",       "N/A"),
-                        ("City:",        "N/A"),
-                        ("Address:",     "N/A"),
-                        ("Nationality:", "N/A")
+                        ("Phone number:", "N/A"),
+                        ("Nationality:", "N/A"),
                     });
+                    FullWidthBox(col, "Address:", "N/A");
                 }
 
                 col.Item().Element(Header)
                     .Text("DESIGN INFORMATION")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                FullWidthBox(col, "Title Of Design:", F(model.TitleOfDesign));
-
-                TwoColumnSection(col, string.Empty, new[]
-                {
-                    ("File Origin:", F(model.FileOrigin)),
-                    ("Design type:", F(model.DesignType))
-                });
-
-                FullWidthBox(col, "Statement Of Novelty:", F(model.StatementOfNovelty));
+                FullWidthBox(col, "Title of Industrial Design:", F(model.TitleOfDesign));
+                FullWidthBox(col, "Design Type:", F(model.DesignType));
+                FullWidthBox(col, "Statement of Novelty:", F(model.StatementOfNovelty));
 
                 col.Item().AlignCenter().PaddingTop(30)
                     .Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")

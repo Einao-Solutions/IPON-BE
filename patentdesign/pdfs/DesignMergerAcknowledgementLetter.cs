@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Linq;
+using patentdesign.Enums;
 using patentdesign.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -7,13 +8,13 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs
 {
-    public class DesignAssignmentAcknowledgement : IDocument
+    public class DesignMergerAcknowledgementletter : IDocument
     {
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
 
-        public DesignAssignmentAcknowledgement(Filling model, string url, Receipt receipt)
+        public DesignMergerAcknowledgementletter(Filling model, string url, Receipt receipt)
         {
             this.model = model;
             this.url = url;
@@ -62,17 +63,13 @@ namespace patentdesign.pdfs
             container.Column(col =>
             {
                 var date = "-";
-                if (!string.IsNullOrWhiteSpace(receipt.Date) && DateTime.TryParse(receipt.Date, out var parsedDate))
+                if (!string.IsNullOrWhiteSpace(receipt.Date) &&
+                    DateTime.TryParse(receipt.Date, out var parsedDate))
                 {
                     date = parsedDate.ToString("dd/MM/yyyy");
                 }
 
-                var amount = "-";
-                if (!string.IsNullOrWhiteSpace(receipt.Amount) && long.TryParse(receipt.Amount, out var parsedAmount))
-                {
-                    amount = parsedAmount.ToString("N0");
-                }
-
+                // Header
                 col.Item().Height(60).AlignCenter().PaddingBottom(10)
                     .Image("assets/logo.png").FitArea();
                 col.Item().AlignCenter().PaddingBottom(10)
@@ -85,11 +82,12 @@ namespace patentdesign.pdfs
                     .Text("COMMERCIAL LAW DEPARTMENT")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14);
                 col.Item().AlignCenter()
-                    .Text("DESIGN ASSIGNMENT ACKNOWLEDGEMENT LETTER")
+                    .Text("DESIGN MERGER ACKNOWLEDGEMENT LETTER")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(16)
                     .FontColor(Colors.Green.Darken3).ExtraBold();
                 col.Item().Height(10);
 
+                // PAYMENT INFORMATION
                 TwoColumnSection(col, "PAYMENT INFORMATION", new[]
                 {
                     ("Filing date:", F(date)),
@@ -98,9 +96,9 @@ namespace patentdesign.pdfs
                     ("Fee title:",   F(receipt.PaymentFor)),
                 });
 
-                // ASSIGNOR INFORMATION (original applicant/owner)
+                // APPLICANT INFORMATION (original applicant from file)
                 var applicant = model.applicants?.FirstOrDefault();
-                TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
+                TwoColumnSection(col, "APPLICANT INFORMATION", new[]
                 {
                     ("Name:",        F(applicant?.Name)),
                     ("Email:",       F(applicant?.Email)),
@@ -109,25 +107,25 @@ namespace patentdesign.pdfs
                 });
                 FullWidthBox(col, "Address:", F(applicant?.Address));
 
-                // Get assignment recordal
-                var assignmentRecordal = model.PostRegApplications?
-                    .FirstOrDefault(p => p.RecordalType == "Design Assignment Recordal");
+                // Get corresponding post-registration merger app
+                var mergerRecordal = model.PostRegApplications?
+                    .FirstOrDefault(p => p.RecordalType == "Design Merger Recordal");
 
-                // ASSIGNEE INFORMATION (new assignee from recordal)
-                if (assignmentRecordal != null)
+                // MERGER INFORMATION (new merged entity)
+                if (mergerRecordal != null)
                 {
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
+                    TwoColumnSection(col, "MERGER INFORMATION", new[]
                     {
-                        ("Name:",        F(assignmentRecordal.Name)),
-                        ("Email:",       F(assignmentRecordal.Email)),
-                        ("Phone number:", F(assignmentRecordal.Phone)),
-                        ("Nationality:", F(assignmentRecordal.Nationality)),
+                        ("Name:",        F(mergerRecordal.Name)),
+                        ("Email:",       F(mergerRecordal.Email)),
+                        ("Phone number:", F(mergerRecordal.Phone)),
+                        ("Nationality:", F(mergerRecordal.Nationality)),
                     });
-                    FullWidthBox(col, "Address:", F(assignmentRecordal.Address));
+                    FullWidthBox(col, "Address:", F(mergerRecordal.Address));
                 }
                 else
                 {
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
+                    TwoColumnSection(col, "MERGER INFORMATION", new[]
                     {
                         ("Name:",        "N/A"),
                         ("Email:",       "N/A"),
@@ -137,11 +135,12 @@ namespace patentdesign.pdfs
                     FullWidthBox(col, "Address:", "N/A");
                 }
 
+                // DESIGN INFORMATION
                 col.Item().Element(Header)
                     .Text("DESIGN INFORMATION")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                FullWidthBox(col, "Design Title:", F(model.TitleOfDesign));
+                FullWidthBox(col, "Title of Industrial Design:", F(model.TitleOfDesign));
                 FullWidthBox(col, "Design Type:", F(model.DesignType));
                 FullWidthBox(col, "Statement of Novelty:", F(model.StatementOfNovelty));
 
@@ -168,7 +167,8 @@ namespace patentdesign.pdfs
                 {
                     row.RelativeItem().Element(Box).Column(c2 =>
                     {
-                        c2.Item().Text(pairs[i].Label)
+                        c2.Item()
+                            .Text(pairs[i].Label)
                             .FontFamily(Fonts.TimesNewRoman)
                             .FontSize(10)
                             .Bold();
@@ -179,7 +179,8 @@ namespace patentdesign.pdfs
                     {
                         row.RelativeItem().Element(Box).Column(c2 =>
                         {
-                            c2.Item().Text(pairs[i + 1].Label)
+                            c2.Item()
+                                .Text(pairs[i + 1].Label)
                                 .FontFamily(Fonts.TimesNewRoman)
                                 .FontSize(10)
                                 .Bold();
@@ -200,7 +201,8 @@ namespace patentdesign.pdfs
             {
                 if (!string.IsNullOrEmpty(label))
                 {
-                    c2.Item().Text(label)
+                    c2.Item()
+                        .Text(label)
                         .FontFamily(Fonts.TimesNewRoman)
                         .FontSize(10)
                         .Bold();

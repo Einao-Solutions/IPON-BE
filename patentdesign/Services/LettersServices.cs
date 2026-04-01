@@ -471,6 +471,9 @@ public class LettersServices
                 };
 
                 return await DesignLicenseReceipt(designLicenseReceiptModel, designLicenseReceiptFile);
+            case ApplicationLetters.DesignLicenseRefusalletter:
+                var designLicenseRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignLicenseRefusal(designLicenseRefFile, applicationId);
             case ApplicationLetters.DesignAssignmentAcknowledgement:
                 var designAssignmentAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await DesignAssignmentAcknowledgement(designAssignmentAckFile, applicationId);
@@ -806,6 +809,55 @@ public class LettersServices
                 };
                 return await PatentAmendmentReceipt(amendmentReceiptModel, amendmentFile);
 
+            case ApplicationLetters.DesignMergerAcknowledgement:
+                var designMergerAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignMergerAcknowledgement(designMergerAckFile, applicationId);
+            case ApplicationLetters.DesignMergerReceipt:
+                var designMergerReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (designMergerReceiptFile == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+                var designMergerApp = designMergerReceiptFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+                if (designMergerApp == null)
+                {
+                    Console.WriteLine("App not found");
+                    return null;
+                }
+                var designMergerRemitaResponse = await GetPaymentData(designMergerReceiptFile.Comment, designMergerApp.PaymentId);
+                if (designMergerRemitaResponse == null)
+                {
+                    Console.WriteLine("Remita response is null");
+                    return null;
+                }
+                var designMergerReceiptModel = new Receipt()
+                {
+                    rrr = designMergerRemitaResponse?.rrr ?? "-",
+                    Amount = designMergerRemitaResponse?.amount.ToString() ?? "",
+                    Date = designMergerRemitaResponse?.paymentDate ?? "",
+                    ApplicantName = designMergerReceiptFile.applicants[0].Name ?? "",
+                    payType = PaymentTypes.DesignMerger,
+                    FileId = designMergerReceiptFile.FileId,
+                    Title = designMergerReceiptFile.TitleOfDesign,
+                    Category = designMergerReceiptFile.Type.ToString(),
+                    PaymentFor = "Design Merger"
+                };
+                return await DesignMergerReceipt(designMergerReceiptModel, designMergerReceiptFile);
+            case ApplicationLetters.DesignMergerRefusalLetter:
+                var designMergerRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignMergerRefusal(designMergerRefFile, applicationId);
+
+            case ApplicationLetters.DesignCtcAcnowledgement:
+                var designCtcAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignCtcAcknowledgement(designCtcAckFile, applicationId);
+            case ApplicationLetters.DesignCtcReceipt:
+                var designCtcReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignCtcReceipt(designCtcReceiptFile, applicationId);
+            case ApplicationLetters.DesignCtcRefusalLetter:
+                var designCtcRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignCtcRefusal(designCtcRefFile, applicationId);
+
             default:
                 return new Dictionary<string, object>() { };
         }
@@ -1032,7 +1084,18 @@ public class LettersServices
                             documents.Add(ApplicationLetters.PatentCtcRefusalLetter);
                         }
                     }
-                    // If you later add TM or Design ctc-docs, handle the else branch here.
+                    else if (file.Type == FileTypes.Design)
+                    {
+                        // DESIGN POST-REG: ctc letters
+                        documents.Add(ApplicationLetters.DesignCtcAcnowledgement);
+                        documents.Add(ApplicationLetters.DesignCtcReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.DesignCtcRefusalLetter);
+                        }
+                    }
+                    // If you later add TM ctc-docs, handle the else branch here.
                     break;
 
                 case FormApplicationTypes.Amendment:
@@ -1072,8 +1135,20 @@ public class LettersServices
                             documents.Add(ApplicationLetters.PatentMergerRefusalLetter);
                         }
                     }
+                    else if (file.Type == FileTypes.Design)
+                    {
+                        // DESIGN POST-REG: merger letters
+                        documents.Add(ApplicationLetters.DesignMergerAcknowledgement);
+                        documents.Add(ApplicationLetters.DesignMergerReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.DesignMergerRefusalLetter);
+                        }
+                    }
                     else
                     {
+                        // TRADEMARK: merger letters
                         documents.AddRange(new[]
 {
                         ApplicationLetters.MergerAck,
@@ -2808,6 +2883,43 @@ public class LettersServices
         return ReturnDocument(bytes);
     }
 
+    private async Task<Dictionary<string, object>> DesignLicenseRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design license refusal: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design License Recordal",
+            payType = PaymentTypes.DesignLicense,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignLicenseRefusalLetter(file, "uri", receipt, app).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
     private async Task<Dictionary<string, object>> DesignAssignmentAcknowledgement(Filling file, string applicationId)
     {
         if (file == null)
@@ -3294,6 +3406,196 @@ public class LettersServices
     public async Task<Dictionary<string, object>> PatentMergerReceipt(Receipt data, Filling fileData)
     {
         var bytes = new PatentMergerReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignMergerAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for merger application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Design Merger",
+            payType = PaymentTypes.DesignMerger,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignMergerAcknowledgementletter(file, "uri", receipt).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> DesignMergerReceipt(Receipt data, Filling fileData)
+    {
+        var bytes = new DesignMergerReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignCtcAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design CTC application: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? string.Empty,
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design CTC",
+            payType = PaymentTypes.DesignCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignCtcAcknowledgement(file,
+            $"https://portal.iponigeria.com/qr?fileId={file.FileId}",
+            receipt,
+            applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignCtcReceipt(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design CTC receipt: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design CTC",
+            payType = PaymentTypes.DesignCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignCtcReceipt(receipt, "uri", file).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignCtcRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design CTC refusal: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design CTC",
+            payType = PaymentTypes.DesignCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignCtcRefusalLetter(file, "uri", receipt, app, applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignMergerRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+            throw new Exception("Payment data not found for merger application");
+
+        var receipt = new Receipt
+        {
+            rrr = payment.rrr ?? "-",
+            Amount = payment.amount?.ToString() ?? "",
+            Date = payment.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name
+                : "",
+            PaymentFor = "Design Merger",
+            payType = PaymentTypes.DesignMerger,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignMergerRefusalLetter(file, "uri", receipt, app).GeneratePdf();
         return ReturnDocument(bytes);
     }
 
