@@ -7,7 +7,7 @@ using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 namespace patentdesign.Controllers
 {
 
-    //[Authorize]
+    [Authorize]
     [ApiController]
     [Route("api/admin")]
     public class AdminController(AdminServices adminServices) : ControllerBase
@@ -67,6 +67,14 @@ namespace patentdesign.Controllers
             var result = await adminServices.AdminUploadAttach(dto);
             if (result) return Ok(new { message = "Attachment Uploaded" });
             return BadRequest(new { message = "Failed to Upload Attachment" });
+        }
+
+        [HttpGet("GetUserByEmail")]
+        public async Task<IActionResult> GetUserByEmail([FromQuery] string email)
+        {
+            var user = await adminServices.GetUserByEmail(email);
+            if (user == null) return BadRequest(new{message = "User not found"});
+            return Ok(user);
         }
 
     }
