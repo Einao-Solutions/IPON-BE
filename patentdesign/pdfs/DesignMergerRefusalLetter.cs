@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Linq;
+using patentdesign.Enums;
 using patentdesign.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -7,17 +8,19 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs
 {
-    public class DesignAssignmentAcknowledgement : IDocument
+    public class DesignMergerRefusalLetter : IDocument
     {
         private readonly Filling model;
         private readonly string url;
         private readonly Receipt receipt;
+        private readonly ApplicationInfo application;
 
-        public DesignAssignmentAcknowledgement(Filling model, string url, Receipt receipt)
+        public DesignMergerRefusalLetter(Filling model, string url, Receipt receipt, ApplicationInfo application)
         {
             this.model = model;
             this.url = url;
             this.receipt = receipt;
+            this.application = application;
         }
 
         public void Compose(IDocumentContainer container)
@@ -62,17 +65,13 @@ namespace patentdesign.pdfs
             container.Column(col =>
             {
                 var date = "-";
-                if (!string.IsNullOrWhiteSpace(receipt.Date) && DateTime.TryParse(receipt.Date, out var parsedDate))
+                if (!string.IsNullOrWhiteSpace(receipt.Date) &&
+                    DateTime.TryParse(receipt.Date, out var parsedDate))
                 {
                     date = parsedDate.ToString("dd/MM/yyyy");
                 }
 
-                var amount = "-";
-                if (!string.IsNullOrWhiteSpace(receipt.Amount) && long.TryParse(receipt.Amount, out var parsedAmount))
-                {
-                    amount = parsedAmount.ToString("N0");
-                }
-
+                // Header
                 col.Item().Height(60).AlignCenter().PaddingBottom(10)
                     .Image("assets/logo.png").FitArea();
                 col.Item().AlignCenter().PaddingBottom(10)
@@ -85,11 +84,12 @@ namespace patentdesign.pdfs
                     .Text("COMMERCIAL LAW DEPARTMENT")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14);
                 col.Item().AlignCenter()
-                    .Text("DESIGN ASSIGNMENT ACKNOWLEDGEMENT LETTER")
+                    .Text("DESIGN MERGER REFUSAL LETTER")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(16)
-                    .FontColor(Colors.Green.Darken3).ExtraBold();
+                    .FontColor(Colors.Red.Darken2).ExtraBold();
                 col.Item().Height(10);
 
+                // PAYMENT INFORMATION
                 TwoColumnSection(col, "PAYMENT INFORMATION", new[]
                 {
                     ("Filing date:", F(date)),
@@ -98,56 +98,95 @@ namespace patentdesign.pdfs
                     ("Fee title:",   F(receipt.PaymentFor)),
                 });
 
-                // ASSIGNOR INFORMATION (original applicant/owner)
-                var applicant = model.applicants?.FirstOrDefault();
-                TwoColumnSection(col, "ASSIGNOR INFORMATION", new[]
-                {
-                    ("Name:",        F(applicant?.Name)),
-                    ("Email:",       F(applicant?.Email)),
-                    ("Phone number:", F(applicant?.Phone)),
-                    ("Nationality:", F(applicant?.country)),
-                });
-                FullWidthBox(col, "Address:", F(applicant?.Address));
+                var mergerRecordal = model.PostRegApplications?
+                    .FirstOrDefault(p => p.RecordalType == "Design Merger Recordal");
 
-                // Get assignment recordal
-                var assignmentRecordal = model.PostRegApplications?
-                    .FirstOrDefault(p => p.RecordalType == "Design Assignment Recordal");
-
-                // ASSIGNEE INFORMATION (new assignee from recordal)
-                if (assignmentRecordal != null)
+                if (mergerRecordal != null)
                 {
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
+                    // OLD MERGER PARTY
+                    TwoColumnSection(col, "OLD MERGER PARTY INFORMATION", new[]
                     {
-                        ("Name:",        F(assignmentRecordal.Name)),
-                        ("Email:",       F(assignmentRecordal.Email)),
-                        ("Phone number:", F(assignmentRecordal.Phone)),
-                        ("Nationality:", F(assignmentRecordal.Nationality)),
+                        ("Name:",        F(mergerRecordal.OldMergerName)),
+                        ("Email:",       F(mergerRecordal.OldMergerEmail)),
+                        ("Phone:",       F(mergerRecordal.OldMergerPhone)),
+                        ("State:",       F(mergerRecordal.OldMergerState)),
+                        ("City:",        F(mergerRecordal.OldMergerCity)),
+                        ("Address:",     F(mergerRecordal.OldMergerAddress)),
+                        ("Nationality:", F(mergerRecordal.OldMergerNationality))
                     });
-                    FullWidthBox(col, "Address:", F(assignmentRecordal.Address));
+
+                    // NEW MERGED PARTY
+                    TwoColumnSection(col, "NEW MERGED PARTY INFORMATION", new[]
+                    {
+                        ("Name:",        F(mergerRecordal.Name)),
+                        ("Email:",       F(mergerRecordal.Email)),
+                        ("Phone:",       F(mergerRecordal.Phone)),
+                        ("State:",       F(mergerRecordal.State)),
+                        ("City:",        F(mergerRecordal.City)),
+                        ("Address:",     F(mergerRecordal.Address)),
+                        ("Nationality:", F(mergerRecordal.Nationality))
+                    });
                 }
                 else
                 {
-                    TwoColumnSection(col, "ASSIGNEE INFORMATION", new[]
+                    TwoColumnSection(col, "OLD MERGER PARTY INFORMATION", new[]
                     {
                         ("Name:",        "N/A"),
                         ("Email:",       "N/A"),
-                        ("Phone number:", "N/A"),
-                        ("Nationality:", "N/A"),
+                        ("Phone:",       "N/A"),
+                        ("State:",       "N/A"),
+                        ("City:",        "N/A"),
+                        ("Address:",     "N/A"),
+                        ("Nationality:", "N/A")
                     });
-                    FullWidthBox(col, "Address:", "N/A");
+
+                    TwoColumnSection(col, "NEW MERGED PARTY INFORMATION", new[]
+                    {
+                        ("Name:",        "N/A"),
+                        ("Email:",       "N/A"),
+                        ("Phone:",       "N/A"),
+                        ("State:",       "N/A"),
+                        ("City:",        "N/A"),
+                        ("Address:",     "N/A"),
+                        ("Nationality:", "N/A")
+                    });
                 }
 
+                // DESIGN INFORMATION
                 col.Item().Element(Header)
                     .Text("DESIGN INFORMATION")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                FullWidthBox(col, "Design Title:", F(model.TitleOfDesign));
-                FullWidthBox(col, "Design Type:", F(model.DesignType));
+                FullWidthBox(col, "Title Of Design:", F(model.TitleOfDesign));
+
+                TwoColumnSection(col, string.Empty, new[]
+                {
+                    ("File Origin:", F(model.FileOrigin)),
+                    ("Design type:", F(model.DesignType))
+                });
+
                 FullWidthBox(col, "Statement of Novelty:", F(model.StatementOfNovelty));
 
+                // REFUSAL INFORMATION
+                col.Item().Element(Header)
+                    .Text("REFUSAL INFORMATION")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+                var refusalHistory = application.StatusHistory
+                    .LastOrDefault(h => h.afterStatus == ApplicationStatuses.Rejected);
+
+                var officerName = refusalHistory?.User ?? "-";
+                var reason = refusalHistory?.Message ?? "-";
+
+                TwoColumnSection(col, string.Empty, new[]
+                {
+                    ("Officer's Name:", officerName),
+                    ("Reason:",       reason)
+                });
+
                 col.Item().AlignCenter().PaddingTop(30)
-                    .Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
-                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Green.Darken2);
+                    .Text("YOUR APPLICATION HAS BEEN REFUSED")
+                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Red.Darken2);
             });
         }
 
@@ -168,7 +207,8 @@ namespace patentdesign.pdfs
                 {
                     row.RelativeItem().Element(Box).Column(c2 =>
                     {
-                        c2.Item().Text(pairs[i].Label)
+                        c2.Item()
+                            .Text(pairs[i].Label)
                             .FontFamily(Fonts.TimesNewRoman)
                             .FontSize(10)
                             .Bold();
@@ -179,7 +219,8 @@ namespace patentdesign.pdfs
                     {
                         row.RelativeItem().Element(Box).Column(c2 =>
                         {
-                            c2.Item().Text(pairs[i + 1].Label)
+                            c2.Item()
+                                .Text(pairs[i + 1].Label)
                                 .FontFamily(Fonts.TimesNewRoman)
                                 .FontSize(10)
                                 .Bold();
@@ -200,7 +241,8 @@ namespace patentdesign.pdfs
             {
                 if (!string.IsNullOrEmpty(label))
                 {
-                    c2.Item().Text(label)
+                    c2.Item()
+                        .Text(label)
                         .FontFamily(Fonts.TimesNewRoman)
                         .FontSize(10)
                         .Bold();
