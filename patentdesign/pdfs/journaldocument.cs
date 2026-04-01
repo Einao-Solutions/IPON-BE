@@ -85,20 +85,21 @@ namespace Tfunctions.pdfs
                             // Wordmark
                             inner.RelativeItem().PaddingLeft(12).AlignMiddle().Column(wm =>
                             {
-                                wm.Item().Text("IPO Nigeria")
+                                wm.Item().Text("Intellectual Property Office Nigeria")
                                     .FontSize(15).Bold().FontColor(GreenDark).FontFamily("Georgia");
+                                wm.Item().Text("Trademarks Registry")
+                                    .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
                                 wm.Item().PaddingTop(2)
                                     .Text("Federal Ministry of Industry, Trade & Investment")
                                     .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
-                                wm.Item().Text("Commercial Law Department")
-                                    .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
+                                
                             });
 
                             // Document meta
                             inner.ConstantItem(210).AlignMiddle().Column(meta =>
                             {
                                 meta.Item().AlignRight()
-                                    .Text($"{TypeLabel} Publications Journal")
+                                    .Text($"{TypeLabel} Publication Journal")
                                     .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
                                 meta.Item().PaddingTop(3).AlignRight()
                                     .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
@@ -123,7 +124,7 @@ namespace Tfunctions.pdfs
                     {
                         left.ConstantItem(3).Background(GreenDark);
                         left.RelativeItem().PaddingLeft(8).AlignMiddle()
-                            .Text("IPO Nigeria  ·  iponigeria.com  ·  Commercial Law Department")
+                            .Text("iponigeria.com  ·  Commercial Law Department")
                             .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
                     });
 
