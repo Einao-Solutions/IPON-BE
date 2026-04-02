@@ -6,12 +6,6 @@ using QuestPDF.Infrastructure;
 
 namespace Tfunctions.pdfs
 {
-    /// <summary>
-    /// IPO Nigeria branded publication journal document — newspaper style.
-    /// Design: forest-green accents, Georgia serif body, double-column layout,
-    /// paragraph-format publication details (editorial/magazine style).
-    /// Brand: iponigeria.com — Federal Ministry of Industry, Trade & Investment
-    /// </summary>
     public class JournalDocumentNewspaper(
         List<PublicationInfo> models,
         FileTypes type,
@@ -27,6 +21,19 @@ namespace Tfunctions.pdfs
         private const string TextDark = "#1A3A1A";
         private const string TextBody = "#2A2A2A";
         private const string White = "#FFFFFF";
+
+        // ── Computed groups (shared across TOC + body) ────────────────────────
+        private List<(string SectionId, string Label, string? Description, List<PublicationInfo> Items)>? _groups;
+        private List<(string SectionId, string Label, string? Description, List<PublicationInfo> Items)> Groups
+            => _groups ??= models
+                .GroupBy(m => m.Class)
+                .OrderBy(g => g.Key)
+                .Select(g => (
+                    SectionId: $"class-{g.Key?.ToString() ?? "none"}",
+                    Label: g.Key.HasValue ? $"Class {g.Key}" : "Unclassified",
+                    Description: g.First().ClassDescription,
+                    Items: g.ToList()))
+                .ToList();
 
         // ── Labels ────────────────────────────────────────────────────────────
         private string TitleLabel => type switch
@@ -52,13 +59,311 @@ namespace Tfunctions.pdfs
         // ── IDocument ─────────────────────────────────────────────────────────
         public void Compose(IDocumentContainer container)
         {
+            // Cover page
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(0);
+                page.Content().Element(ComposeCoverPage);
+            });
+
+            // Statutory provisions page
             container.Page(page =>
             {
                 page.Size(PageSizes.A4);
                 page.Margin(0);
                 page.Header().Element(ComposeHeader);
-                page.Content().Element(ComposeBody);
-                page.Footer().Element(ComposeFooter);
+                page.Content().Element(ComposeLegalNotice);
+                page.Footer().Element(c => ComposeFooter(c, "Statutory Provisions"));
+            });
+
+            // Table of Contents page
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(0);
+                page.Header().Element(ComposeHeader);
+                page.Content().Element(ComposeTableOfContents);
+                page.Footer().Element(c => ComposeFooter(c, "Table of Contents"));
+            });
+
+            // One page-section per class group
+            foreach (var group in Groups)
+            {
+                container.Page(page =>
+                {
+                    page.Size(PageSizes.A4);
+                    page.Margin(0);
+                    page.Header().Element(ComposeHeader);
+                    page.Content().Element(c => ComposeClassBody(c, group.SectionId, group.Label, group.Description, group.Items));
+                    page.Footer().Element(c => ComposeFooter(c, group.Label));
+                });
+            }
+        }
+
+        // ── Cover Page ────────────────────────────────────────────────────────
+        void ComposeCoverPage(IContainer container)
+        {
+            container.Column(page =>
+            {
+                // Top accent bar
+                page.Item().Height(8).Background(GreenDark);
+
+                // Main content area
+                page.Item().Extend().Background(White).Column(content =>
+                {
+                    content.Item().ExtendVertical().AlignMiddle().PaddingHorizontal(60).Column(center =>
+                    {
+                        // Logo
+                        center.Item().AlignCenter()
+                            .Width(90).Height(90)
+                            .Image("assets/Commeciallawdepartmentlogo.png")
+                            .FitArea();
+
+                        // Organisation name
+                        center.Item().PaddingTop(24).AlignCenter()
+                            .Text("Intellectual Property Office Nigeria")
+                            .FontSize(22).Bold().FontColor(GreenDark).FontFamily("Georgia");
+
+                        // Registry subtitle
+                        center.Item().PaddingTop(6).AlignCenter()
+                            .Text("Trademarks Registry")
+                            .FontSize(12).FontColor(GreenMuted).FontFamily("Arial");
+
+                        // Ministry
+                        center.Item().PaddingTop(4).AlignCenter()
+                            .Text("Federal Ministry of Industry, Trade & Investment")
+                            .FontSize(10).FontColor(GreenMuted).FontFamily("Arial");
+                        center.Item().PaddingTop(4).AlignCenter()
+                            .Text("Abuja, Nigeria")
+                            .FontSize(10).FontColor(GreenMuted).FontFamily("Arial");
+                        // Decorative divider
+                        center.Item().PaddingTop(30).PaddingBottom(30)
+                            .PaddingHorizontal(120)
+                            .LineHorizontal(2).LineColor(GreenDark);
+
+                        // Journal title
+                        center.Item().AlignCenter()
+                            .Text($"{TypeLabel}s Journal")
+                            .FontSize(26).Bold().FontColor(GreenDark).FontFamily("Georgia");
+
+                        // Date range
+                        center.Item().PaddingTop(16).AlignCenter()
+                            .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
+                            .FontSize(14).FontColor(TextDark).FontFamily("Arial");
+
+                        // Logo
+                        center.Item().AlignCenter().PaddingTop(60)
+                            .Width(180).Height(180)
+                            .Image("assets/ministry.png")
+                            .FitArea();
+                    });
+                });
+
+                //// Bottom bar with generation date
+                //page.Item()
+                //    .Background(GreenDark)
+                //    .Padding(12).PaddingHorizontal(30)
+                //    .Row(footer =>
+                //    {
+                //        footer.RelativeItem().AlignMiddle()
+                //            .Text("iponigeria.com  ·  Commercial Law Department")
+                //            .FontSize(9).FontColor(White).FontFamily("Arial");
+
+                //        footer.AutoItem().AlignMiddle()
+                //            .Text($"Generated: {DateTime.Now:d MMMM yyyy}")
+                //            .FontSize(9).FontColor(GreenBorder).FontFamily("Arial");
+                //    });
+            });
+        }
+
+        // ── Legal / Statutory Provisions Page ─────────────────────────────────
+        void ComposeLegalNotice(IContainer container)
+        {
+            container.Background(White).Padding(40).PaddingHorizontal(50).Column(col =>
+            {
+                col.Item().AlignCenter()
+                    .Width(90).Height(90)
+                    .Image("assets/logo.png")
+                    .FitArea();
+                col.Item().AlignCenter()
+                    .Text("LAW OF THE FEDERATION OF NIGERIA, 1990")
+                    .FontSize(14).ExtraBold().FontColor(GreenDark).FontFamily("Georgia");
+
+                col.Item().PaddingTop(4).AlignCenter()
+                    .Text("CHAPTER 436")
+                    .FontSize(12).ExtraBold().FontColor(GreenDark).FontFamily("Georgia");
+
+                col.Item().PaddingTop(4).AlignCenter()
+                    .Text("TRADEMARKS ACT")
+                    .FontSize(12).ExtraBold().FontColor(GreenDark).FontFamily("Georgia");
+
+                // Decorative divider
+                col.Item().PaddingTop(16).PaddingBottom(16)
+                    .PaddingHorizontal(80)
+                    .LineHorizontal(2).LineColor(GreenDark);
+
+                // Section heading
+                col.Item().AlignCenter()
+                    .Text("APPLICATION FOR REGISTRATION OF TRADE MARKS")
+                    .FontSize(11).Bold().FontColor(TextDark).FontFamily("Arial");
+
+                // Paragraph 1
+                col.Item().PaddingTop(20)
+                    .Text(text =>
+                    {
+                        text.Justify();
+                        text.Span("Pursuant to section 19 of the Trademarks Act, notice is hereby given that " +
+                                  "applications have been received for registration of the following Trade Marks.")
+                            .FontSize(10).FontColor(TextBody).FontFamily("Georgia");
+                    });
+
+                // Paragraph 2
+                col.Item().PaddingTop(14)
+                    .Text(text =>
+                    {
+                        text.Justify();
+                        text.Span("Any person who has grounds of opposition to the registration of any of the " +
+                                  "marks advertised shall within two months from the date hereof give notice to " +
+                                  "the Registrar of such opposition.")
+                            .FontSize(10).FontColor(TextBody).FontFamily("Georgia");
+                    });
+
+                // Paragraph 3
+                col.Item().PaddingTop(14)
+                    .Text(text =>
+                    {
+                        text.Justify();
+                        text.Span("Such notice shall be in writing and in the prescribed manner setting out the " +
+                                  "ground and shall be submitted in duplicate.")
+                            .FontSize(10).FontColor(TextBody).FontFamily("Georgia");
+                    });
+
+                // Paragraph 4
+                col.Item().PaddingTop(14)
+                    .Text(text =>
+                    {
+                        text.Justify();
+                        text.Span("On completion of the preliminary proceeding, both the opposition and the " +
+                                  "application shall within one month, file with the registrar, their briefs of " +
+                                  "argument with copies of the legal authorities relied upon therein.")
+                            .FontSize(10).FontColor(TextBody).FontFamily("Georgia");
+                    });
+
+                // Paragraph 5
+                col.Item().PaddingTop(14)
+                    .Text(text =>
+                    {
+                        text.Justify();
+                        text.Span("All communication relating to Trade Marks should be addressed to the " +
+                                  "Registrar of Trade Marks, Ministry of Trade and Investment P. M. B 88, " +
+                                  "Garki Abuja Nigeria.")
+                            .FontSize(10).FontColor(TextBody).FontFamily("Georgia");
+                    });
+
+                // Paragraph 6 — class range
+                col.Item().PaddingTop(14)
+                    .Text(text =>
+                    {
+                        text.Justify();
+                        text.Span("The goods in respect of the following Trade Marks are in classes 1–34 of " +
+                                  "schedule 4, and service marks in classes 35–45.")
+                            .FontSize(10).FontColor(TextBody).FontFamily("Georgia");
+                    });
+            });
+        }
+
+        // ── Table of Contents ─────────────────────────────────────────────────
+        void ComposeTableOfContents(IContainer container)
+        {
+            container.Background(White).Padding(24).Column(col =>
+            {
+                // TOC title
+                col.Item()
+                    .PaddingBottom(16)
+                    .BorderBottom(3).BorderColor(GreenDark)
+                    .PaddingBottom(10)
+                    .Text("Table of Contents")
+                    .FontSize(18).Bold().FontColor(GreenDark).FontFamily("Georgia");
+
+                col.Item().Column(rows =>
+                {
+                    // Column headers
+                    rows.Item()
+                        .PaddingBottom(8)
+                        .BorderBottom(1).BorderColor(GreenBorder)
+                        .Row(headerRow =>
+                        {
+                            headerRow.ConstantItem(60)
+                                .Text("Classes")
+                                .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
+
+                            headerRow.ConstantItem(45).AlignRight()
+                                .Text("Pages")
+                                .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
+
+                            headerRow.RelativeItem().PaddingLeft(10)
+                                .Text("Description")
+                                .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
+                        });
+
+                    foreach (var group in Groups)
+                    {
+                        var desc = group.Description ?? "";
+                        var maxLen = 99;
+                        string truncatedDesc;
+                        if (desc.Length > maxLen)
+                        {
+                            var lastSpace = desc.LastIndexOf(' ', maxLen);
+                            var cutoff = lastSpace > 0 ? lastSpace : maxLen;
+                            truncatedDesc = $"{desc[..cutoff].TrimEnd()} etc.";
+                        }
+                        else
+                        {
+                            truncatedDesc = desc;
+                        }
+                        rows.Item()
+                            .PaddingTop(2).PaddingBottom(2)
+                            .BorderBottom(0.5f).BorderColor(GreenFaint)
+                            .SectionLink(group.SectionId)
+                            .Row(row =>
+                            {
+                                // Class label
+                                row.ConstantItem(60).AlignMiddle()
+                                    .Text(group.Label)
+                                    .FontSize(11).Bold().FontColor(TextDark).FontFamily("Georgia");
+
+                                // Page range
+                                row.ConstantItem(45).AlignRight().AlignMiddle()
+                                    .Text(text =>
+                                    {
+                                        text.BeginPageNumberOfSection(group.SectionId)
+                                            .FontSize(10).FontColor(GreenDark).FontFamily("Arial");
+                                        text.Span(" – ")
+                                            .FontSize(10).FontColor(GreenMuted).FontFamily("Arial");
+                                        text.EndPageNumberOfSection(group.SectionId)
+                                            .FontSize(10).FontColor(GreenDark).FontFamily("Arial");
+                                    });
+
+                                // Class description (takes remaining space)
+                                row.RelativeItem().PaddingLeft(10).AlignMiddle()
+                                    .Text(truncatedDesc)
+                                    .FontSize(9).FontColor(TextBody).FontFamily("Arial");
+                            });
+                    }
+
+                    // Summary
+                    rows.Item()
+                        .PaddingTop(16)
+                        .BorderTop(2).BorderColor(GreenDark)
+                        .PaddingTop(8)
+                        .Row(summary =>
+                        {
+                            summary.RelativeItem()
+                                .Text($"Total: {Groups.Count} classes, {models.Count} publications")
+                                .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
+                        });
+                });
             });
         }
 
@@ -72,7 +377,7 @@ namespace Tfunctions.pdfs
                     header.ConstantItem(8).Background(GreenDark);
 
                     header.RelativeItem()
-                        .Padding(18).PaddingLeft(20).PaddingRight(24)
+                        .Padding(18).PaddingLeft(20).PaddingRight(18)
                         .Row(inner =>
                         {
                             // Coat of arms
@@ -86,8 +391,9 @@ namespace Tfunctions.pdfs
                             inner.RelativeItem().PaddingLeft(12).AlignMiddle().Column(wm =>
                             {
                                 wm.Item().Text("Intellectual Property Office Nigeria")
-                                    .FontSize(15).Bold().FontColor(GreenDark).FontFamily("Georgia");
-                                wm.Item().Text("Trademarks Registry")
+                                    .FontSize(13).Bold().FontColor(GreenDark).FontFamily("Georgia");
+                                wm.Item().PaddingTop(2)
+                                    .Text("Trademarks Registry")
                                     .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
                                 wm.Item().PaddingTop(2)
                                     .Text("Federal Ministry of Industry, Trade & Investment")
@@ -113,7 +419,7 @@ namespace Tfunctions.pdfs
         }
 
         // ── Page footer ───────────────────────────────────────────────────────
-        void ComposeFooter(IContainer container)
+        void ComposeFooter(IContainer container, string classLabel)
         {
             container
                 .BorderTop(2).BorderColor(GreenDark)
@@ -124,7 +430,7 @@ namespace Tfunctions.pdfs
                     {
                         left.ConstantItem(3).Background(GreenDark);
                         left.RelativeItem().PaddingLeft(8).AlignMiddle()
-                            .Text("iponigeria.com  ·  Commercial Law Department")
+                            .Text($"iponigeria.com  ·  Commercial Law Department  ·  {classLabel}")
                             .FontSize(8).FontColor(GreenMuted).FontFamily("Arial");
                     });
 
@@ -138,46 +444,66 @@ namespace Tfunctions.pdfs
                 });
         }
 
-        // ── Body — Double-column layout ───────────────────────────────────────
-        void ComposeBody(IContainer container)
+        // ── Body for a single class group ─────────────────────────────────────
+        void ComposeClassBody(IContainer container, string sectionId, string classLabel, string? classDesc, List<PublicationInfo> groupItems)
         {
-            container.Background(White).Padding(24).Column(col =>
-            {
-                // Distribute publications across two columns
-                var midpoint = (models.Count + 1) / 2;
-                var leftColumn = models.Take(midpoint).ToList();
-                var rightColumn = models.Skip(midpoint).ToList();
+            container.Background(White).Padding(24)
+                .Section(sectionId)
+                .Column(col =>
+                {
+                    // Class header
+                    col.Item()
+                        .BorderBottom(2).BorderColor(GreenDark)
+                        .PaddingBottom(6)
+                        .Column(header =>
+                        {
+                            header.Item()
+                                .Text(classLabel)
+                                .FontSize(13).Bold().FontColor(GreenDark).FontFamily("Georgia");
 
-                col.Item()
-                    .Row(columns =>
-                    {
-                        // Left column
-                        columns.RelativeItem()
-                            .PaddingRight(16)
-                            .Column(leftCol =>
+                            if (!string.IsNullOrWhiteSpace(classDesc))
                             {
-                                leftCol.Spacing(20);
-                                foreach (var model in leftColumn)
-                                {
-                                    var index = models.IndexOf(model) + 1;
-                                    leftCol.Item().Element(c => ComposeEntryNewspaper(c, model, index));
-                                }
-                            });
+                                header.Item().PaddingTop(2)
+                                    .Text(classDesc)
+                                    .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
+                            }
+                        });
 
-                        // Right column
-                        columns.RelativeItem()
-                            .PaddingLeft(16)
-                            .Column(rightCol =>
-                            {
-                                rightCol.Spacing(20);
-                                foreach (var model in rightColumn)
+                    // Distribute group items across two columns
+                    var midpoint = (groupItems.Count + 1) / 2;
+                    var leftColumn = groupItems.Take(midpoint).ToList();
+                    var rightColumn = groupItems.Skip(midpoint).ToList();
+
+                    col.Item().PaddingTop(12)
+                        .Row(columns =>
+                        {
+                            // Left column
+                            columns.RelativeItem()
+                                .PaddingRight(16)
+                                .Column(leftCol =>
                                 {
-                                    var index = models.IndexOf(model) + 1;
-                                    rightCol.Item().Element(c => ComposeEntryNewspaper(c, model, index));
-                                }
-                            });
-                    });
-            });
+                                    leftCol.Spacing(20);
+                                    foreach (var model in leftColumn)
+                                    {
+                                        var index = models.IndexOf(model) + 1;
+                                        leftCol.Item().Element(c => ComposeEntryNewspaper(c, model, index));
+                                    }
+                                });
+
+                            // Right column
+                            columns.RelativeItem()
+                                .PaddingLeft(16)
+                                .Column(rightCol =>
+                                {
+                                    rightCol.Spacing(20);
+                                    foreach (var model in rightColumn)
+                                    {
+                                        var index = models.IndexOf(model) + 1;
+                                        rightCol.Item().Element(c => ComposeEntryNewspaper(c, model, index));
+                                    }
+                                });
+                        });
+                });
         }
 
         // ── Entry card — Newspaper style ──────────────────────────────────────

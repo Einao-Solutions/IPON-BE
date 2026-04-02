@@ -34,6 +34,7 @@ public class AppUser
     public string? Name { get; set; }
     public string? PasswordResetToken { get; set; }
     public DateTime? PasswordResetTokenExpiry { get; set; }
+    public List<ApplicationInfo>? OtherApplications { get; set; } = new();
 }
 
 public record PublicationInfo
