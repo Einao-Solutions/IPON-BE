@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
@@ -13,6 +14,7 @@ public class StatisticsService
 {
     private readonly IMongoCollection<StaffPerformance> _workflowCollection;
     private readonly IMongoCollection<AppUser> _userCollection;
+    private readonly IMongoCollection<PaymentRecord> _paymentCollection;
   //  private readonly ILoggerService _log;
 
     public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
@@ -26,8 +28,11 @@ public class StatisticsService
         var db = mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
         _workflowCollection = db.GetCollection<StaffPerformance>("staffPerformance");
         _userCollection = db.GetCollection<AppUser>("appUsers");
+        _paymentCollection = db.GetCollection<PaymentRecord>("payments");
      //   _log = log;
     }
+
+    #region Public API
 
     public IReadOnlyList<UnitInfoDto> GetUnits(string registryType)
     {
@@ -245,6 +250,62 @@ public class StatisticsService
         };
     }
 
+    #endregion
+
+    #region Finance Statistics
+
+    public async Task<FinanceComparisonDataDto> GetFinanceComparisonAsync(FinanceComparisonRequestDto request)
+    {
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        var results = new List<FinancePeriodResultDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+
+            var filter = Builders<PaymentRecord>.Filter.And(
+                Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
+                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate)
+            );
+
+            var payments = await _paymentCollection.Find(filter).ToListAsync();
+
+            var paymentTypes = payments
+                .GroupBy(x => x.PaymentType ?? string.Empty)
+                .Select(group => new FinancePaymentTypeResultDto
+                {
+                    PaymentType = group.Key,
+                    TotalGovernmentFee = group.Sum(GetGovernmentFee),
+                    Count = group.Count()
+                })
+                .OrderByDescending(x => x.TotalGovernmentFee)
+                .ToList();
+
+            results.Add(new FinancePeriodResultDto
+            {
+                Label = range.Label,
+                StartDate = range.StartDate,
+                EndDate = range.EndDate,
+                TotalGovernmentFee = paymentTypes.Sum(x => x.TotalGovernmentFee),
+                TotalPayments = payments.Count,
+                PaymentTypes = paymentTypes
+            });
+        }
+
+        return new FinanceComparisonDataDto
+        {
+            Periods = results
+        };
+    }
+
+    #endregion
+
+    #region Registry and Date Helpers
+
     private static FileTypes ParseRegistryType(string registryType)
     {
         if (Enum.TryParse<FileTypes>(registryType, true, out var fileType))
@@ -299,6 +360,238 @@ public class StatisticsService
         throw new ArgumentException("Invalid periodType. Must be month, quarter, or year");
     }
 
+    private static (DateTime StartDate, DateTime EndDate, string Label) ResolveFinancePeriod(FinancePeriodRequestDto period)
+    {
+        if (period == null)
+        {
+            throw new ArgumentException("Invalid period");
+        }
+
+        var periodType = period.Type?.Trim();
+        if (string.IsNullOrWhiteSpace(periodType))
+        {
+            throw new ArgumentException("Missing required parameter: type");
+        }
+
+        var label = period.Label?.Trim() ?? string.Empty;
+
+        switch (periodType.ToLowerInvariant())
+        {
+            case "month":
+            {
+                if (!period.Year.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: year");
+                }
+
+                if (string.IsNullOrWhiteSpace(period.Value))
+                {
+                    throw new ArgumentException("Missing required parameter: value");
+                }
+
+                var month = ParseMonth(period.Value);
+                var start = new DateTime(period.Year.Value, month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var end = start.AddMonths(1).AddTicks(-1);
+
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = $"{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month)} {period.Year.Value}";
+                }
+
+                return (start, end, label);
+            }
+            case "quarter":
+            {
+                if (!period.Year.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: year");
+                }
+
+                if (string.IsNullOrWhiteSpace(period.Value))
+                {
+                    throw new ArgumentException("Missing required parameter: value");
+                }
+
+                var range = GetQuarterRange(period.Value);
+                var start = new DateTime(period.Year.Value, range.StartMonth, 1, 0, 0, 0, DateTimeKind.Utc);
+                var end = new DateTime(period.Year.Value, range.EndMonth, DateTime.DaysInMonth(period.Year.Value, range.EndMonth), 23, 59, 59, 999, DateTimeKind.Utc);
+
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = $"{period.Value} {period.Year.Value}";
+                }
+
+                return (start, end, label);
+            }
+            case "year":
+            {
+                if (!period.Year.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: year");
+                }
+
+                var start = new DateTime(period.Year.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                var end = new DateTime(period.Year.Value, 12, 31, 23, 59, 59, 999, DateTimeKind.Utc);
+
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = period.Year.Value.ToString(CultureInfo.InvariantCulture);
+                }
+
+                return (start, end, label);
+            }
+            case "year-range":
+            {
+                if (!period.StartYear.HasValue || !period.EndYear.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: startYear/endYear");
+                }
+
+                if (period.StartYear > period.EndYear)
+                {
+                    throw new ArgumentException("Invalid year range");
+                }
+
+                var start = new DateTime(period.StartYear.Value, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                var end = new DateTime(period.EndYear.Value, 12, 31, 23, 59, 59, 999, DateTimeKind.Utc);
+
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = $"{period.StartYear}-{period.EndYear}";
+                }
+
+                return (start, end, label);
+            }
+            case "month-range":
+            {
+                if (!period.Year.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: year");
+                }
+
+                if (!period.StartMonth.HasValue || !period.EndMonth.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: startMonth/endMonth");
+                }
+
+                if (period.StartMonth > period.EndMonth)
+                {
+                    throw new ArgumentException("Invalid month range");
+                }
+
+                var start = new DateTime(period.Year.Value, period.StartMonth.Value, 1, 0, 0, 0, DateTimeKind.Utc);
+                var end = new DateTime(period.Year.Value, period.EndMonth.Value, DateTime.DaysInMonth(period.Year.Value, period.EndMonth.Value), 23, 59, 59, 999, DateTimeKind.Utc);
+
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = $"{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(period.StartMonth.Value)}-{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(period.EndMonth.Value)} {period.Year.Value}";
+                }
+
+                return (start, end, label);
+            }
+            case "relative":
+            {
+                if (!period.StartOffset.HasValue || !period.EndOffset.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: startOffset/endOffset");
+                }
+
+                if (period.StartOffset < period.EndOffset)
+                {
+                    throw new ArgumentException("Invalid relative range");
+                }
+
+                if (string.IsNullOrWhiteSpace(period.OffsetUnit))
+                {
+                    throw new ArgumentException("Missing required parameter: offsetUnit");
+                }
+
+                var now = DateTime.UtcNow;
+
+                if (string.Equals(period.OffsetUnit, "year", StringComparison.OrdinalIgnoreCase))
+                {
+                    var startYear = now.Year - period.StartOffset.Value;
+                    var endYear = now.Year - period.EndOffset.Value;
+
+                    if (startYear > endYear)
+                    {
+                        throw new ArgumentException("Invalid relative range");
+                    }
+
+                    var start = new DateTime(startYear, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    var end = new DateTime(endYear, 12, 31, 23, 59, 59, 999, DateTimeKind.Utc);
+
+                    if (string.IsNullOrWhiteSpace(label))
+                    {
+                        label = $"{startYear}-{endYear}";
+                    }
+
+                    return (start, end, label);
+                }
+
+                if (string.Equals(period.OffsetUnit, "month", StringComparison.OrdinalIgnoreCase))
+                {
+                    var currentMonthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                    var start = currentMonthStart.AddMonths(-period.StartOffset.Value);
+                    var endMonthStart = currentMonthStart.AddMonths(-period.EndOffset.Value);
+                    var end = endMonthStart.AddMonths(1).AddTicks(-1);
+
+                    if (string.IsNullOrWhiteSpace(label))
+                    {
+                        label = $"{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(start.Month)} {start.Year}-{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(end.Month)} {end.Year}";
+                    }
+
+                    return (start, end, label);
+                }
+
+                throw new ArgumentException("Invalid offsetUnit. Must be month or year");
+            }
+            default:
+                throw new ArgumentException("Invalid period type. Must be month, quarter, year, month-range, year-range, or relative");
+        }
+    }
+
+    private static int ParseMonth(string value)
+    {
+        if (int.TryParse(value, out var month) && month is >= 1 and <= 12)
+        {
+            return month;
+        }
+
+        return DateTime.ParseExact(value, new[] { "MMMM", "MMM" }, CultureInfo.InvariantCulture, DateTimeStyles.None).Month;
+    }
+
+    private static (int StartMonth, int EndMonth) GetQuarterRange(string periodValue)
+    {
+        var quarters = new Dictionary<string, (int StartMonth, int EndMonth)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Q1"] = (1, 3),
+            ["Q1: Jan-Mar"] = (1, 3),
+            ["Q2"] = (4, 6),
+            ["Q2: Apr-Jun"] = (4, 6),
+            ["Q3"] = (7, 9),
+            ["Q3: Jul-Sep"] = (7, 9),
+            ["Q4"] = (10, 12),
+            ["Q4: Oct-Dec"] = (10, 12)
+        };
+
+        if (!quarters.TryGetValue(periodValue, out var range))
+        {
+            throw new ArgumentException("Invalid periodValue for quarter");
+        }
+
+        return range;
+    }
+
+    private static double GetGovernmentFee(PaymentRecord payment)
+    {
+        return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    #endregion
+
+    #region Performance Filters
+
     private static FilterDefinition<StaffPerformance> BuildAssignedFilter(ApplicationUnits ruleType)
     {
         var filter = Builders<StaffPerformance>.Filter;
@@ -327,6 +620,10 @@ public class StatisticsService
             _ => filter.Empty
         };
     }
+
+    #endregion
+
+    #region Unit Mappings
 
     private static FilterDefinition<StaffPerformance> BuildTreatedFilter(FileTypes fileType, ApplicationUnits ruleType)
     {
@@ -432,6 +729,10 @@ public class StatisticsService
         throw new ArgumentException("Invalid registryType. Must be TradeMark, Patent, or Design");
     }
 
+    #endregion
+
+    #region User Lookup
+
     private record UnitMapping(int UnitId, string UnitName, Roles Role, ApplicationUnits RuleType);
 
     private static Dictionary<string, AppUser> BuildUserLookup(IEnumerable<AppUser> users)
@@ -453,5 +754,7 @@ public class StatisticsService
 
         return lookup;
     }
+
+    #endregion
 
 }
