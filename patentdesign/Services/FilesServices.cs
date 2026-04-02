@@ -4117,23 +4117,25 @@ public class FileServices
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
+
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
                 Console.WriteLine("No file or applicants found.");
                 return null;
             }
+
             var applicant = fileInfo.applicants[0];
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Design Merger",
-                applicant.Name, applicant.Email, applicant.Phone);
-            var designMergerCost = new RecordalDto
+
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.Merger &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfDesign ?? string.Empty,
                 TitleOfInvention = fileInfo.TitleOfDesign ?? string.Empty,
@@ -4149,7 +4151,25 @@ public class FileServices
                 ApplicantCity = applicant.city,
                 TrademarkClass = fileInfo.TrademarkClass
             };
-            return designMergerCost;
+
+            if (existingApp != null)
+            {
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignMerger, fileType, "", null, null, null);
+
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Design Merger",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = data.Item1;
+            dto.rrr = paymentId;
+
+            return dto;
         }
         catch (Exception up)
         {
@@ -4158,38 +4178,78 @@ public class FileServices
             throw;
         }
     }
-    public async Task<RecordalDto> DesignCtcCost(string fileId, FileTypes fileType)
+    public async Task<RecordalDto> DesignCtcCost(string fileId, FileTypes fileType, int numberOfAttachments = 1)
     {
         try
         {
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignCtc, fileType, "", null, null, null);
             var fileInfo = await _fillingCollection
                 .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
                 .FirstOrDefaultAsync();
+
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
                 Console.WriteLine("No file or applicants found.");
                 return null;
             }
+
             var applicant = fileInfo.applicants[0];
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Design CTC",
-                applicant.Name, applicant.Email, applicant.Phone);
-            var designCtcCost = new RecordalDto
+
+            // ✅ Check if there is already a pending/created CTC application
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId) &&
+                    (a.CurrentStatus == ApplicationStatuses.Approved ||
+                     a.CurrentStatus == ApplicationStatuses.AwaitingRecordalProcess));
+
+            var dto = new RecordalDto
             {
-                Amount = data.Item1,
-                rrr = paymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfDesign ?? "",
                 ApplicantName = applicant.Name,
-                TrademarkClass = fileInfo.TrademarkClass
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantPhone = applicant.Phone,
+                ApplicantCity = applicant.city,
+                DesignType = fileInfo.DesignType,
+                TitleOfInvention = fileInfo.TitleOfDesign,
+                FileOrigin = fileInfo.FileOrigin,
+                TrademarkClass = fileInfo.TrademarkClass,
+                Attachments = fileInfo.Attachments ?? new List<AttachmentType>()
             };
-            return designCtcCost;
+
+            if (existingApp != null)
+            {
+                // Do NOT generate a new RRR; just tell the frontend an app already exists
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            // Normal cost + RRR generation path
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignCtc, fileType, "", null, null, null);
+
+            // MULTIPLY the cost by number of attachments
+            decimal baseAmount = decimal.Parse(data.Item1);
+            decimal finalAmount = baseAmount * numberOfAttachments;
+            string finalAmountStr = finalAmount.ToString();
+
+            // Generate RRR with the FINAL (multiplied) amount
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                finalAmountStr, data.Item3, data.Item2, "Design CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = finalAmountStr; // Return the multiplied amount
+            dto.rrr = paymentId;
+
+            return dto;
         }
-        catch (Exception up)
+        catch (Exception ex)
         {
-            //log error
-            _log.LogError(up, "Error-at-Design CTC Cost retrieval");
+            _log.LogError(ex, "Error-at-DesignCtcCost");
             throw;
         }
     }
@@ -4228,6 +4288,80 @@ public class FileServices
             throw;
         }
     }
+
+    public async Task<bool> NewDesignCtcApplication(DesignCtcDto dto, string userId)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Fetch user for performance tracking
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("User not found");
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "CTC application submitted, awaiting payment";
+
+        // Application history
+        var ctcHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+            CurrentStatus = status,
+            ApplicationDate = dto.CtcRequestDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Design CTC Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.CtcRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = user.FirstName + " " + user.LastName,
+                    UserId = user.Id
+                }
+            }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = ctcHistory.id,
+            RecordalType = "Design CTC Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            FilingDate = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            RequestedAttachments = dto.AttachmentIds,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, ctcHistory);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+        return true;
+    }
+
     public async Task<RecordalDto> DesignMortgageCost(string fileId, FileTypes fileType)
     {
         try
@@ -9555,17 +9689,6 @@ public class FileServices
         // ✅ Get the saved attachment names from PostRegistrationApp
         var requestedAttachmentNames = ctcApp.RequestedAttachments ?? new List<string>();
 
-        // ✅ Match against file.Attachments and return full details
-        //var requestedAttachments = file.Attachments?
-        //    .Where(a => requestedAttachmentNames.Contains(a.name))
-        //    .Select(a => new
-        //    {
-        //        Name = a.name,
-        //        Urls = a.url,
-        //        Count = a.url?.Count ?? 0
-        //    })
-        //    .ToList();
-
         var requestedAttachments = (file.Attachments ?? new List<AttachmentType>())
         .Where(a => requestedAttachmentNames.Any(reqName =>
             string.Equals(reqName?.Trim(), a.name?.Trim(), StringComparison.OrdinalIgnoreCase)))
@@ -10216,6 +10339,10 @@ public class FileServices
             .FirstOrDefaultAsync();
         if (file == null) return false;
 
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
+
         var applicant = file.applicants.FirstOrDefault();
 
         // Deed of License upload
@@ -10266,6 +10393,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+                ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+                : applicant?.Name ?? "Unknown";
+
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
 
@@ -10287,17 +10418,17 @@ public class FileServices
             FieldToChange = "Design License Application",
             NewValue = "",
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = dto.LicenseRequestDate ?? DateTime.Now,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = dto.LicenseRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = userName,
+                    UserId = user?.Id
+                }
             }
-        }
         };
 
         var recordal = new PostRegistrationApp
@@ -10395,11 +10526,14 @@ public class FileServices
     string appId,
     bool approve,
     string reason,
-    ApplicantInfo newLicensee = null)
+    ApplicantInfo newLicensee = null, string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
 
         var licenseApp = file.ApplicationHistory
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.License);
@@ -10407,14 +10541,15 @@ public class FileServices
         if (licenseApp == null)
             return (false, "No license application found");
 
+        var beforeStatus = licenseApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = licenseApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         licenseApp.StatusHistory.Add(newStatus);
@@ -10427,6 +10562,20 @@ public class FileServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = licenseApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.License,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design license approved" : "Design license refused");
     }
 
@@ -10437,6 +10586,10 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
+
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -10486,6 +10639,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+        ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+        : applicant?.Name ?? "Unknown";
+
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
 
@@ -10514,8 +10671,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = userName,
+                    UserId = user?.Id
                 }
             }
         };
@@ -10615,11 +10772,14 @@ public class FileServices
         string appId,
         bool approve,
         string reason,
-        ApplicantInfo newMortgagee = null)
+        ApplicantInfo newMortgagee = null, string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
 
         var mortgageApp = file.ApplicationHistory
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Mortgage);
@@ -10627,14 +10787,15 @@ public class FileServices
         if (mortgageApp == null)
             return (false, "No mortgage application found");
 
+        var beforeStatus = mortgageApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = mortgageApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         mortgageApp.StatusHistory ??= new List<ApplicationHistory>();
@@ -10668,6 +10829,20 @@ public class FileServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = string.IsNullOrWhiteSpace(userId) ? user.CreatorId : userId,
+            AfterStatus = mortgageApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Mortgage,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design mortgage approved" : "Design mortgage refused");
     }
 
@@ -10678,6 +10853,10 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
+
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
 
         var applicant = file.applicants?.FirstOrDefault();
 
@@ -10727,6 +10906,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+        ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+        : applicant?.Name ?? "Unknown";
+
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
 
@@ -10755,8 +10938,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = userName,
+                    UserId = user?.Id
                 }
             }
         };
@@ -10858,11 +11041,16 @@ public class FileServices
         string appId,
         bool approve,
         string reason,
-        ApplicantInfo newAssignee = null)
+        ApplicantInfo newAssignee = null,
+        string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("Unauthorized User");
 
         var assignmentApp = file.ApplicationHistory
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Assignment);
@@ -10870,14 +11058,15 @@ public class FileServices
         if (assignmentApp == null)
             return (false, "No assignment application found");
 
+        var beforeStatus = assignmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = assignmentApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants?.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         assignmentApp.StatusHistory.Add(newStatus);
@@ -10932,6 +11121,20 @@ public class FileServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = assignmentApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Assignment,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design assignment approved" : "Design assignment refused");
     }
 
@@ -10949,6 +11152,10 @@ public class FileServices
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
         if (file == null) return false;
+
+        var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
+        if (user == null)
+            return false;
 
         var applicant = file.applicants?.FirstOrDefault();
 
@@ -11002,6 +11209,10 @@ public class FileServices
             }
         }
 
+        var userName = user != null
+        ? string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)))
+        : applicant?.Name ?? "Unknown";
+
         // Verify payment
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
         var paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
@@ -11028,17 +11239,17 @@ public class FileServices
             FieldToChange = "Design Merger Application",
             NewValue = string.Empty,
             StatusHistory = new List<ApplicationHistory>
-        {
-            new ApplicationHistory
             {
-                Date = requestDate,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = status,
-                Message = statusMessage,
-                User = applicant?.Name,
-                UserId = file.CreatorAccount
+                new ApplicationHistory
+                {
+                    Date = requestDate,
+                    beforeStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = userName,
+                    UserId = user?.Id
+                }
             }
-        }
         };
 
         // Recordal info
@@ -11131,16 +11342,57 @@ public class FileServices
         };
     }
 
+    public async Task<object?> GetDesignCtcDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch the PostRegApp for CTC
+        var ctcApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Design CTC Recordal");
+
+        if (ctcApp == null)
+            return null;
+
+        // ✅ Get the saved attachment names from PostRegistrationApp
+        var requestedAttachmentNames = ctcApp.RequestedAttachments ?? new List<string>();
+
+        var requestedAttachments = (file.Attachments ?? new List<AttachmentType>())
+            .Where(a => requestedAttachmentNames.Any(reqName =>
+                string.Equals(reqName?.Trim(), a.name?.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .Select(a => new
+            {
+                Name = a.name,
+                Urls = a.url,
+                Count = a.url?.Count ?? 0
+            })
+            .ToList();
+
+        return new
+        {
+            FileId = file.FileId,
+            RequestedAttachments = requestedAttachments,
+            FilingDate = ctcApp.FilingDate,
+            Rrr = ctcApp.rrr
+        };
+    }
+
     public async Task<(bool Success, string Message)> DesignMergerDecisionAsync(
     string fileId,
     string appId,
     bool approve,
     string reason,
-    ApplicantInfo mergedEntity = null)
+    ApplicantInfo mergedEntity = null,
+    string? userId = null)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("Unauthorized User");
 
         var mergerApp = file.ApplicationHistory?
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.Merger);
@@ -11148,14 +11400,15 @@ public class FileServices
         if (mergerApp == null)
             return (false, "No merger application found");
 
+        var beforeStatus = mergerApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
             Date = DateTime.Now,
             Message = reason,
             beforeStatus = mergerApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = file.applicants?.FirstOrDefault()?.Name,
-            UserId = file.CreatorAccount
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
         };
 
         mergerApp.StatusHistory ??= new List<ApplicationHistory>();
@@ -11171,24 +11424,121 @@ public class FileServices
             recordal.Reason = reason;
         }
 
-        if (approve && mergedEntity != null)
+        if (approve)
         {
-            file.applicants = new List<ApplicantInfo> { mergedEntity };
-
-            if (recordal != null)
+            // If mergedEntity is provided, use it; otherwise extract from recordal
+            if (mergedEntity == null && recordal != null)
             {
-                recordal.Name = mergedEntity.Name;
-                recordal.Email = mergedEntity.Email;
-                recordal.Phone = mergedEntity.Phone;
-                recordal.Address = mergedEntity.Address;
-                recordal.Nationality = mergedEntity.country;
-                recordal.State = mergedEntity.State;
-                recordal.City = mergedEntity.city;
+                // Extract the new merged party from the recordal data
+                mergedEntity = new ApplicantInfo
+                {
+                    Name = recordal.Name,
+                    Email = recordal.Email,
+                    Phone = recordal.Phone,
+                    Address = recordal.Address,
+                    country = recordal.Nationality,
+                    State = recordal.State,
+                    city = recordal.City
+                };
+            }
+
+            if (mergedEntity != null)
+            {
+                file.applicants = new List<ApplicantInfo> { mergedEntity };
+
+                if (recordal != null)
+                {
+                    recordal.Name = mergedEntity.Name;
+                    recordal.Email = mergedEntity.Email;
+                    recordal.Phone = mergedEntity.Phone;
+                    recordal.Address = mergedEntity.Address;
+                    recordal.Nationality = mergedEntity.country;
+                    recordal.State = mergedEntity.State;
+                    recordal.City = mergedEntity.city;
+                }
             }
         }
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = mergerApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.Merger,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
         return (true, approve ? "Design merger approved" : "Design merger refused");
+    }
+
+    public async Task<(bool Success, string Message)> DesignCtcDecisionAsync(
+        string fileId,
+        string appId,
+        bool approve,
+        string reason,
+        string? userId = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("Unauthorized User");
+
+        var ctcApp = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy);
+
+        if (ctcApp == null)
+            return (false, "No CTC application found");
+
+        var beforeStatus = ctcApp.CurrentStatus;
+        var statusEntry = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = ctcApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
+        };
+
+        ctcApp.StatusHistory ??= new List<ApplicationHistory>();
+        ctcApp.StatusHistory.Add(statusEntry);
+        ctcApp.CurrentStatus = statusEntry.afterStatus.Value;
+
+        var recordal = file.PostRegApplications?
+            .FirstOrDefault(r => r.Id == appId && r.RecordalType == "Design CTC Recordal");
+
+        if (recordal != null)
+        {
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = reason;
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = ctcApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.DesignExaminer
+        };
+        SavePerformance(performance);
+
+        return (true, approve ? "Design CTC approved" : "Design CTC refused");
     }
 }

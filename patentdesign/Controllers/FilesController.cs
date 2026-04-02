@@ -1035,7 +1035,8 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.NewLicensee);
+                dto.NewLicensee,
+                dto.UserId);
 
             if (!success)
             {
@@ -1109,7 +1110,7 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.NewMortgagee);
+                dto.NewMortgagee, dto.UserId);
 
             if (!success)
             {
@@ -1206,7 +1207,7 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.NewAssignee);
+                dto.NewAssignee, dto.UserId);
 
             if (!success)
             {
@@ -1303,7 +1304,104 @@ public class FilesController(FileServices fileService) : ControllerBase
                 dto.AppId,
                 dto.Approve,
                 dto.Reason,
-                dto.MergedEntity);
+                dto.MergedEntity, dto.UserId);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    //Design CTC Post Registration Section
+    [HttpGet("GetDesignCtcCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignCtcCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] int numberOfAttachments = 1)
+    {
+        try
+        {
+            var res = await fileService.DesignCtcCost(fileId, fileType, numberOfAttachments);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignCtcApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignCtcApplication([FromBody] DesignCtcDto dto)
+    {
+        try
+        {
+            var created = await fileService.NewDesignCtcApplication(dto, dto.UserId);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Design CTC application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Design CTC application submitted successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpGet("GetDesignCtcDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignCtcDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetDesignCtcDetailsAsync(fileId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Design CTC recordal not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignCtcDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignCtcDecision([FromBody] DesignCtcDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.DesignCtcDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.UserId);
 
             if (!success)
             {

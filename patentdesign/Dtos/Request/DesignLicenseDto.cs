@@ -29,5 +29,6 @@ namespace patentdesign.Dtos.Request
         public string? NewLicenseeNationality { get; set; } = string.Empty;
         public string? NewLicenseeState { get; set; } = string.Empty;
         public string? NewLicenseeCity { get; set; } = string.Empty;
+        public string? UserId { get; set; } = string.Empty;
     }
 }

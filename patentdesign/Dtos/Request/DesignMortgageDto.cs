@@ -29,5 +29,6 @@ namespace patentdesign.Dtos.Request
         public string? NewMortgagorNationality { get; set; }
         public string? NewMortgagorState { get; set; }
         public string? NewMortgagorCity { get; set; }
+        public string? UserId { get; set; } = string.Empty;
     }
 }
