@@ -63,6 +63,7 @@ public record PublicationInfo
     public int? Class { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
     public bool? IsManualPublication { get; set; } = false;
+    public string? BatchVolume { get; set; }
 }
 public record DesignForm
 {

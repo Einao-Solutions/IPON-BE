@@ -13,7 +13,7 @@ namespace patentdesign.Controllers
         public async Task<IActionResult> GetJournal([FromQuery] int type, [FromQuery] DateTime start,
             [FromQuery] DateTime end)
         {
-            var data = await publicationServices.GetBatchPublications(start, end, Enum.GetValues<FileTypes>()[type]);
+            var data = await publicationServices.GetTrademarkJournal(start, end, Enum.GetValues<FileTypes>()[type]);
             Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
             return File(data, "application/pdf", "journal.pdf");
         }

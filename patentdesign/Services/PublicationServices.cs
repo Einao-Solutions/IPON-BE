@@ -57,9 +57,14 @@ namespace patentdesign.Services
                 _log.LogWarning("Publication for file {FileNumber} already exists and is not opposed. Skipping duplicate.", pub.FileNumber);
                 return existing.Id;
             }
+           
 
             try
             {
+                var pubDate = pub.PublicationDate ?? DateTime.Now;
+                var quarter = (pubDate.Month + 2) / 3;
+                var batchNumber = $"{pubDate.Year}Q{quarter}";
+
                 var publicationInfo = new PublicationInfo
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -81,7 +86,8 @@ namespace patentdesign.Services
                     PriorityInfo = file.PriorityInfo,
                     FirstPriorityInfo = file.FirstPriorityInfo,
                     Attachments = file.Attachments,
-                    IsManualPublication = pub.IsManualPublication ?? false
+                    IsManualPublication = pub.IsManualPublication ?? false,
+                    BatchVolume = batchNumber
                 };
 
                 await _pubCollection.InsertOneAsync(publicationInfo);
@@ -136,13 +142,12 @@ namespace patentdesign.Services
 
             return publications.Count;
         }
-        public async Task<byte[]> GetBatchPublications(DateTime startDate, DateTime endDate, FileTypes type)
+        public async Task<byte[]> GetTrademarkJournal(DateTime startDate, DateTime endDate, FileTypes type)
         {
             _log.LogInformation("Generating batch publication PDF for type {FileType} from {StartDate} to {EndDate}", type, startDate, endDate);
             var filter = Builders<PublicationInfo>.Filter.And(
                 Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
-                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate),
-                Builders<PublicationInfo>.Filter.Eq(x => x.IsBatchPublished, false));
+                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate));
 
             var publicationsData = await _pubCollection.Find(filter)
                 .Project(x => new PublicationInfo()
