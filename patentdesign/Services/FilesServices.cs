@@ -391,6 +391,7 @@ public class FileServices
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
             paymentDate, userName, userId, "Payment Successful, auto approved.");
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
+
         SavePayment(paymentInfo, PaymentTypes.ClericalUpdate, file.FileId, application.id);
     }
 
@@ -7160,7 +7161,7 @@ public class FileServices
     {
         try
         {
-            Console.WriteLine($"Applying clerical update {clericalUpdateId} to file {fileId}");
+            _log.LogInformation($"Applying clerical update {clericalUpdateId} to file {fileId}");
 
             // Fetch file
             var file = await _fillingCollection

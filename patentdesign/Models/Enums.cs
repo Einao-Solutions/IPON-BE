@@ -29,6 +29,7 @@
         Finance,
         PermSec,
         Minister,
+        HeadOfUnit,
         Tech,
         SuperAdmin
     }
