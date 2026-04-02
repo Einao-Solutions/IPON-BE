@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using patentdesign.Dtos.Request;
 using patentdesign.Services;
 
 namespace patentdesign.Controllers;
 
-[Authorize]
+//[Authorize]
 [ApiController]
 [Route("api")]
 public class StatisticsController(StatisticsService statisticsService) : ControllerBase
@@ -126,6 +127,26 @@ public class StatisticsController(StatisticsService statisticsService) : Control
         try
         {
             var data = await statisticsService.GetStaffAsync(registryType, unitId.Value);
+            return Ok(new { success = true, data });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
+    [HttpPost("statistics/finance/compare")]
+    public async Task<IActionResult> GetFinanceComparison([FromBody] FinanceComparisonRequestDto? request)
+    {
+        Console.WriteLine("Finance statistics search has started");
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: periods" });
+        }
+
+        try
+        {
+            var data = await statisticsService.GetFinanceComparisonAsync(request);
             return Ok(new { success = true, data });
         }
         catch (ArgumentException ex)

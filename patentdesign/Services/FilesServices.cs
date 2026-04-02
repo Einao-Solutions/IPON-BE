@@ -5967,6 +5967,10 @@ public class FileServices
         if (file == null)
             return (false, "File not found.");
 
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User Not found");
+
         if (file.WithdrawalDate != null)
             return (false, "Withdrawal has already been done on the file.");
 
@@ -6069,8 +6073,8 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.RequestWithdrawal,
                     Message = "Withdrawal Request Submitted",
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = user.Name,
+                    UserId = user.Id
                 }
             }
         };
@@ -6111,11 +6115,15 @@ public class FileServices
         };
     }
 
-    public async Task<(bool Success, string Message)> WithdrawalRequestDecisionAsync(string fileId, bool approve, string? comment)
+    public async Task<(bool Success, string Message)> WithdrawalRequestDecisionAsync(string fileId, bool approve, string? comment, string? userId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var staff = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "Unauthorized user");
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -6133,8 +6141,8 @@ public class FileServices
             Message = approve ? "Withdrawal request approved" : "Withdrawal request refused",
             beforeStatus = ApplicationStatuses.RequestWithdrawal,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = applicant?.Name,
-            UserId = file.CreatorAccount
+            User = staff.Name,
+            UserId = userId
         };
 
         file.WithdrawalReason = comment;
@@ -6149,6 +6157,26 @@ public class FileServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = userId,
+            AfterStatus = newStatus.afterStatus,
+            BeforeStatus = newStatus.beforeStatus,
+            ApplicationType = FormApplicationTypes.WithdrawalRequest,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = newStatus.Message,
+            Date = newStatus.Date,
+            OfficeUnit = file.Type switch
+            {
+                FileTypes.TradeMark => Roles.TrademarkAcceptance,
+                FileTypes.Patent => Roles.PatentExaminer,
+                FileTypes.Design => Roles.DesignExaminer,
+                _ => null
+            }
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Withdrawal request approved" : "Withdrawal request refused");
     }
@@ -6234,6 +6262,26 @@ public class FileServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = userId,
+            AfterStatus = newStatus.afterStatus,
+            BeforeStatus = newStatus.beforeStatus,
+            ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = newStatus.Message,
+            Date = newStatus.Date,
+            OfficeUnit = file.Type switch
+            {
+                FileTypes.TradeMark => Roles.TrademarkPublication,
+              // FileTypes.Patent => Roles.PatentExaminer,
+              // FileTypes.Design => Roles.DesignExaminer,
+                _ => null
+            }
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Publication status approved" : "Publication status refused");
     }
@@ -8537,9 +8585,7 @@ public class FileServices
         return result.ModifiedCount > 0;
     }
 
-    #region
-
-    //Patent Assignment Registration Section
+    #region Patent Assignment Registration Section
     public async Task<bool> NewPatentAssignmentApplication(PatentAssignmentDto dto)
     {
         var file = await _fillingCollection
@@ -8769,15 +8815,6 @@ public class FileServices
             file.applicants = new List<ApplicantInfo> { newAssignee };
         }
 
-        //if (approve && newAssignee != null)
-        //{
-        //    if (!string.IsNullOrWhiteSpace(newAssignee.Nationality))
-        //    {
-        //        newAssignee.country = newAssignee.Nationality;
-        //    }
-        //    file.applicants = new List<ApplicantInfo> { newAssignee };
-        //}
-
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
@@ -8800,9 +8837,7 @@ public class FileServices
 
     #endregion
 
-    #region 
-
-    //Patent License Post Registration Section
+    #region Patent License Post Registration Section
     public async Task<bool> NewPatentLicenseApplication(PatentLicenseDto dto)
     {
         var file = await _fillingCollection
@@ -9055,8 +9090,7 @@ public class FileServices
 
     #endregion
 
-    #region
-    //Patent Mortgage Post Registration Section
+    #region Patent Mortgage Post Registration Section
     public async Task<bool> NewPatentMortgageApplication(PatentMortgageDto dto)
     {
         var file = await _fillingCollection
@@ -9306,9 +9340,7 @@ public class FileServices
 
     #endregion
 
-    #region
-
-    //Patent Merger Post Registration Section
+    #region Patent Merger Post Registration Section
     public async Task<bool> NewPatentMergerApplication(PatentMergerDto dto)
     {
         var file = await _fillingCollection
@@ -9552,9 +9584,7 @@ public class FileServices
 
     #endregion
 
-    // Patent Ctc Post Registration Section
-
-    #region
+    #region Patent Ctc Post Registration Section
 
     public async Task<bool> NewPatentCtcApplication(PatentCtcDto dto)
     {
@@ -9737,9 +9767,7 @@ public class FileServices
 
     #endregion
 
-    #region
-
-    //Patent Amendment Post Registration Section
+    #region Patent Amendment Post Registration Section
     private PostRegistrationApp CreateAmendmentRecord(Filling file, PatentAmendmentDto dto, string appHistoryId)
     {
         var recordal = new PostRegistrationApp
