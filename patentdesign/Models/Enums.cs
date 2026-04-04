@@ -31,7 +31,9 @@
         Minister,
         HeadOfUnit,
         Tech,
-        SuperAdmin
+        SuperAdmin,
+        EinaoFinance,
+        Pebec
     }
     public enum NigerianStates
     {
