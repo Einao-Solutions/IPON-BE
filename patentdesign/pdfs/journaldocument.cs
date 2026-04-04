@@ -148,9 +148,9 @@ namespace Tfunctions.pdfs
                             .FontSize(26).Bold().FontColor(GreenDark).FontFamily("Georgia");
 
                         // Date range
-                        center.Item().PaddingTop(16).AlignCenter()
-                            .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
-                            .FontSize(14).FontColor(TextDark).FontFamily("Arial");
+                        //center.Item().PaddingTop(16).AlignCenter()
+                        //    .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
+                        //    .FontSize(14).FontColor(TextDark).FontFamily("Arial");
 
                         // Logo
                         center.Item().AlignCenter().PaddingTop(60)
@@ -407,9 +407,9 @@ namespace Tfunctions.pdfs
                                 meta.Item().AlignRight()
                                     .Text($"{TypeLabel} Publication Journal")
                                     .FontSize(10).Bold().FontColor(GreenDark).FontFamily("Arial");
-                                meta.Item().PaddingTop(3).AlignRight()
-                                    .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
-                                    .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
+                                //meta.Item().PaddingTop(3).AlignRight()
+                                //    .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
+                                //    .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
                                 meta.Item().PaddingTop(2).AlignRight()
                                     .Text($"Generated: {DateTime.Now:d MMM yyyy}")
                                     .FontSize(8).FontColor(GreenBorder).FontFamily("Arial");
