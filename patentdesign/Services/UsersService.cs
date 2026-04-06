@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Controllers;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 
@@ -20,8 +21,9 @@ public class UsersService
     private static IMongoCollection<AttachmentInfo> _attachmentCollection;
     private static IMongoCollection<PerformanceMarker> _performanceCollection;
     private static IMongoCollection<Filling> _fillingCollection;
+    private readonly ILogger<UsersService> _log;
 
-    public UsersService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
+    public UsersService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<UsersService> log)
     {
         
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
@@ -43,6 +45,7 @@ public class UsersService
             pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
         _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
         _performanceCollection = pdDb.GetCollection<PerformanceMarker>("performance");
+        _log = log;
     }
     
     public async Task<List<AppUser>> SearchUsersByNameId(string text)
@@ -112,5 +115,64 @@ public class UsersService
             .ToListAsync();
 
         return emails.ToDictionary(e => e.Name ?? "", e => e.Email ?? "");
+    }
+
+    public async Task<PaginatedUsersDto> GetAllUsers(GetUsersDto dto)
+    {
+        _log.LogInformation("Getting users with skip={Skip} and take={Take}", dto.Skip, dto.Take);
+        try
+        {
+            var filter = Builders<AppUser>.Filter;
+            var filters = dto.Roles is { Count: > 0 }
+                ? filter.AnyIn(f => f.UserRoles, dto.Roles)
+                : filter.Empty;
+
+            var users = await _userCollection.Find(filters)
+                .Skip(dto.Skip)
+                .Limit(dto.Take)
+                .ToListAsync();
+
+            var count = await _userCollection.CountDocumentsAsync(filters);
+
+            return new PaginatedUsersDto
+            {
+                Users = users.Select(u => new UserDto
+                {
+                    Id = u.Id,
+                    Name = $"{u.FirstName} {u.LastName}",
+                    Email = u.Email,
+                    PhoneNumber = u.PhoneNumber,
+                    UserRoles = u.UserRoles
+                }).ToList(),
+                TotalCount = count
+            };
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+    }
+
+    public async Task<bool> UpdateUserRoles(UserRoleDto request)
+    {
+        _log.LogInformation("Updating roles for user {UserId}", request.UserId);
+
+        var filter = Builders<AppUser>.Filter.Eq(u => u.Id, request.UserId);
+        var updates = new List<UpdateDefinition<AppUser>>();
+
+        if (request.AddRoles is { Count: > 0 })
+            updates.Add(Builders<AppUser>.Update.AddToSetEach(u => u.UserRoles, request.AddRoles));
+
+        if (request.RemoveRoles is { Count: > 0 })
+            updates.Add(Builders<AppUser>.Update.PullAll(u => u.UserRoles, request.RemoveRoles));
+
+        if (updates.Count == 0)
+            return false;
+
+        updates.Add(Builders<AppUser>.Update.Set(u => u.LastUpdatedAt, DateTime.Now));
+
+        var result = await _userCollection.UpdateOneAsync(filter, Builders<AppUser>.Update.Combine(updates));
+        return result.MatchedCount > 0;
     }
 }

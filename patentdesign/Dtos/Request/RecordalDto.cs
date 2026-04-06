@@ -1,6 +1,7 @@
 ﻿using patentdesign.Enums;
 using patentdesign.Models;
 using System.Text.Json.Serialization;
+using Bogus.DataSets;
 
 namespace patentdesign.Dtos.Request
 {
@@ -119,18 +120,26 @@ namespace patentdesign.Dtos.Request
         public string reason { get; set; }
         public string userId { get; set; }
     }                       
-    public class RenewalAppDto
+    public class RenewalDto
     {
         public string? Cost { get; set; }
-        public string? rrr { get; set; }
-        public string? FileId { get; set; }
+        public string? PaymentId { get; set; }
+        public string? FileNumber { get; set; }
         public bool? IsLateRenewal { get; set; }
+        public DateOnly NextRenewalDue { get; set; }
         public string? LateRenewalCost { get; set; }
         public string? ServiceFee { get; set; }
         public int? MissedYearsCount { get; set; }
         public int? LateYearsCount { get; set; }
         public FileTypes? FileTypes { get; set; }
         public string? ApplicantName { get; set; }
+    }
+
+    public class RenewalAppDto
+    {
+        public string? FileNumber { get; set; }
+        public string? UserId { get; set; }
+        public FileTypes? FileType { get; set; }
     }
     public class  AssignmentAppDto
     {
@@ -152,6 +161,4 @@ namespace patentdesign.Dtos.Request
         public string? AssigneeNationality { get; set; }
         public string? userId { get; set; }
     }
-
-    
 }
