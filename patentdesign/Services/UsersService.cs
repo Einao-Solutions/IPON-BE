@@ -159,20 +159,52 @@ public class UsersService
         _log.LogInformation("Updating roles for user {UserId}", request.UserId);
 
         var filter = Builders<AppUser>.Filter.Eq(u => u.Id, request.UserId);
-        var updates = new List<UpdateDefinition<AppUser>>();
-
-        if (request.AddRoles is { Count: > 0 })
-            updates.Add(Builders<AppUser>.Update.AddToSetEach(u => u.UserRoles, request.AddRoles));
+        var matched = false;
 
         if (request.RemoveRoles is { Count: > 0 })
-            updates.Add(Builders<AppUser>.Update.PullAll(u => u.UserRoles, request.RemoveRoles));
+        {
+            var removeUpdate = Builders<AppUser>.Update
+                .PullAll(u => u.UserRoles, request.RemoveRoles)
+                .Set(u => u.LastUpdatedAt, DateTime.Now);
 
-        if (updates.Count == 0)
+            var removeResult = await _userCollection.UpdateOneAsync(filter, removeUpdate);
+            matched |= removeResult.MatchedCount > 0;
+        }
+
+        if (request.AddRoles is { Count: > 0 })
+        {
+            var addUpdate = Builders<AppUser>.Update
+                .AddToSetEach(u => u.UserRoles, request.AddRoles)
+                .Set(u => u.LastUpdatedAt, DateTime.Now);
+
+            var addResult = await _userCollection.UpdateOneAsync(filter, addUpdate);
+            matched |= addResult.MatchedCount > 0;
+        }
+
+        if (!matched && request.AddRoles is not { Count: > 0 } && request.RemoveRoles is not { Count: > 0 })
             return false;
 
-        updates.Add(Builders<AppUser>.Update.Set(u => u.LastUpdatedAt, DateTime.Now));
+        return matched;
+    }
 
-        var result = await _userCollection.UpdateOneAsync(filter, Builders<AppUser>.Update.Combine(updates));
-        return result.MatchedCount > 0;
+    public async Task<AppUser> GetUserById(string id)
+    {
+        _log.LogInformation($"Getting User information for {id} ");
+        try
+        {
+            var user = await _userCollection.Find(u => u.Id == id).FirstOrDefaultAsync();
+            if (user is null)
+            {
+                _log.LogError("User not found");
+                throw new KeyNotFoundException("User not found");
+            }
+
+            return user;
+        }
+        catch (Exception e)
+        {
+            _log.LogError(e,"User not found");
+            throw;
+        }
     }
 }

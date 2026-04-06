@@ -29,11 +29,11 @@
         Finance,
         PermSec,
         Minister,
-        HeadOfUnit,
         Tech,
         SuperAdmin,
         EinaoFinance,
-        Pebec
+        Pebec,
+        HeadOfUnit,
     }
     public enum NigerianStates
     {

@@ -55,7 +55,7 @@ public class UsersController(UsersService usersService) :ControllerBase
         var result=await usersService.LoadUsers(user);
         return Ok(result);
     }
-    [HttpPut("UpdateRoles")]
+    [HttpPut("UpdateUserRoles")]
     public async Task<IActionResult> UpdateUserRoles([FromBody] UserRoleDto request)
     {
         var updated = await usersService.UpdateUserRoles(request);
@@ -69,5 +69,12 @@ public class UsersController(UsersService usersService) :ControllerBase
     {
         var users = await usersService.GetAllUsers(request);
         return Ok(users);
+    }
+
+    [HttpGet("GetUserById")]
+    public async Task<IActionResult> GetUserById([FromQuery] string id)
+    {
+        var user = await usersService.GetUserById(id);
+        return Ok(user);
     }
 }
