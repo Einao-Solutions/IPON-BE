@@ -126,7 +126,16 @@ public class UsersService
             var filters = dto.Roles is { Count: > 0 }
                 ? filter.AnyIn(f => f.UserRoles, dto.Roles)
                 : filter.Empty;
-
+            if (!string.IsNullOrWhiteSpace(dto.Name))
+            {
+                var nameRegex = new BsonRegularExpression(Regex.Escape(dto.Name), "i");
+                var nameFilter = filter.Or(
+                    filter.Regex(u => u.FirstName, nameRegex),
+                    filter.Regex(u => u.LastName, nameRegex),
+                    filter.Regex(u => u.Email, nameRegex)
+                );
+                filters &= nameFilter;
+            }
             var users = await _userCollection.Find(filters)
                 .Skip(dto.Skip)
                 .Limit(dto.Take)
