@@ -139,6 +139,11 @@ public class StatisticsController(StatisticsService statisticsService) : Control
     public async Task<IActionResult> GetFinanceComparison([FromBody] FinanceComparisonRequestDto? request)
     {
         Console.WriteLine("Finance statistics search has started");
+        if (string.IsNullOrWhiteSpace(request?.RegistryType))
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: registryType" });
+        }
+
         if (request?.Periods == null || request.Periods.Count == 0)
         {
             return BadRequest(new { success = false, error = "Missing required parameter: periods" });
@@ -147,6 +152,30 @@ public class StatisticsController(StatisticsService statisticsService) : Control
         try
         {
             var data = await statisticsService.GetFinanceComparisonAsync(request);
+            return Ok(new { success = true, data });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
+    [HttpPost("statistics/operational/compare")]
+    public async Task<IActionResult> GetOperationalComparison([FromBody] OperationalComparisonRequestDto? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.RegistryType))
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: registryType" });
+        }
+
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: periods" });
+        }
+
+        try
+        {
+            var data = await statisticsService.GetOperationalComparisonAsync(request);
             return Ok(new { success = true, data });
         }
         catch (ArgumentException ex)

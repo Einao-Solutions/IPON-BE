@@ -15,6 +15,7 @@ public class StatisticsService
     private readonly IMongoCollection<StaffPerformance> _workflowCollection;
     private readonly IMongoCollection<AppUser> _userCollection;
     private readonly IMongoCollection<PaymentRecord> _paymentCollection;
+    private readonly IMongoCollection<Filling> _fillingCollection;
   //  private readonly ILoggerService _log;
 
     public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
@@ -29,6 +30,7 @@ public class StatisticsService
         _workflowCollection = db.GetCollection<StaffPerformance>("staffPerformance");
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
+        _fillingCollection = db.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
      //   _log = log;
     }
 
@@ -261,6 +263,17 @@ public class StatisticsService
             throw new ArgumentException("Missing required parameter: periods");
         }
 
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var fileIds = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(x => x.Type, fileType))
+            .Project(x => x.FileId)
+            .ToListAsync();
+
         var results = new List<FinancePeriodResultDto>();
 
         foreach (var period in request.Periods)
@@ -269,10 +282,13 @@ public class StatisticsService
 
             var filter = Builders<PaymentRecord>.Filter.And(
                 Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
-                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate)
+                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate),
+                Builders<PaymentRecord>.Filter.In(x => x.FileId, fileIds)
             );
 
-            var payments = await _paymentCollection.Find(filter).ToListAsync();
+            var payments = fileIds.Count == 0
+                ? []
+                : await _paymentCollection.Find(filter).ToListAsync();
 
             var paymentTypes = payments
                 .GroupBy(x => x.PaymentType ?? string.Empty)
@@ -298,6 +314,73 @@ public class StatisticsService
 
         return new FinanceComparisonDataDto
         {
+            Periods = results
+        };
+    }
+
+    public async Task<OperationalComparisonDataDto> GetOperationalComparisonAsync(OperationalComparisonRequestDto request)
+    {
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var results = new List<OperationalPeriodResultDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Type, fileType),
+                Builders<Filling>.Filter.Gte(x => x.DateCreated, range.StartDate),
+                Builders<Filling>.Filter.Lte(x => x.DateCreated, range.EndDate)
+            );
+
+            var files = await _fillingCollection.Find(filter).ToListAsync();
+
+            var periodResult = new OperationalPeriodResultDto
+            {
+                Label = range.Label,
+                StartDate = range.StartDate,
+                EndDate = range.EndDate,
+                TotalFiles = files.Count
+            };
+
+            switch (fileType)
+            {
+                case FileTypes.TradeMark:
+                    periodResult.TrademarkClasses = BuildBreakdown(files.Select(file => file.TrademarkClass?.ToString()));
+                    periodResult.TradeMarkTypes = BuildBreakdown(files.Select(file => file.TrademarkType?.ToString()));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    break;
+                case FileTypes.Patent:
+                    periodResult.FileOrigins = BuildBreakdown(files.Select(file => file.FileOrigin));
+                    periodResult.FilingCountries = BuildBreakdown(files.Select(GetFilingCountryOrNationality));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    periodResult.PatentTypes = BuildBreakdown(files.Select(file => file.PatentType?.ToString()));
+                    periodResult.PatentApplicationTypes = BuildBreakdown(files.Select(file => file.PatentApplicationType?.ToString()));
+                    break;
+                case FileTypes.Design:
+                    periodResult.FileOrigins = BuildBreakdown(files.Select(file => file.FileOrigin));
+                    periodResult.FilingCountries = BuildBreakdown(files.Select(GetFilingCountryOrNationality));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    periodResult.DesignTypes = BuildBreakdown(files.Select(file => file.DesignType?.ToString()));
+                    break;
+            }
+
+            results.Add(periodResult);
+        }
+
+        return new OperationalComparisonDataDto
+        {
+            RegistryType = request.RegistryType,
             Periods = results
         };
     }
@@ -586,6 +669,35 @@ public class StatisticsService
     private static double GetGovernmentFee(PaymentRecord payment)
     {
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    private static List<OperationalBreakdownItemDto> BuildBreakdown(IEnumerable<string?> values)
+    {
+        return values
+            .Select(value => string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim())
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new OperationalBreakdownItemDto
+            {
+                Key = group.Key,
+                Count = group.Count()
+            })
+            .OrderByDescending(item => item.Count)
+            .ToList();
+    }
+
+    private static string? GetFirstApplicantNationality(Filling file)
+    {
+        return file.applicants?.FirstOrDefault()?.country;
+    }
+
+    private static string? GetFilingCountryOrNationality(Filling file)
+    {
+        if (!string.IsNullOrWhiteSpace(file.FilingCountry))
+        {
+            return file.FilingCountry;
+        }
+
+        return GetFirstApplicantNationality(file);
     }
 
     #endregion

@@ -19,6 +19,13 @@ namespace patentdesign.Dtos.Request
 
     public class FinanceComparisonRequestDto
     {
+        public string? RegistryType { get; set; }
+        public List<FinancePeriodRequestDto> Periods { get; set; } = [];
+    }
+
+    public class OperationalComparisonRequestDto
+    {
+        public string? RegistryType { get; set; }
         public List<FinancePeriodRequestDto> Periods { get; set; } = [];
     }
 
@@ -35,5 +42,6 @@ namespace patentdesign.Dtos.Request
         public int? EndOffset { get; set; }
         public string? OffsetUnit { get; set; }
         public string? Label { get; set; }
+
     }
 }
