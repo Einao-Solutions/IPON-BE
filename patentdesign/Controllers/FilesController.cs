@@ -210,10 +210,10 @@ public class FilesController(FilesServices fileService) : ControllerBase
     }
 
     [HttpPost("RenewalCost")]
-    public async Task<IActionResult> GetRenewalCostRRR([FromBody] GetRenewalCost data)
+    public async Task<IActionResult> GetRenewalCostRRR([FromBody] RenewalAppDto dto)
     {
-        var res = await fileService.GetRenewalCost(data);
-        return Ok(new { rrr = res.Item1, cost = res.Item2 });
+        var res = await fileService.GetRenewalCost(dto);
+        return Ok(res);
     }
 
     [HttpPost("freeupdates")]
@@ -301,12 +301,12 @@ public class FilesController(FilesServices fileService) : ControllerBase
         return stats;
     }
 
-    [HttpPost("batchRenewalInfo")]
-    public async Task<ActionResult<BatchRenewRes>> BatchRenewalInfo([FromBody] BatchRenewReq data)
-    {
-        var stats = await fileService.GetBatchRenewalInfo(data);
-        return stats;
-    }
+    //[HttpPost("batchRenewalInfo")]
+    //public async Task<ActionResult<BatchRenewRes>> BatchRenewalInfo([FromBody] BatchRenewReq data)
+    //{
+    //    var stats = await fileService.GetBatchRenewalInfo(data);
+    //    return stats;
+    //}
 
     [HttpGet("search")]
     public async Task<ActionResult<SearchRes?>> SearchUserFile([FromQuery] string userId, [FromQuery] string fileNumber)
@@ -352,7 +352,6 @@ public class FilesController(FilesServices fileService) : ControllerBase
         var result = await fileService.GetUserTicketFiles(userId, userTypes);
         return Ok(result);
     }
-
 
     [HttpPost("ReAssign")]
     public async Task<ActionResult<string>> ReAssign([FromBody] ReAssignType data)
@@ -697,16 +696,16 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-    [HttpGet("GetRenewalCost")]
-    public async Task<IActionResult> GetRenewalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] string userId)
-    {
-        var res = await fileService.RenewalCost(fileId, fileType, userId);
-        if (res == null)
-        {
-            return NoContent();
-        }
-        return Ok(res);
-    }
+    //[HttpGet("GetRenewalCost")]
+    //public async Task<IActionResult> GetRenewalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType, [FromQuery] string userId)
+    //{
+    //    var res = await fileService.TrademarkRenewalCost(fileId, fileType, userId);
+    //    if (res == null)
+    //    {
+    //        return NoContent();
+    //    }
+    //    return Ok(res);
+    //}
     [HttpPost("RenewalApplication")]
     public async Task<IActionResult> RenewalApplication([FromQuery] string fileId, [FromQuery] string rrr)
     {
@@ -1888,7 +1887,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpPost("withdrawalrequestdecision")]
     public async Task<IActionResult> WithdrawalRequestDecision([FromBody] PublicationStatusDecisionDto dto)
     {
-        var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment);
+        var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment, dto.UserId);
         if (!success)
             return NotFound(new { message });
 

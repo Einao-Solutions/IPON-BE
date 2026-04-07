@@ -244,11 +244,28 @@ public class FilesServices
         _log.LogInformation("Processing new application for FileId {FileId}", file.FileId);
         file.FileStatus = ApplicationStatuses.AwaitingSearch;
         file.FileId = await GenerateNewFileId(file);
-
+        file.FilingDate = paymentDate;
         _log.LogInformation("Generated new file ID {FileId} for {FileType}", file.FileId, file.Type);
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
             paymentDate, userName, userId, "Payment Successful, awaiting search");
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
+        if (paymentInfo.status == "00")
+        {
+            switch (file.Type)
+            {
+                case FileTypes.Design:
+                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(5));
+                    file.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(15));
+                    break;
+                case FileTypes.Patent:
+                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(1));
+                    file.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(20));
+                    break;
+                case FileTypes.TradeMark:
+                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(7));
+                    break;
+            }
+        }
 
         SavePayment(paymentInfo, PaymentTypes.NewCreation, file.FileId, application.id);
 
@@ -392,6 +409,7 @@ public class FilesServices
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
             paymentDate, userName, userId, "Payment Successful, auto approved.");
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
+
         SavePayment(paymentInfo, PaymentTypes.ClericalUpdate, file.FileId, application.id);
     }
 
@@ -2257,39 +2275,105 @@ public class FilesServices
 
     }
 
-    public async Task<(string, string)> GetRenewalCost(GetRenewalCost data)
+    public async Task<RenewalDto> GetRenewalCost(RenewalAppDto dto)
     {
-        var result = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, data.type, "", data.designType,
-            data.patentType, null);
-        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(result.Item1, result.Item3, result.Item2, $"{data.type} renewal", data.applicantName,
-            data.applicantEmail, data.number);
-        if (rrr != null)
+        _log.LogInformation("Fetching renewal cost...");
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId))
+            .FirstOrDefaultAsync();
+        if (user == null)
         {
-            _fillingCollection.FindOneAndUpdate(x => x.Id == data.fileId,
-                Builders<Filling>.Update.Push(f => f.ApplicationHistory, new ApplicationInfo()
-                {
-                    PaymentId = rrr,
-                    ApplicationType = FormApplicationTypes.LicenseRenewal,
-                    ApplicationDate = DateTime.Now,
-                    CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                    LicenseType = "Renewal",
-                    StatusHistory =
-                    [
-                        new ApplicationHistory()
-                        {
-                            beforeStatus = ApplicationStatuses.None,
-                            afterStatus = ApplicationStatuses.AwaitingPayment,
-                            Message = "Remita ID generated, awaiting Payment",
-                            Date = DateTime.Now,
-                            User = data.userName,
-                            UserId = data.userId
-                        }
-                    ]
-                }));
+            _log.LogError("User not found");
+            throw new KeyNotFoundException("User not found.");
         }
-        return (rrr, result.Item1);
+
+        var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
+        var renew = new RenewalDto();
+        switch (dto.FileType)
+        {
+            case FileTypes.Patent:
+                renew = await PatentRenewalCost(dto.FileNumber, FileTypes.Patent);
+                return renew;
+            case FileTypes.Design:
+                renew = await DesignRenewalCost(dto.FileNumber, FileTypes.Design);
+                return renew;
+            case FileTypes.TradeMark:
+                renew = await TrademarkRenewalCost(dto.FileNumber, FileTypes.TradeMark);
+                return renew;
+            default:
+                return renew;
+        }
+        var app =  new ApplicationInfo
+        {
+            ApplicationDate = DateTime.Now,
+            CurrentStatus = ApplicationStatuses.AwaitingPayment,
+            ExpiryDate = renew.NextRenewalDue,
+            LicenseType = "Renewal",
+            ApplicationType = FormApplicationTypes.LicenseRenewal,
+            PaymentId = renew.PaymentId,
+            StatusHistory =
+            [
+                new ApplicationHistory
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingPayment,
+                    Message = "Renewal initiated, awaiting payment",
+                    UserId = dto.UserId,
+                    User = userName
+                }
+            ],
+        };
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+            Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
+        );
+
+        return renew;
     }
-    public async Task<RenewalAppDto> PatentRenewalCost(string fileId, FileTypes fileType)
+
+    public async Task<RenewalDto> DesignRenewalCost(string fileId, FileTypes fileType)
+    {
+        _log.LogInformation("Fetching design renewal cost...");
+
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+            if (file is null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException();
+            }
+
+            var applicant = file.applicants.FirstOrDefault();
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+                "Payment for Design Renewal", applicant.Name, applicant.Email, applicant.Phone);
+            if (rrr is null)
+            {
+                _log.LogError("Failed to Generate RRR");
+                throw new Exception();
+            }
+
+            var renew = new RenewalDto
+            {
+                ApplicantName = applicant.Name,
+                Cost = cost.Item1,
+                FileNumber = fileId,
+                FileTypes = FileTypes.Design,
+                PaymentId = rrr ?? "",
+                ServiceFee = cost.Item3
+            };
+            return renew;
+
+        }
+        catch (Exception)
+        {
+            _log.LogError("Failed to fetch design renewal cost");
+            throw;
+        }
+    }
+    public async Task<RenewalDto> PatentRenewalCost(string fileId, FileTypes fileType)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
@@ -2411,11 +2495,11 @@ public class FilesServices
             file.applicants.FirstOrDefault()?.Email ?? "",
             file.applicants.FirstOrDefault()?.Phone ?? "");
 
-        return new RenewalAppDto
+        return new RenewalDto
         {
             Cost = total.ToString(),
-            rrr = rrr,
-            FileId = fileId,
+            PaymentId = rrr,
+            FileNumber = fileId,
             IsLateRenewal = lateYearsCount > 0,
             LateRenewalCost = totalLate > 0 ? totalLate.ToString() : null,
             ServiceFee = totalService.ToString(),
@@ -2424,7 +2508,44 @@ public class FilesServices
             FileTypes = file.Type,
         };
     }
+    public async Task<RenewalDto> TrademarkRenewalCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+            if (file is null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException();
+            }
 
+            var applicant = file.applicants.FirstOrDefault();
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+                "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
+            if (rrr is null)
+            {
+                _log.LogError("Failed to Generate RRR");
+                throw new NullReferenceException();
+            }
+
+            var renew = new RenewalDto
+            {
+                ApplicantName = applicant.Name,
+                Cost = cost.Item1,
+                FileNumber = fileId,
+                FileTypes = FileTypes.Design,
+                PaymentId = rrr ?? "",
+                ServiceFee = cost.Item3
+            };
+            return renew;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, $"Error in RenewalApplication: {ex.Message}");
+            throw;
+        }
+    }
     private async Task<string> SaveAcknowledgement(Filling tradeData)
     {
         var trustedFileName = Path.GetRandomFileName();
@@ -2725,67 +2846,67 @@ public class FilesServices
         return null;
     }
 
-    public async Task<BatchRenewRes> GetBatchRenewalInfo(BatchRenewReq data)
-    {
-        List<BatchRenewData> resData = [];
-        var filters = new List<FilterDefinition<Filling>>
-         {
-             Builders<Filling>.Filter.Eq(x => x.CreatorAccount, data.userId),
-             Builders<Filling>.Filter.Eq(x => x.FileStatus, ApplicationStatuses.Inactive)
-         };
-        var projection = Builders<Filling>.Projection.Expression(x => new BatchReqSummary()
-        {
-            FileNumber = x.FileId,
-            Id = x.Id,
-            Title = x.Type == FileTypes.Patent ? x.TitleOfInvention : x.TitleOfDesign,
-            Type = x.Type,
-            DesignType = x.DesignType,
-            PatentType = x.PatentType,
-            Number = x.Correspondence.phone,
-            Email = x.Correspondence.email,
-            ApplicantNames = x.applicants.Select(y => y.Name).ToList(),
-        });
-        long count = 0;
-        count = _fillingCollection.CountDocuments(Builders<Filling>.Filter.And(filters));
-        var fileResults = await _fillingCollection.Find(Builders<Filling>.Filter.And(
-            filters
-        )).Project(projection).Limit(10).Skip(data.skip ?? 0).ToListAsync();
+    //public async Task<BatchRenewRes> GetBatchRenewalInfo(BatchRenewReq data)
+    //{
+    //    List<BatchRenewData> resData = [];
+    //    var filters = new List<FilterDefinition<Filling>>
+    //     {
+    //         Builders<Filling>.Filter.Eq(x => x.CreatorAccount, data.userId),
+    //         Builders<Filling>.Filter.Eq(x => x.FileStatus, ApplicationStatuses.Inactive)
+    //     };
+    //    var projection = Builders<Filling>.Projection.Expression(x => new BatchReqSummary()
+    //    {
+    //        FileNumber = x.FileId,
+    //        Id = x.Id,
+    //        Title = x.Type == FileTypes.Patent ? x.TitleOfInvention : x.TitleOfDesign,
+    //        Type = x.Type,
+    //        DesignType = x.DesignType,
+    //        PatentType = x.PatentType,
+    //        Number = x.Correspondence.phone,
+    //        Email = x.Correspondence.email,
+    //        ApplicantNames = x.applicants.Select(y => y.Name).ToList(),
+    //    });
+    //    long count = 0;
+    //    count = _fillingCollection.CountDocuments(Builders<Filling>.Filter.And(filters));
+    //    var fileResults = await _fillingCollection.Find(Builders<Filling>.Filter.And(
+    //        filters
+    //    )).Project(projection).Limit(10).Skip(data.skip ?? 0).ToListAsync();
 
-        foreach (var fileInfo in fileResults)
-        {
-            // get cost and RRR
-            var rrr_cost = await GetRenewalCost(new GetRenewalCost()
-            {
-                number = fileInfo.Number,
-                designType = fileInfo.DesignType,
-                type = fileInfo.Type,
-                applicantName = fileInfo.ApplicantNames.Count > 1
-                    ? fileInfo.ApplicantNames[0] + " et al"
-                    : fileInfo.ApplicantNames[0],
-                applicantEmail = fileInfo.Email,
-                patentType = fileInfo.PatentType
-            });
-            resData.Add(new BatchRenewData()
-            {
-                cost = rrr_cost.Item2,
-                paymentId = rrr_cost.Item1,
-                fileNumber = fileInfo.FileNumber,
-                fileTitle = fileInfo.Title,
-                id = fileInfo.Id,
-                fileType = fileInfo.Type,
-                title = fileInfo.Type == FileTypes.Design ? "Design Renewal" : "Patent Renewal",
-                applicant = fileInfo.ApplicantNames.Count > 1
-                    ? fileInfo.ApplicantNames[0] + " et al"
-                    : fileInfo.ApplicantNames[0],
-            });
-        }
+    //    foreach (var fileInfo in fileResults)
+    //    {
+    //        // get cost and RRR
+    //        var rrr_cost = await GetRenewalCost(new GetRenewalCost()
+    //        {
+    //            number = fileInfo.Number,
+    //            designType = fileInfo.DesignType,
+    //            type = fileInfo.Type,
+    //            applicantName = fileInfo.ApplicantNames.Count > 1
+    //                ? fileInfo.ApplicantNames[0] + " et al"
+    //                : fileInfo.ApplicantNames[0],
+    //            applicantEmail = fileInfo.Email,
+    //            patentType = fileInfo.PatentType
+    //        });
+    //        resData.Add(new BatchRenewData()
+    //        {
+    //            cost = rrr_cost.Item2,
+    //            paymentId = rrr_cost.Item1,
+    //            fileNumber = fileInfo.FileNumber,
+    //            fileTitle = fileInfo.Title,
+    //            id = fileInfo.Id,
+    //            fileType = fileInfo.Type,
+    //            title = fileInfo.Type == FileTypes.Design ? "Design Renewal" : "Patent Renewal",
+    //            applicant = fileInfo.ApplicantNames.Count > 1
+    //                ? fileInfo.ApplicantNames[0] + " et al"
+    //                : fileInfo.ApplicantNames[0],
+    //        });
+    //    }
 
-        return new BatchRenewRes()
-        {
-            total = count,
-            data = resData
-        };
-    }
+    //    return new BatchRenewRes()
+    //    {
+    //        total = count,
+    //        data = resData
+    //    };
+    //}
 
     public async Task<object?> GetUserTicketFiles(string userId, string userTypes)
     {
@@ -5753,101 +5874,7 @@ public class FilesServices
             return false;
         }
     }
-    public async Task<RenewalAppDto> RenewalCost(string fileId, FileTypes fileType, string userId)
-    {
-        try
-        {
-            var fileInfo = await _fillingCollection
-                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
-                .FirstOrDefaultAsync();
 
-            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
-            {
-                throw new KeyNotFoundException("File or applicants not found.");
-            }
-            var user = await _userCollection
-                .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
-                .FirstOrDefaultAsync();
-            if (user == null)
-            {
-                throw new KeyNotFoundException("User not found.");
-            }
-            var userName = string.Join(" ", new[] { user.FirstName, user.LastName }.Where(x => !string.IsNullOrWhiteSpace(x)));
-            var data = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, "", null, null, null);
-            Console.WriteLine("Renewal Cost: " + data.Item1);
-            Console.WriteLine("Service Fee: " + data.Item3);
-            if (fileInfo.FileStatus == ApplicationStatuses.Inactive)
-            {
-                data = _remitaPaymentUtils.GetCost(PaymentTypes.LateRenewal, fileType, "", null, null, null);
-                Console.WriteLine("Renewal Cost: " + data.Item1);
-                Console.WriteLine("Service Fee: " + data.Item3);
-            }
-            // Remove special characters from applicantName
-            var sanitizedApplicantName = Regex.Replace(userName ?? "", @"[^a-zA-Z0-9\s]", "");
-
-            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-                data.Item1, data.Item3, data.Item2, "Recordal Application",
-                sanitizedApplicantName, user.Email, user.PhoneNumber);
-            //Application History
-            var renewalHistory = new ApplicationInfo
-            {
-                id = Guid.NewGuid().ToString(),
-                ApplicationType = FormApplicationTypes.LicenseRenewal,
-                CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
-                PaymentId = paymentId,
-                FieldToChange = "Renewal Application",
-                NewValue = "",
-                StatusHistory = new List<ApplicationHistory>
-                {
-                    new ApplicationHistory
-                    {
-                        Date = DateTime.Now,
-                        beforeStatus = ApplicationStatuses.None,
-                        afterStatus = ApplicationStatuses.AwaitingPayment,
-                        Message = "Renewal Application",
-                        User = userName,
-                        UserId = userId
-                    }
-                }
-            };
-            //Post Registration Application
-            var renewal = new PostRegistrationApp
-            {
-                Id = renewalHistory.id,
-                dateOfRecordal = DateTime.Now.ToString(),
-                FilingDate = DateTime.Now.ToString(),
-                rrr = paymentId,
-                FileNumber = fileId,
-                RecordalType = "Renewal"
-            };
-
-            var update = Builders<Filling>.Update
-               .Push(f => f.PostRegApplications, renewal)
-               .Push(f => f.ApplicationHistory, renewalHistory);
-
-            await _fillingCollection.UpdateOneAsync(
-                Builders<Filling>.Filter.Eq(f => f.Id, fileInfo.Id),
-                update
-            );
-            var renewalCost = new RenewalAppDto
-            {
-                Cost = data.Item1,
-                rrr = paymentId,
-                FileId = fileId,
-                ServiceFee = data.Item3,
-                IsLateRenewal = fileInfo.FileStatus == ApplicationStatuses.Inactive,
-                ApplicantName = userName,
-            };
-
-            return renewalCost;
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, $"Error in RenewalApplication: {ex.Message}");
-            throw;
-        }
-    }
     public async Task<bool> RenewalApplication(string fileId, string rrr)
     {
         try
@@ -6068,6 +6095,10 @@ public class FilesServices
         if (file == null)
             return (false, "File not found.");
 
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User Not found");
+
         if (file.WithdrawalDate != null)
             return (false, "Withdrawal has already been done on the file.");
 
@@ -6170,8 +6201,8 @@ public class FilesServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.RequestWithdrawal,
                     Message = "Withdrawal Request Submitted",
-                    User = applicant?.Name,
-                    UserId = file.CreatorAccount
+                    User = user.Name,
+                    UserId = user.Id
                 }
             }
         };
@@ -6212,11 +6243,15 @@ public class FilesServices
         };
     }
 
-    public async Task<(bool Success, string Message)> WithdrawalRequestDecisionAsync(string fileId, bool approve, string? comment)
+    public async Task<(bool Success, string Message)> WithdrawalRequestDecisionAsync(string fileId, bool approve, string? comment, string? userId)
     {
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
             return (false, "File not found");
+
+        var staff = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "Unauthorized user");
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -6234,8 +6269,8 @@ public class FilesServices
             Message = approve ? "Withdrawal request approved" : "Withdrawal request refused",
             beforeStatus = ApplicationStatuses.RequestWithdrawal,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = applicant?.Name,
-            UserId = file.CreatorAccount
+            User = staff.Name,
+            UserId = userId
         };
 
         file.WithdrawalReason = comment;
@@ -6250,6 +6285,26 @@ public class FilesServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = userId,
+            AfterStatus = newStatus.afterStatus,
+            BeforeStatus = newStatus.beforeStatus,
+            ApplicationType = FormApplicationTypes.WithdrawalRequest,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = newStatus.Message,
+            Date = newStatus.Date,
+            OfficeUnit = file.Type switch
+            {
+                FileTypes.TradeMark => Roles.TrademarkAcceptance,
+                FileTypes.Patent => Roles.PatentExaminer,
+                FileTypes.Design => Roles.DesignExaminer,
+                _ => null
+            }
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Withdrawal request approved" : "Withdrawal request refused");
     }
@@ -6335,6 +6390,26 @@ public class FilesServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = userId,
+            AfterStatus = newStatus.afterStatus,
+            BeforeStatus = newStatus.beforeStatus,
+            ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = newStatus.Message,
+            Date = newStatus.Date,
+            OfficeUnit = file.Type switch
+            {
+                FileTypes.TradeMark => Roles.TrademarkPublication,
+              // FileTypes.Patent => Roles.PatentExaminer,
+              // FileTypes.Design => Roles.DesignExaminer,
+                _ => null
+            }
+        };
+        SavePerformance(performance);
 
         return (true, approve ? "Publication status approved" : "Publication status refused");
     }
@@ -7261,7 +7336,7 @@ public class FilesServices
     {
         try
         {
-            Console.WriteLine($"Applying clerical update {clericalUpdateId} to file {fileId}");
+            _log.LogInformation($"Applying clerical update {clericalUpdateId} to file {fileId}");
 
             // Fetch file
             var file = await _fillingCollection
@@ -8638,9 +8713,7 @@ public class FilesServices
         return result.ModifiedCount > 0;
     }
 
-    #region
-
-    //Patent Assignment Registration Section
+    #region Patent Assignment Registration Section
     public async Task<bool> NewPatentAssignmentApplication(PatentAssignmentDto dto)
     {
         var file = await _fillingCollection
@@ -8870,15 +8943,6 @@ public class FilesServices
             file.applicants = new List<ApplicantInfo> { newAssignee };
         }
 
-        //if (approve && newAssignee != null)
-        //{
-        //    if (!string.IsNullOrWhiteSpace(newAssignee.Nationality))
-        //    {
-        //        newAssignee.country = newAssignee.Nationality;
-        //    }
-        //    file.applicants = new List<ApplicantInfo> { newAssignee };
-        //}
-
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
@@ -8901,9 +8965,7 @@ public class FilesServices
 
     #endregion
 
-    #region 
-
-    //Patent License Post Registration Section
+    #region Patent License Post Registration Section
     public async Task<bool> NewPatentLicenseApplication(PatentLicenseDto dto)
     {
         var file = await _fillingCollection
@@ -9156,8 +9218,7 @@ public class FilesServices
 
     #endregion
 
-    #region
-    //Patent Mortgage Post Registration Section
+    #region Patent Mortgage Post Registration Section
     public async Task<bool> NewPatentMortgageApplication(PatentMortgageDto dto)
     {
         var file = await _fillingCollection
@@ -9407,9 +9468,7 @@ public class FilesServices
 
     #endregion
 
-    #region
-
-    //Patent Merger Post Registration Section
+    #region Patent Merger Post Registration Section
     public async Task<bool> NewPatentMergerApplication(PatentMergerDto dto)
     {
         var file = await _fillingCollection
@@ -9653,9 +9712,7 @@ public class FilesServices
 
     #endregion
 
-    // Patent Ctc Post Registration Section
-
-    #region
+    #region Patent Ctc Post Registration Section
 
     public async Task<bool> NewPatentCtcApplication(PatentCtcDto dto)
     {
@@ -9838,9 +9895,7 @@ public class FilesServices
 
     #endregion
 
-    #region
-
-    //Patent Amendment Post Registration Section
+    #region Patent Amendment Post Registration Section
     private PostRegistrationApp CreateAmendmentRecord(Filling file, PatentAmendmentDto dto, string appHistoryId)
     {
         var recordal = new PostRegistrationApp
@@ -12332,6 +12387,7 @@ public class FilesServices
         return (true, approve ? "Design CTC approved" : "Design CTC refused");
     }
 
+<<<<<<< HEAD
     // TRADEMARK CTC METHODS
     public async Task<bool> NewTrademarkCtcApplication(TrademarkCtcDto dto, string userId)
     {
@@ -12520,4 +12576,22 @@ public class FilesServices
 
         return (true, approve ? "Trademark CTC approved" : "Trademark CTC refused");
     }
+=======
+    //public async Task<int> DeactivateFiles()
+    //{
+    //    _log.LogInformation("Checking files due for renewal");
+    //    try
+    //    {
+    //        var cutoffDate = DateTime.Now.AddDays(-60);
+
+    //        var filter = Builders<Filling>.Filter.Lte(f => f., cutoffDate)
+    //                     & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
+    //    }
+    //    catch (Exception e)
+    //    {
+    //        Console.WriteLine(e);
+    //        throw;
+    //    }
+    //}
+>>>>>>> 60ccc14b317ea717dd035f1ff56441a61bfaf546
 }

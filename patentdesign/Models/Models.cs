@@ -34,6 +34,7 @@ public class AppUser
     public string? Name { get; set; }
     public string? PasswordResetToken { get; set; }
     public DateTime? PasswordResetTokenExpiry { get; set; }
+    public List<ApplicationInfo>? OtherApplications { get; set; } = new();
 }
 
 public record PublicationInfo
@@ -63,6 +64,7 @@ public record PublicationInfo
     public int? Class { get; set; }
     public List<ApplicantInfo>? Inventors { get; set; }
     public bool? IsManualPublication { get; set; } = false;
+    public string? BatchVolume { get; set; }
 }
 public record DesignForm
 {
@@ -245,6 +247,8 @@ public record Filling
     public DateTime? WithdrawalRequestDate { get; set; }
     public string? WithdrawalReason { get; set; }
     public List<Opposition>? Oppositions { get; set; } = [];
+    public DateOnly? ExpiryDate { get; set; }
+    public bool IsExpired { get; set; } = false;
 }
 
 public record ClericalUpdate

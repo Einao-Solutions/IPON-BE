@@ -57,9 +57,14 @@ namespace patentdesign.Services
                 _log.LogWarning("Publication for file {FileNumber} already exists and is not opposed. Skipping duplicate.", pub.FileNumber);
                 return existing.Id;
             }
+           
 
             try
             {
+                var pubDate = pub.PublicationDate ?? DateTime.Now;
+                var quarter = (pubDate.Month + 2) / 3;
+                var batchNumber = $"{pubDate.Year}Q{quarter}";
+
                 var publicationInfo = new PublicationInfo
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -81,7 +86,8 @@ namespace patentdesign.Services
                     PriorityInfo = file.PriorityInfo,
                     FirstPriorityInfo = file.FirstPriorityInfo,
                     Attachments = file.Attachments,
-                    IsManualPublication = pub.IsManualPublication ?? false
+                    IsManualPublication = pub.IsManualPublication ?? false,
+                    BatchVolume = batchNumber
                 };
 
                 await _pubCollection.InsertOneAsync(publicationInfo);
@@ -136,13 +142,12 @@ namespace patentdesign.Services
 
             return publications.Count;
         }
-        public async Task<byte[]> GetBatchPublications(DateTime startDate, DateTime endDate, FileTypes type)
+        public async Task<byte[]> GetTrademarkJournal(DateTime startDate, DateTime endDate, FileTypes type)
         {
             _log.LogInformation("Generating batch publication PDF for type {FileType} from {StartDate} to {EndDate}", type, startDate, endDate);
             var filter = Builders<PublicationInfo>.Filter.And(
                 Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
-                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate),
-                Builders<PublicationInfo>.Filter.Eq(x => x.IsBatchPublished, false));
+                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate));
 
             var publicationsData = await _pubCollection.Find(filter)
                 .Project(x => new PublicationInfo()
@@ -203,34 +208,6 @@ namespace patentdesign.Services
             var pdfData = new JournalDocumentNewspaper(publicationsData, type, startDate, endDate).GeneratePdf();
             return pdfData;
         }
-        //public async Task<PaginatedPublicationResponse> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
-        //{
-        //    _log.LogInformation("Fetching publication list");
-        //    var titleFilter = text == null ? Builders<Filling>.Filter.Empty : Builders<Filling>.Filter.Regex(x => x.TitleOfTradeMark, new BsonRegularExpression(text, "i"));
-        //    var combinedFilter = Builders<Filling>.Filter.And([
-        //        Builders<Filling>.Filter.Eq(x=>x.Type, FileTypes.TradeMark),
-        //        Builders<Filling>.Filter.Or([
-        //            Builders<Filling>.Filter.Eq(x => x.ApplicationHistory[0].CurrentStatus, ApplicationStatuses.Publication),
-        //        ]),
-        //        titleFilter
-        //    ]);
-        //    var result = await _files.Find(combinedFilter)
-        //        .Project(x => new PublicationInfoDto
-        //        {
-        //            FileId = x.Id,
-        //            Title = x.TitleOfTradeMark,
-        //            Class = x.TrademarkClass,
-        //            Representation = x.Attachments.FirstOrDefault(att => att.name == "representation") != null ? x.Attachments.FirstOrDefault(att => att.name == "representation").url[0] : null,
-        //            FileNumber = x.FileId,
-        //            Applicant = x.applicants.Count > 1 ? x.applicants[0].Name + "et al." : x.applicants[0].Name,
-        //            FilingDate = x.FilingDate ?? x.DateCreated,
-        //            PublicationDate = x.ApplicationHistory[0].StatusHistory.FirstOrDefault(s => s.afterStatus == ApplicationStatuses.Publication).Date
-        //        }).Limit(quantity).Skip(index).ToListAsync();
-        //    var counter = await _files.CountDocumentsAsync(combinedFilter);
-        //    _log.LogInformation("pub fetched");
-        //    return new PaginatedPublicationResponse { Result = result, Count = counter };
-        //}
-        
         public async Task<PaginatedPublicationResponse> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)
         {
             _log.LogInformation("Fetching batch publications by search text: {Text}", text);

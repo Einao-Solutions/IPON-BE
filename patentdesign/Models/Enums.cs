@@ -30,7 +30,10 @@
         PermSec,
         Minister,
         Tech,
-        SuperAdmin
+        SuperAdmin,
+        EinaoFinance,
+        Pebec,
+        HeadOfUnit,
     }
     public enum NigerianStates
     {

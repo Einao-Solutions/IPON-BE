@@ -342,5 +342,26 @@ namespace patentdesign.Services
                 throw;
             }
         }
+
+        public async Task<AppUser> GetUserByEmail(string email)
+        {
+            _log.LogInformation("Getting user details for {email}",email);
+            try
+            {
+                var user = await _userCollection.Find(u => u.Email == email).FirstOrDefaultAsync();
+                if (user == null)
+                {
+                    _log.LogError("User not found for email: {email}", email);
+                    throw new KeyNotFoundException("User not found");
+                }
+
+                return user;
+            }
+            catch (Exception)
+            {
+                _log.LogError("Failed to get user details");
+                throw;
+            }
+        }
     }
 }
