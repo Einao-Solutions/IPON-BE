@@ -4290,12 +4290,13 @@ public class FilesServices
             // Normal cost + RRR generation path
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.DesignCtc, fileType, "", null, null, null);
 
-            // MULTIPLY the cost by number of attachments
+            // ADD base cost + service fee, then MULTIPLY by number of attachments
             decimal baseAmount = decimal.Parse(data.Item1);
-            decimal finalAmount = baseAmount * numberOfAttachments;
+            decimal serviceFee = decimal.Parse(data.Item3);
+            decimal finalAmount = (baseAmount + serviceFee) * numberOfAttachments;
             string finalAmountStr = finalAmount.ToString();
 
-            // Generate RRR with the FINAL (multiplied) amount
+            // Generate RRR with the FINAL total
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 finalAmountStr, data.Item3, data.Item2, "Design CTC",
                 applicant.Name, applicant.Email, applicant.Phone);
@@ -4311,6 +4312,84 @@ public class FilesServices
             throw;
         }
     }
+
+    public async Task<RecordalDto> TrademarkCtcCost(string fileId, FileTypes fileType, int numberOfAttachments = 1)
+    {
+        try
+        {
+            var fileInfo = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
+                .FirstOrDefaultAsync();
+
+            if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
+            {
+                Console.WriteLine("No file or applicants found.");
+                return null;
+            }
+
+            var applicant = fileInfo.applicants[0];
+
+            // Check if there is already a pending/created CTC application
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a =>
+                    a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId) &&
+                    (a.CurrentStatus == ApplicationStatuses.Approved ||
+                     a.CurrentStatus == ApplicationStatuses.AwaitingPayment ||
+                     a.CurrentStatus == ApplicationStatuses.AwaitingRecordalProcess));
+
+            var dto = new RecordalDto
+            {
+                FileId = fileId,
+                FileTitle = fileInfo.TitleOfTradeMark ?? "",
+                ApplicantName = applicant.Name,
+                ApplicantEmail = applicant.Email,
+                ApplicantAddress = applicant.Address,
+                ApplicantNationality = applicant.country,
+                ApplicantState = applicant.State,
+                ApplicantPhone = applicant.Phone,
+                ApplicantCity = applicant.city,
+                TitleOfInvention = fileInfo.TitleOfTradeMark,
+                FileOrigin = fileInfo.FileOrigin,
+                TrademarkClass = fileInfo.TrademarkClass,
+                Attachments = fileInfo.Attachments ?? new List<AttachmentType>()
+            };
+
+            if (existingApp != null)
+            {
+                // Do NOT generate a new RRR; just tell the frontend an app already exists
+                dto.HasExistingApplication = true;
+                dto.ExistingApplicationId = existingApp.id;
+                dto.ExistingRRR = existingApp.PaymentId;
+                return dto;
+            }
+
+            // Normal cost + RRR generation path
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.TrademarkCtc, fileType, "", null, null, null);
+
+            // ADD base cost + service fee, then MULTIPLY by number of attachments
+            decimal baseAmount = decimal.Parse(data.Item1);
+            decimal serviceFee = decimal.Parse(data.Item3);
+            decimal finalAmount = (baseAmount + serviceFee) * numberOfAttachments;
+            string finalAmountStr = finalAmount.ToString();
+
+            // Generate RRR with the FINAL total
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                finalAmountStr, data.Item3, data.Item2, "Trademark CTC",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            dto.Amount = finalAmountStr; // Return the multiplied amount
+            dto.rrr = paymentId;
+
+            return dto;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error-at-TrademarkCtcCost");
+            throw;
+        }
+    }
+
     public async Task<bool> NewDesignCtcApplication(DesignCtcDto dto, string userId)
     {
         var file = await _fillingCollection
@@ -12251,5 +12330,194 @@ public class FilesServices
         SavePerformance(performance);
 
         return (true, approve ? "Design CTC approved" : "Design CTC refused");
+    }
+
+    // TRADEMARK CTC METHODS
+    public async Task<bool> NewTrademarkCtcApplication(TrademarkCtcDto dto, string userId)
+    {
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
+            .FirstOrDefaultAsync();
+        if (file == null) return false;
+
+        var applicant = file.applicants.FirstOrDefault();
+
+        // Fetch user for performance tracking
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            throw new UnauthorizedAccessException("User not found");
+
+        // Verify payment
+        var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
+        bool paymentSuccessful = paymentDetails != null && paymentDetails.status == "00";
+
+        var status = paymentSuccessful
+            ? ApplicationStatuses.AwaitingRecordalProcess
+            : ApplicationStatuses.AwaitingPayment;
+
+        var statusMessage = paymentSuccessful
+            ? "Payment successful, awaiting recordal process"
+            : "CTC application submitted, awaiting payment";
+
+        // Application history
+        var ctcHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+            CurrentStatus = status,
+            ApplicationDate = dto.CtcRequestDate ?? DateTime.Now,
+            PaymentId = dto.Rrr,
+            FieldToChange = "Trademark CTC Application",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new ApplicationHistory
+                {
+                    Date = dto.CtcRequestDate ?? DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = status,
+                    Message = statusMessage,
+                    User = user.FirstName + " " + user.LastName,
+                    UserId = user.Id
+                }
+            }
+        };
+
+        // Recordal info
+        var recordal = new PostRegistrationApp
+        {
+            Id = ctcHistory.id,
+            RecordalType = "Trademark CTC Recordal",
+            FileNumber = dto.FileId,
+            rrr = dto.Rrr,
+            FilingDate = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            RequestedAttachments = dto.AttachmentIds,
+            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+        };
+
+        var update = Builders<Filling>.Update
+            .Push(f => f.PostRegApplications, recordal)
+            .Push(f => f.ApplicationHistory, ctcHistory);
+
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            update
+        );
+        return true;
+    }
+
+    public async Task<object?> GetTrademarkCtcDetailsAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return null;
+
+        // Fetch the PostRegApp for CTC
+        var ctcApp = file.PostRegApplications?
+            .FirstOrDefault(a => a.RecordalType == "Trademark CTC Recordal");
+
+        if (ctcApp == null)
+            return null;
+
+        // Fetch the ApplicationHistory for CTC
+        var appHistory = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == ctcApp.Id && a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy);
+
+        // Get requested attachments
+        var requestedAttachments = new List<object>();
+        if (ctcApp.RequestedAttachments != null && file.Attachments != null)
+        {
+            foreach (var attachmentName in ctcApp.RequestedAttachments)
+            {
+                var attachment = file.Attachments.FirstOrDefault(a => a.name == attachmentName);
+                if (attachment != null)
+                {
+                    requestedAttachments.Add(new
+                    {
+                        name = attachment.name,
+                        urls = attachment.url
+                    });
+                }
+            }
+        }
+
+        return new
+        {
+            FileId = file.FileId,
+            AppId = ctcApp.Id,
+            FilingDate = ctcApp.FilingDate,
+            PaymentRRR = ctcApp.rrr,
+            Status = appHistory?.CurrentStatus,
+            RequestedAttachments = requestedAttachments,
+            DateTreated = ctcApp.DateTreated,
+            Reason = ctcApp.Reason
+        };
+    }
+
+    public async Task<(bool Success, string Message)> TrademarkCtcDecisionAsync(
+        string fileId,
+        string appId,
+        bool approve,
+        string reason,
+        string? userId = null)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        if (string.IsNullOrWhiteSpace(userId))
+            return (false, "User ID is required");
+
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User not found or unauthorized");
+
+        var ctcApp = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy);
+
+        if (ctcApp == null)
+            return (false, "No CTC application found");
+
+        var beforeStatus = ctcApp.CurrentStatus;
+        var statusEntry = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            Message = reason,
+            beforeStatus = ctcApp.CurrentStatus,
+            afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
+            User = user.FirstName + " " + user.LastName,
+            UserId = user.Id
+        };
+
+        ctcApp.StatusHistory ??= new List<ApplicationHistory>();
+        ctcApp.StatusHistory.Add(statusEntry);
+        ctcApp.CurrentStatus = statusEntry.afterStatus.Value;
+
+        var recordal = file.PostRegApplications?
+            .FirstOrDefault(r => r.Id == appId && r.RecordalType == "Trademark CTC Recordal");
+
+        if (recordal != null)
+        {
+            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.Reason = reason;
+        }
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var performance = new PerformanceDto
+        {
+            AppUserId = user.Id ?? user.CreatorId,
+            AfterStatus = ctcApp.CurrentStatus,
+            BeforeStatus = beforeStatus,
+            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            Reason = reason,
+            Date = DateTime.Now,
+            OfficeUnit = Roles.TrademarkCertification
+        };
+        SavePerformance(performance);
+
+        return (true, approve ? "Trademark CTC approved" : "Trademark CTC refused");
     }
 }

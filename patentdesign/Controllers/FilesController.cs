@@ -1512,6 +1512,108 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
     }
 
+    // TRADEMARK CTC ENDPOINTS
+    [HttpGet("GetTrademarkCtcCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetTrademarkCtcCost(
+        [FromQuery] string fileId,
+        [FromQuery] FileTypes fileType,
+        [FromQuery] int numberOfAttachments = 1)
+    {
+        try
+        {
+            var res = await fileService.TrademarkCtcCost(fileId, fileType, numberOfAttachments);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail($"An error occurred: {ex.Message}"));
+        }
+    }
+
+    [HttpPost("TrademarkCtcApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> TrademarkCtcApplication([FromBody] TrademarkCtcDto dto)
+    {
+        try
+        {
+            var userId = dto.UserId;
+            var created = await fileService.NewTrademarkCtcApplication(dto, userId);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Trademark CTC application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Trademark CTC application submitted successfully."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail($"An error occurred: {ex.Message}"));
+        }
+    }
+
+    [HttpGet("GetTrademarkCtcDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetTrademarkCtcDetails([FromQuery] string fileId)
+    {
+        try
+        {
+            var details = await fileService.GetTrademarkCtcDetailsAsync(fileId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Trademark CTC recordal not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail($"An error occurred: {ex.Message}"));
+        }
+    }
+
+    [HttpPost("TrademarkCtcDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> TrademarkCtcDecision([FromBody] TrademarkCtcDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.TrademarkCtcDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.UserId);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail($"An error occurred: {ex.Message}"));
+        }
+    }
+
     [HttpPost("AddStatusSearchHistory")]
     public async Task<IActionResult> AddStatusSearchHistory([FromQuery] string fileId, [FromQuery] string rrr)
     {

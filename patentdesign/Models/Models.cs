@@ -894,7 +894,8 @@ public enum ApplicationLetters
     DesignMortgageAcknowledgement, DesignMergerAcknowledgement, DesignCtcAcnowledgement, DesignAmendmentAcknowledgement, DesignAssignmentRefusalletter,
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
-    
+    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter
+
 
 }
 public class SearchInfo
@@ -1028,7 +1029,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment,Reclassification
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification
 }
 
 
@@ -1407,6 +1408,10 @@ public record PaymentInfo
     public string? DesignCtcCost { get; set; }
     public string? DesignCtcServiceFee { get; set; }
     public string? DesignCtcServiceID { get; set; }
+
+    public string? TrademarkCtcCost { get; set; }
+    public string? TrademarkCtcServiceFee { get; set; }
+    public string? TrademarkCtcServiceID { get; set; }
 
     public string? DesignAmendmentCost { get; set; }
     public string? DesignAmendmentServiceFee { get; set; }

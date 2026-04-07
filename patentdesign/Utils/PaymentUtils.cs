@@ -325,6 +325,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.DesignCtcServiceID;
                 serviceFee = _paymentInfo.DesignCtcServiceFee;
                 break;
+             case PaymentTypes.TrademarkCtc:
+                amount = _paymentInfo.TrademarkCtcCost;
+                serviceId = _paymentInfo.TrademarkCtcServiceID;
+                serviceFee = _paymentInfo.TrademarkCtcServiceFee;
+                break;
              case PaymentTypes.DesignAmendment:
                 amount = _paymentInfo.DesignAmendmentCost;
                 serviceId = _paymentInfo.DesignAmendmentServiceID;
