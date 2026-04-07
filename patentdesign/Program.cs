@@ -166,7 +166,7 @@ builder.Services.AddProblemDetails();
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddSingleton<OppositionService>();
-builder.Services.AddSingleton<FileServices>();
+builder.Services.AddSingleton<FilesServices>();
 builder.Services.AddSingleton<LettersServices>();
 builder.Services.AddSingleton<TicketServices>();
 builder.Services.AddSingleton<UsersService>();
