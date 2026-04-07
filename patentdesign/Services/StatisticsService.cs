@@ -15,6 +15,7 @@ public class StatisticsService
     private readonly IMongoCollection<StaffPerformance> _workflowCollection;
     private readonly IMongoCollection<AppUser> _userCollection;
     private readonly IMongoCollection<PaymentRecord> _paymentCollection;
+    private readonly IMongoCollection<Filling> _fillingCollection;
   //  private readonly ILoggerService _log;
 
     public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
@@ -29,6 +30,7 @@ public class StatisticsService
         _workflowCollection = db.GetCollection<StaffPerformance>("staffPerformance");
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
+        _fillingCollection = db.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
      //   _log = log;
     }
 
@@ -261,6 +263,17 @@ public class StatisticsService
             throw new ArgumentException("Missing required parameter: periods");
         }
 
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var fileIds = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(x => x.Type, fileType))
+            .Project(x => x.FileId)
+            .ToListAsync();
+
         var results = new List<FinancePeriodResultDto>();
 
         foreach (var period in request.Periods)
@@ -269,10 +282,13 @@ public class StatisticsService
 
             var filter = Builders<PaymentRecord>.Filter.And(
                 Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
-                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate)
+                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate),
+                Builders<PaymentRecord>.Filter.In(x => x.FileId, fileIds)
             );
 
-            var payments = await _paymentCollection.Find(filter).ToListAsync();
+            var payments = fileIds.Count == 0
+                ? []
+                : await _paymentCollection.Find(filter).ToListAsync();
 
             var paymentTypes = payments
                 .GroupBy(x => x.PaymentType ?? string.Empty)

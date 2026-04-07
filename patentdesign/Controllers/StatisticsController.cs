@@ -139,6 +139,11 @@ public class StatisticsController(StatisticsService statisticsService) : Control
     public async Task<IActionResult> GetFinanceComparison([FromBody] FinanceComparisonRequestDto? request)
     {
         Console.WriteLine("Finance statistics search has started");
+        if (string.IsNullOrWhiteSpace(request?.RegistryType))
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: registryType" });
+        }
+
         if (request?.Periods == null || request.Periods.Count == 0)
         {
             return BadRequest(new { success = false, error = "Missing required parameter: periods" });
