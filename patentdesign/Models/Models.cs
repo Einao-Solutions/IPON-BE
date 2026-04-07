@@ -247,6 +247,8 @@ public record Filling
     public DateTime? WithdrawalRequestDate { get; set; }
     public string? WithdrawalReason { get; set; }
     public List<Opposition>? Oppositions { get; set; } = [];
+    public DateOnly? ExpiryDate { get; set; }
+    public bool IsExpired { get; set; } = false;
 }
 
 public record ClericalUpdate

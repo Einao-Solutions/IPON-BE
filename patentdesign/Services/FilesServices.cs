@@ -243,11 +243,28 @@ public class FileServices
         _log.LogInformation("Processing new application for FileId {FileId}", file.FileId);
         file.FileStatus = ApplicationStatuses.AwaitingSearch;
         file.FileId = await GenerateNewFileId(file);
-
+        file.FilingDate = paymentDate;
         _log.LogInformation("Generated new file ID {FileId} for {FileType}", file.FileId, file.Type);
         AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
             paymentDate, userName, userId, "Payment Successful, awaiting search");
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
+        if (paymentInfo.status == "00")
+        {
+            switch (file.Type)
+            {
+                case FileTypes.Design:
+                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(5));
+                    file.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(15));
+                    break;
+                case FileTypes.Patent:
+                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(1));
+                    file.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(20));
+                    break;
+                case FileTypes.TradeMark:
+                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(7));
+                    break;
+            }
+        }
 
         SavePayment(paymentInfo, PaymentTypes.NewCreation, file.FileId, application.id);
 
@@ -11551,4 +11568,21 @@ public class FileServices
 
         return (true, approve ? "Design CTC approved" : "Design CTC refused");
     }
+
+    //public async Task<int> DeactivateFiles()
+    //{
+    //    _log.LogInformation("Checking files due for renewal");
+    //    try
+    //    {
+    //        var cutoffDate = DateTime.Now.AddDays(-60);
+
+    //        var filter = Builders<Filling>.Filter.Lte(f => f., cutoffDate)
+    //                     & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
+    //    }
+    //    catch (Exception e)
+    //    {
+    //        Console.WriteLine(e);
+    //        throw;
+    //    }
+    //}
 }
