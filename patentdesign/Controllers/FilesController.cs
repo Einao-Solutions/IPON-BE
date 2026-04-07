@@ -13,7 +13,7 @@ namespace patentdesign.Controllers;
 //[Authorize]
 [ApiController]
 [Route("api/files")]
-public class FilesController(FileServices fileService) : ControllerBase
+public class FilesController(FilesServices fileService) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> SaveFile(Filling newFile)
@@ -1414,6 +1414,101 @@ public class FilesController(FileServices fileService) : ControllerBase
         {
             return StatusCode(StatusCodes.Status500InternalServerError,
                 ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpGet("GetDesignAmendmentCost")]
+    [ProducesResponseType(typeof(ApiResponse<RecordalDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignAmendmentCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    {
+        try
+        {
+            var res = await fileService.DesignAmendmentCost(fileId, fileType);
+            if (res == null)
+            {
+                return StatusCode(StatusCodes.Status204NoContent, ApiResponse<string>.Fail("No file or applicant found."));
+            }
+            return Ok(ApiResponse<RecordalDto>.Ok(res));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignAmendmentApplication")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignAmendmentApplication([FromBody] DesignAmendmentDto dto)
+    {
+        try
+        {
+            var created = await fileService.NewDesignAmendmentApplication(dto, dto.UserId);
+            if (!created)
+            {
+                return BadRequest(ApiResponse<string>.Fail("Design amendment application could not be created."));
+            }
+
+            return Ok(ApiResponse<string>.Ok("Design amendment application submitted successfully."));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpGet("GetDesignAmendmentDetails")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDesignAmendmentDetails([FromQuery] string fileId, [FromQuery] string appId)
+    {
+        try
+        {
+            var details = await fileService.GetDesignAmendmentDetailsAsync(fileId, appId);
+            if (details == null)
+            {
+                return NotFound(ApiResponse<string>.Fail("Design amendment application not found."));
+            }
+
+            return Ok(ApiResponse<object>.Ok(details));
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail("An error occurred while processing your request."));
+        }
+    }
+
+    [HttpPost("DesignAmendmentDecision")]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<string>), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DesignAmendmentDecision([FromBody] DesignAmendmentDecisionDto dto)
+    {
+        try
+        {
+            var (success, message) = await fileService.DesignAmendmentDecisionAsync(
+                dto.FileId,
+                dto.AppId,
+                dto.Approve,
+                dto.Reason,
+                dto.UserId);
+
+            if (!success)
+            {
+                return BadRequest(ApiResponse<string>.Fail(message));
+            }
+
+            return Ok(ApiResponse<string>.Ok(message));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                ApiResponse<string>.Fail($"An error occurred: {ex.Message}"));
         }
     }
 

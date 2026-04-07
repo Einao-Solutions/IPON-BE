@@ -1725,3 +1725,17 @@ public enum PatentAmendmentTypes
     EditInventors = 11,
     PriorityInfo = 12
 }
+
+public enum DesignAmendmentTypes
+{
+    CorrespondenceInformation = 0,
+    ApplicantName = 4,
+    ApplicantAddress = 5,
+    DesignTitle = 7,
+    AddAndRemoveApplicant = 10,
+    PriorityInfo = 12,
+    DesignType = 13,
+    StatementOfNovelty = 14,
+    CreatorInformation = 15,
+    DesignAttachments = 16
+}

@@ -22,11 +22,11 @@ public class MigrationService
     private static IMongoCollection<XpayApplicant> _xpayApplicantCollection;
     private static IMongoCollection<XpayTwallet> _xpayTwalletCollection;
     private MongoClient _mongoClient;
-    private FileServices _fileServices;
+    private FilesServices _fileServices;
     private PaymentService _paymentService;
     private PaymentUtils _paymentUtils;
-    
-    public MigrationService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, FileServices fileServices, PaymentService paymentService, PaymentUtils paymentUtils)
+
+    public MigrationService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, FilesServices fileServices, PaymentService paymentService, PaymentUtils paymentUtils)
     {
         
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;

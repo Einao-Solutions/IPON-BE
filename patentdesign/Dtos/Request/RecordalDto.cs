@@ -23,6 +23,9 @@ namespace patentdesign.Dtos.Request
         public DesignTypes? DesignType { get; set; }
         public string? DesignTypeDescription { get; set; }
         public string? TitleOfInvention { get; set; }
+        public string? TitleOfDesign { get; set; }
+        public List<ApplicantInfo> DesignCreators { get; set; } = new();
+        public string? StatementOfNovelty { get; set; }
         public string? DataChangeType { get; set; }
         public string? rrr { get; set; }
         public string? Amount { get; set; }
