@@ -25,13 +25,13 @@ public class OppositionService
     private readonly ILogger<OppositionService> _log;
 
     private PaymentUtils _remitaPaymentUtils;
-    private FileServices _fileServices;
+    private FilesServices _fileServices;
     private MongoClient _mongoClient;
     private EmailServices _emailServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
-    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FileServices fileServices, EmailServices emailServices, ILogger<OppositionService> log)
+    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices fileServices, EmailServices emailServices, ILogger<OppositionService> log)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 

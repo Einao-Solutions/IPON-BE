@@ -30,7 +30,7 @@ namespace patentdesign.Services
         private PaymentService _paymentService;
         private EmailServices _emailServices;
         private UsersService _userServices;
-        private FileServices _fileServices;
+        private FilesServices _fileServices;
 
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
         //private string attachmentBaseUrl = "http://localhost:5044";

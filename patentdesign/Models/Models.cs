@@ -898,7 +898,8 @@ public enum ApplicationLetters
     DesignMortgageAcknowledgement, DesignMergerAcknowledgement, DesignCtcAcnowledgement, DesignAmendmentAcknowledgement, DesignAssignmentRefusalletter,
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
-    
+    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter
+
 
 }
 public class SearchInfo
@@ -1032,7 +1033,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment,Reclassification
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification
 }
 
 
@@ -1412,6 +1413,10 @@ public record PaymentInfo
     public string? DesignCtcServiceFee { get; set; }
     public string? DesignCtcServiceID { get; set; }
 
+    public string? TrademarkCtcCost { get; set; }
+    public string? TrademarkCtcServiceFee { get; set; }
+    public string? TrademarkCtcServiceID { get; set; }
+
     public string? DesignAmendmentCost { get; set; }
     public string? DesignAmendmentServiceFee { get; set; }
     public string? DesignAmendmentServiceID { get; set; }
@@ -1728,4 +1733,18 @@ public enum PatentAmendmentTypes
     AddAndRemoveApplicant = 10,
     EditInventors = 11,
     PriorityInfo = 12
+}
+
+public enum DesignAmendmentTypes
+{
+    CorrespondenceInformation = 0,
+    ApplicantName = 4,
+    ApplicantAddress = 5,
+    DesignTitle = 7,
+    AddAndRemoveApplicant = 10,
+    PriorityInfo = 12,
+    DesignType = 13,
+    StatementOfNovelty = 14,
+    CreatorInformation = 15,
+    DesignAttachments = 16
 }

@@ -611,6 +611,16 @@ public class LettersServices
                 var patentAmendmentRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await PatentAmendmentRefusal(patentAmendmentRefFile, applicationId);
 
+            case ApplicationLetters.DesignAmendmentAcknowledgement:
+                var designAmendmentAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignAmendmentAcknowledgement(designAmendmentAckFile, applicationId);
+            case ApplicationLetters.DesignAmendmentReceipt:
+                var designAmendmentReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignAmendmentReceipt(designAmendmentReceiptFile, applicationId);
+            case ApplicationLetters.DesignAmendmentRefusalLetter:
+                var designAmendmentRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await DesignAmendmentRefusal(designAmendmentRefFile, applicationId);
+
             case ApplicationLetters.PatentAssignmentReceipt:
                 var assignmentFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 if (assignmentFile == null)
@@ -858,6 +868,16 @@ public class LettersServices
                 var designCtcRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 return await DesignCtcRefusal(designCtcRefFile, applicationId);
 
+            case ApplicationLetters.TrademarkCtcAcknowledgement:
+                var trademarkCtcAckFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await TrademarkCtcAcknowledgement(trademarkCtcAckFile, applicationId);
+            case ApplicationLetters.TrademarkCtcReceipt:
+                var trademarkCtcReceiptFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await TrademarkCtcReceipt(trademarkCtcReceiptFile, applicationId);
+            case ApplicationLetters.TrademarkCtcRefusalLetter:
+                var trademarkCtcRefFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                return await TrademarkCtcRefusal(trademarkCtcRefFile, applicationId);
+
             default:
                 return new Dictionary<string, object>() { };
         }
@@ -1095,7 +1115,17 @@ public class LettersServices
                             documents.Add(ApplicationLetters.DesignCtcRefusalLetter);
                         }
                     }
-                    // If you later add TM ctc-docs, handle the else branch here.
+                    else if (file.Type == FileTypes.TradeMark)
+                    {
+                        // TRADEMARK POST-REG: ctc letters
+                        documents.Add(ApplicationLetters.TrademarkCtcAcknowledgement);
+                        documents.Add(ApplicationLetters.TrademarkCtcReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.TrademarkCtcRefusalLetter);
+                        }
+                    }
                     break;
 
                 case FormApplicationTypes.Amendment:
@@ -1110,7 +1140,17 @@ public class LettersServices
                             documents.Add(ApplicationLetters.PatentAmendmentRefusalLetter);
                         }
                     }
-                    // If TM/Design already exists for amendment, add else condition here
+                    else if (file.Type == FileTypes.Design)
+                    {
+                        // DESIGN POST-REG: amendment letters
+                        documents.Add(ApplicationLetters.DesignAmendmentAcknowledgement);
+                        documents.Add(ApplicationLetters.DesignAmendmentReceipt);
+
+                        if (app.CurrentStatus == ApplicationStatuses.Rejected)
+                        {
+                            documents.Add(ApplicationLetters.DesignAmendmentRefusalLetter);
+                        }
+                    }
                     break;
 
                 case FormApplicationTypes.RegisteredUser:
@@ -3675,9 +3715,238 @@ public class LettersServices
         return ReturnDocument(bytes);
     }
 
+    private async Task<Dictionary<string, object>> DesignAmendmentAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design amendment application: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? string.Empty,
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design Amendment",
+            payType = PaymentTypes.DesignAmendment,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignAmendmentAcknowledgementLetter(file,
+            $"https://portal.iponigeria.com/qr?fileId={file.FileId}",
+            receipt,
+            applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignAmendmentReceipt(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design amendment receipt: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design Amendment",
+            payType = PaymentTypes.DesignAmendment,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignAmendmentReceipt(receipt, "uri", file).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> DesignAmendmentRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for design amendment refusal: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Design Amendment",
+            payType = PaymentTypes.DesignAmendment,
+            FileId = file.FileId,
+            Title = file.TitleOfDesign,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new DesignAmendmentRefusalLetter(file, "uri", receipt, app, applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
     public async Task<Dictionary<string, object>> PatentCtcReceipt(Receipt data, Filling fileData)
     {
         var bytes = new PatentCtcReceipt(data, "uri", fileData).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    // Trademark CTC Generation Methods
+    private async Task<Dictionary<string, object>> TrademarkCtcAcknowledgement(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for trademark CTC application: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? string.Empty,
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Trademark Certified True Copy",
+            payType = PaymentTypes.TrademarkCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfTradeMark,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new TrademarkCtcAcknowledgement(file,
+            $"https://portal.iponigeria.com/qr?fileId={file.FileId}",
+            receipt,
+            applicationId).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> TrademarkCtcReceipt(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for trademark CTC receipt: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? string.Empty,
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Trademark Certified True Copy",
+            payType = PaymentTypes.TrademarkCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfTradeMark,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new TrademarkCtcReceipt(receipt, "uri", file).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    private async Task<Dictionary<string, object>> TrademarkCtcRefusal(Filling file, string applicationId)
+    {
+        if (file == null)
+            throw new ArgumentNullException(nameof(file), "File data cannot be null");
+
+        if (file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+            throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
+
+        var app = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
+        if (app == null)
+            throw new Exception("Application history not found for provided ID");
+
+        var payment = await GetPaymentData(file.Comment, app.PaymentId);
+        if (payment == null)
+        {
+            Console.WriteLine($"Payment data not found for trademark CTC refusal: {app.PaymentId}");
+        }
+
+        var receipt = new Receipt
+        {
+            rrr = payment?.rrr ?? "-",
+            Amount = payment?.amount?.ToString() ?? "",
+            Date = payment?.paymentDate ?? "-",
+            ApplicantName = file.applicants != null && file.applicants.Count > 0
+                ? file.applicants[0].Name ?? string.Empty
+                : string.Empty,
+            PaymentFor = "Trademark Certified True Copy",
+            payType = PaymentTypes.TrademarkCtc,
+            FileId = file.FileId,
+            Title = file.TitleOfTradeMark,
+            Category = file.Type.ToString()
+        };
+
+        var bytes = new TrademarkCtcRefusalLetter(file, "uri", receipt, app, applicationId).GeneratePdf();
         return ReturnDocument(bytes);
     }
 
