@@ -318,6 +318,73 @@ public class StatisticsService
         };
     }
 
+    public async Task<OperationalComparisonDataDto> GetOperationalComparisonAsync(OperationalComparisonRequestDto request)
+    {
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var results = new List<OperationalPeriodResultDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Type, fileType),
+                Builders<Filling>.Filter.Gte(x => x.DateCreated, range.StartDate),
+                Builders<Filling>.Filter.Lte(x => x.DateCreated, range.EndDate)
+            );
+
+            var files = await _fillingCollection.Find(filter).ToListAsync();
+
+            var periodResult = new OperationalPeriodResultDto
+            {
+                Label = range.Label,
+                StartDate = range.StartDate,
+                EndDate = range.EndDate,
+                TotalFiles = files.Count
+            };
+
+            switch (fileType)
+            {
+                case FileTypes.TradeMark:
+                    periodResult.TrademarkClasses = BuildBreakdown(files.Select(file => file.TrademarkClass?.ToString()));
+                    periodResult.TradeMarkTypes = BuildBreakdown(files.Select(file => file.TrademarkType?.ToString()));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    break;
+                case FileTypes.Patent:
+                    periodResult.FileOrigins = BuildBreakdown(files.Select(file => file.FileOrigin));
+                    periodResult.FilingCountries = BuildBreakdown(files.Select(GetFilingCountryOrNationality));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    periodResult.PatentTypes = BuildBreakdown(files.Select(file => file.PatentType?.ToString()));
+                    periodResult.PatentApplicationTypes = BuildBreakdown(files.Select(file => file.PatentApplicationType?.ToString()));
+                    break;
+                case FileTypes.Design:
+                    periodResult.FileOrigins = BuildBreakdown(files.Select(file => file.FileOrigin));
+                    periodResult.FilingCountries = BuildBreakdown(files.Select(GetFilingCountryOrNationality));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    periodResult.DesignTypes = BuildBreakdown(files.Select(file => file.DesignType?.ToString()));
+                    break;
+            }
+
+            results.Add(periodResult);
+        }
+
+        return new OperationalComparisonDataDto
+        {
+            RegistryType = request.RegistryType,
+            Periods = results
+        };
+    }
+
     #endregion
 
     #region Registry and Date Helpers
@@ -602,6 +669,35 @@ public class StatisticsService
     private static double GetGovernmentFee(PaymentRecord payment)
     {
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    private static List<OperationalBreakdownItemDto> BuildBreakdown(IEnumerable<string?> values)
+    {
+        return values
+            .Select(value => string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim())
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new OperationalBreakdownItemDto
+            {
+                Key = group.Key,
+                Count = group.Count()
+            })
+            .OrderByDescending(item => item.Count)
+            .ToList();
+    }
+
+    private static string? GetFirstApplicantNationality(Filling file)
+    {
+        return file.applicants?.FirstOrDefault()?.country;
+    }
+
+    private static string? GetFilingCountryOrNationality(Filling file)
+    {
+        if (!string.IsNullOrWhiteSpace(file.FilingCountry))
+        {
+            return file.FilingCountry;
+        }
+
+        return GetFirstApplicantNationality(file);
     }
 
     #endregion

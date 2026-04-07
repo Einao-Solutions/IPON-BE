@@ -23,6 +23,12 @@ namespace patentdesign.Dtos.Request
         public List<FinancePeriodRequestDto> Periods { get; set; } = [];
     }
 
+    public class OperationalComparisonRequestDto
+    {
+        public string? RegistryType { get; set; }
+        public List<FinancePeriodRequestDto> Periods { get; set; } = [];
+    }
+
     public class FinancePeriodRequestDto
     {
         public string Type { get; set; } = string.Empty;
