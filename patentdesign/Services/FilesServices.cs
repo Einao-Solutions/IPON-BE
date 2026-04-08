@@ -5654,7 +5654,18 @@ public class FileServices
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
-
+            
+            var history = new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.Approved,
+                Date = DateTime.Now,
+                User = user.Name ?? $"{user.FirstName} {user.LastName}",
+                UserId = recordalApp.userId,
+                Message = "Payment successful, Awaiting Approval"
+            };
+            app.StatusHistory ??= new List<ApplicationHistory>();
+            app.StatusHistory.Add(history);
             file.applicants ??= new List<ApplicantInfo>();
             var applicant = file.applicants.FirstOrDefault();
 
@@ -5676,7 +5687,14 @@ public class FileServices
                 .Set(f => f.PostRegApplications, file.PostRegApplications)
                 .Set(f => f.ApplicationHistory, file.ApplicationHistory)
                 .Set(f => f.applicants, file.applicants);
-
+            if (recordal.RecordalType == "Reclassification")
+            {
+                update = Builders<Filling>.Update.Combine(
+                    update,
+                    Builders<Filling>.Update.Set(f => f.TrademarkClass, file.TrademarkClass),
+                    Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, file.TrademarkClassDescription)
+                );
+            }
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
