@@ -215,7 +215,7 @@ public class FileServices
 
             case FormApplicationTypes.ClericalUpdate:
                 await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
-                break;
+                return;
             case FormApplicationTypes.Reclassification:
                 application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
@@ -404,9 +404,25 @@ public class FileServices
 
         if (!applied)
             throw new Exception("Failed to save clerical update");
+        var statusEntry = new ApplicationHistory
+        {
+            beforeStatus = ApplicationStatuses.AwaitingPayment,
+            afterStatus = ApplicationStatuses.AutoApproved,
+            Date = paymentDate,
+            Message = "Payment Successful, auto approved.",
+            User = userName,
+            UserId = userId
+        };
 
-        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
-            paymentDate, userName, userId, "Payment Successful, auto approved.");
+        var filter = Builders<Filling>.Filter.And(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == application.id));
+
+        await _fillingCollection.UpdateOneAsync(filter,
+            Builders<Filling>.Update.Combine(
+                Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
+                Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)));
+
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
         SavePayment(paymentInfo, PaymentTypes.ClericalUpdate, file.FileId, application.id);
@@ -7255,22 +7271,27 @@ public class FileServices
             // Fetch clerical update
             var clerical = file.ClericalUpdates.FirstOrDefault(c => c.Id == clericalUpdateId);
             if (clerical == null)
+            {
+                _log.LogDebug("Clerical application not found");
                 throw new KeyNotFoundException("Clerical update record not found");
+            };
+
+            var app = file.ApplicationHistory.FirstOrDefault(a => a.id == clericalUpdateId);
 
             // Free update check
             var freeUpdate = file.FileStatus == ApplicationStatuses.AwaitingSearch;
             if (!freeUpdate)
             {
-                var paid = await _paymentService.CheckPayment(clerical.PaymentRRR?.Trim());
+                var paid = await _paymentService.CheckPayment(app?.PaymentId ?? clerical.PaymentRRR);
+                Console.WriteLine(paid);
                 if (paid?.status != "00")
                     throw new KeyNotFoundException("Payment not completed for this clerical update");
             }
 
             // Match application history by ID
-            var app = file.ApplicationHistory.FirstOrDefault(a => a.id == clericalUpdateId);
             if (app == null)
                 throw new KeyNotFoundException("Application history not found");
-
+        
             var updates = new List<UpdateDefinition<Filling>>();
 
             // Handle each clerical update type
