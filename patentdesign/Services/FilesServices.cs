@@ -11568,21 +11568,4 @@ public class FileServices
 
         return (true, approve ? "Design CTC approved" : "Design CTC refused");
     }
-
-    //public async Task<int> DeactivateFiles()
-    //{
-    //    _log.LogInformation("Checking files due for renewal");
-    //    try
-    //    {
-    //        var cutoffDate = DateTime.Now.AddDays(-60);
-
-    //        var filter = Builders<Filling>.Filter.Lte(f => f., cutoffDate)
-    //                     & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
-    //    }
-    //    catch (Exception e)
-    //    {
-    //        Console.WriteLine(e);
-    //        throw;
-    //    }
-    //}
 }
