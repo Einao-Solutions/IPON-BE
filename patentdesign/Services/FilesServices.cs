@@ -5671,11 +5671,6 @@ public class FileServices
                 var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
                 file.TrademarkClassDescription = descr;
             }
-            {
-                file.TrademarkClass = recordal.Class;
-                var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
-                file.TrademarkClassDescription = descr;
-            }
 
             var update = Builders<Filling>.Update
                 .Set(f => f.PostRegApplications, file.PostRegApplications)
