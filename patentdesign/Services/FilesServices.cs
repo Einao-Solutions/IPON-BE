@@ -12387,7 +12387,6 @@ public class FilesServices
         return (true, approve ? "Design CTC approved" : "Design CTC refused");
     }
 
-<<<<<<< HEAD
     // TRADEMARK CTC METHODS
     public async Task<bool> NewTrademarkCtcApplication(TrademarkCtcDto dto, string userId)
     {
@@ -12576,22 +12575,4 @@ public class FilesServices
 
         return (true, approve ? "Trademark CTC approved" : "Trademark CTC refused");
     }
-=======
-    //public async Task<int> DeactivateFiles()
-    //{
-    //    _log.LogInformation("Checking files due for renewal");
-    //    try
-    //    {
-    //        var cutoffDate = DateTime.Now.AddDays(-60);
-
-    //        var filter = Builders<Filling>.Filter.Lte(f => f., cutoffDate)
-    //                     & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
-    //    }
-    //    catch (Exception e)
-    //    {
-    //        Console.WriteLine(e);
-    //        throw;
-    //    }
-    //}
->>>>>>> 60ccc14b317ea717dd035f1ff56441a61bfaf546
 }
