@@ -209,10 +209,10 @@ public class FilesController(FileServices fileService) : ControllerBase
         return Ok(res);
     }
 
-    [HttpPost("RenewalCost")]
-    public async Task<IActionResult> GetRenewalCostRRR([FromBody] RenewalAppDto dto)
+    [HttpGet("RenewalCost")]
+    public async Task<IActionResult> GetRenewalCostRRR([FromQuery] string fileNumber, string userId, FileTypes fileType)
     {
-        var res = await fileService.GetRenewalCost(dto);
+        var res = await fileService.GetRenewalCost(fileNumber, userId, fileType);
         return Ok(res);
     }
 

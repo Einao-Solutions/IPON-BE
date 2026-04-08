@@ -248,7 +248,8 @@ public record Filling
     public string? WithdrawalReason { get; set; }
     public List<Opposition>? Oppositions { get; set; } = [];
     public DateOnly? ExpiryDate { get; set; }
-    public bool IsExpired { get; set; } = false;
+    public bool? IsExpired { get; set; } = false;
+    public bool? IsDueForRenewal { get; set; } = false;
 }
 
 public record ClericalUpdate

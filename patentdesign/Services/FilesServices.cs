@@ -2290,11 +2290,11 @@ public class FileServices
 
     }
 
-    public async Task<RenewalDto> GetRenewalCost(RenewalAppDto dto)
+    public async Task<RenewalDto> GetRenewalCost(string fileNumber, string userId, FileTypes fileType)
     {
         _log.LogInformation("Fetching renewal cost...");
         var user = await _userCollection
-            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId))
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
             .FirstOrDefaultAsync();
         if (user == null)
         {
@@ -2304,16 +2304,16 @@ public class FileServices
 
         var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
         var renew = new RenewalDto();
-        switch (dto.FileType)
+        switch (fileType)
         {
             case FileTypes.Patent:
-                renew = await PatentRenewalCost(dto.FileNumber, FileTypes.Patent);
+                renew = await PatentRenewalCost(fileNumber, FileTypes.Patent);
                 return renew;
             case FileTypes.Design:
-                renew = await DesignRenewalCost(dto.FileNumber, FileTypes.Design);
+                renew = await DesignRenewalCost(fileNumber, FileTypes.Design);
                 return renew;
             case FileTypes.TradeMark:
-                renew = await TrademarkRenewalCost(dto.FileNumber, FileTypes.TradeMark);
+                renew = await TrademarkRenewalCost(fileNumber, FileTypes.TradeMark);
                 return renew;
             default:
                 return renew;
@@ -2334,13 +2334,13 @@ public class FileServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingPayment,
                     Message = "Renewal initiated, awaiting payment",
-                    UserId = dto.UserId,
+                    UserId = userId,
                     User = userName
                 }
             ],
         };
         await _fillingCollection.UpdateOneAsync(
-            Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+            Builders<Filling>.Filter.Eq(f => f.FileId, fileNumber),
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
         );
 
@@ -2534,6 +2534,8 @@ public class FileServices
                 throw new KeyNotFoundException();
             }
 
+            var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
+            //var renewalDue = lastRenewal.ExpiryDate.AddDays(-90);
             var applicant = file.applicants.FirstOrDefault();
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
@@ -2551,7 +2553,8 @@ public class FileServices
                 FileNumber = fileId,
                 FileTypes = FileTypes.Design,
                 PaymentId = rrr ?? "",
-                ServiceFee = cost.Item3
+                ServiceFee = cost.Item3,
+                IsLateRenewal = false 
             };
             return renew;
         }
