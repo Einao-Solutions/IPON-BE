@@ -216,7 +216,7 @@ public class FilesServices
 
             case FormApplicationTypes.ClericalUpdate:
                 await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
-                break;
+                return;
             case FormApplicationTypes.Reclassification:
                 application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
@@ -406,9 +406,25 @@ public class FilesServices
 
         if (!applied)
             throw new Exception("Failed to save clerical update");
+        var statusEntry = new ApplicationHistory
+        {
+            beforeStatus = ApplicationStatuses.AwaitingPayment,
+            afterStatus = ApplicationStatuses.AutoApproved,
+            Date = paymentDate,
+            Message = "Payment Successful, auto approved.",
+            User = userName,
+            UserId = userId
+        };
 
-        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
-            paymentDate, userName, userId, "Payment Successful, auto approved.");
+        var filter = Builders<Filling>.Filter.And(
+            Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
+            Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == application.id));
+
+        await _fillingCollection.UpdateOneAsync(filter,
+            Builders<Filling>.Update.Combine(
+                Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
+                Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)));
+
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
         SavePayment(paymentInfo, PaymentTypes.ClericalUpdate, file.FileId, application.id);
@@ -2277,11 +2293,11 @@ public class FilesServices
 
     }
 
-    public async Task<RenewalDto> GetRenewalCost(RenewalAppDto dto)
+    public async Task<RenewalDto> GetRenewalCost(string fileNumber, string userId, FileTypes fileType)
     {
         _log.LogInformation("Fetching renewal cost...");
         var user = await _userCollection
-            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId))
+            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
             .FirstOrDefaultAsync();
         if (user == null)
         {
@@ -2291,16 +2307,16 @@ public class FilesServices
 
         var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
         var renew = new RenewalDto();
-        switch (dto.FileType)
+        switch (fileType)
         {
             case FileTypes.Patent:
-                renew = await PatentRenewalCost(dto.FileNumber, FileTypes.Patent);
+                renew = await PatentRenewalCost(fileNumber, FileTypes.Patent);
                 return renew;
             case FileTypes.Design:
-                renew = await DesignRenewalCost(dto.FileNumber, FileTypes.Design);
+                renew = await DesignRenewalCost(fileNumber, FileTypes.Design);
                 return renew;
             case FileTypes.TradeMark:
-                renew = await TrademarkRenewalCost(dto.FileNumber, FileTypes.TradeMark);
+                renew = await TrademarkRenewalCost(fileNumber, FileTypes.TradeMark);
                 return renew;
             default:
                 return renew;
@@ -2321,13 +2337,13 @@ public class FilesServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingPayment,
                     Message = "Renewal initiated, awaiting payment",
-                    UserId = dto.UserId,
+                    UserId = userId,
                     User = userName
                 }
             ],
         };
         await _fillingCollection.UpdateOneAsync(
-            Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+            Builders<Filling>.Filter.Eq(f => f.FileId, fileNumber),
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
         );
 
@@ -2521,6 +2537,8 @@ public class FilesServices
                 throw new KeyNotFoundException();
             }
 
+            var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
+            //var renewalDue = lastRenewal.ExpiryDate.AddDays(-90);
             var applicant = file.applicants.FirstOrDefault();
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
@@ -2538,7 +2556,8 @@ public class FilesServices
                 FileNumber = fileId,
                 FileTypes = FileTypes.Design,
                 PaymentId = rrr ?? "",
-                ServiceFee = cost.Item3
+                ServiceFee = cost.Item3,
+                IsLateRenewal = false 
             };
             return renew;
         }
@@ -5741,7 +5760,18 @@ public class FilesServices
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
-
+            
+            var history = new ApplicationHistory
+            {
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.Approved,
+                Date = DateTime.Now,
+                User = user.Name ?? $"{user.FirstName} {user.LastName}",
+                UserId = recordalApp.userId,
+                Message = "Payment successful, Awaiting Approval"
+            };
+            app.StatusHistory ??= new List<ApplicationHistory>();
+            app.StatusHistory.Add(history);
             file.applicants ??= new List<ApplicantInfo>();
             var applicant = file.applicants.FirstOrDefault();
 
@@ -5758,17 +5788,19 @@ public class FilesServices
                 var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
                 file.TrademarkClassDescription = descr;
             }
-            {
-                file.TrademarkClass = recordal.Class;
-                var descr = FileUtils.TrademarkClassMapper.GetDescription(recordal.Class.Value);
-                file.TrademarkClassDescription = descr;
-            }
 
             var update = Builders<Filling>.Update
                 .Set(f => f.PostRegApplications, file.PostRegApplications)
                 .Set(f => f.ApplicationHistory, file.ApplicationHistory)
                 .Set(f => f.applicants, file.applicants);
-
+            if (recordal.RecordalType == "Reclassification")
+            {
+                update = Builders<Filling>.Update.Combine(
+                    update,
+                    Builders<Filling>.Update.Set(f => f.TrademarkClass, file.TrademarkClass),
+                    Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, file.TrademarkClassDescription)
+                );
+            }
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
@@ -7383,22 +7415,27 @@ public class FilesServices
             // Fetch clerical update
             var clerical = file.ClericalUpdates.FirstOrDefault(c => c.Id == clericalUpdateId);
             if (clerical == null)
+            {
+                _log.LogDebug("Clerical application not found");
                 throw new KeyNotFoundException("Clerical update record not found");
+            };
+
+            var app = file.ApplicationHistory.FirstOrDefault(a => a.id == clericalUpdateId);
 
             // Free update check
             var freeUpdate = file.FileStatus == ApplicationStatuses.AwaitingSearch;
             if (!freeUpdate)
             {
-                var paid = await _paymentService.CheckPayment(clerical.PaymentRRR?.Trim());
+                var paid = await _paymentService.CheckPayment(app?.PaymentId ?? clerical.PaymentRRR);
+                Console.WriteLine(paid);
                 if (paid?.status != "00")
                     throw new KeyNotFoundException("Payment not completed for this clerical update");
             }
 
             // Match application history by ID
-            var app = file.ApplicationHistory.FirstOrDefault(a => a.id == clericalUpdateId);
             if (app == null)
                 throw new KeyNotFoundException("Application history not found");
-
+        
             var updates = new List<UpdateDefinition<Filling>>();
 
             // Handle each clerical update type
@@ -12676,22 +12713,4 @@ public class FilesServices
 
         return (true, approve ? "Trademark CTC approved" : "Trademark CTC refused");
     }
-
-    //public async Task<int> DeactivateFiles()
-    //{
-    //    _log.LogInformation("Checking files due for renewal");
-    //    try
-    //    {
-    //        var cutoffDate = DateTime.Now.AddDays(-60);
-
-    //        var filter = Builders<Filling>.Filter.Lte(f => f., cutoffDate)
-    //                     & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
-    //    }
-    //    catch (Exception e)
-    //    {
-    //        Console.WriteLine(e);
-    //        throw;
-    //    }
-    //}
-
 }
