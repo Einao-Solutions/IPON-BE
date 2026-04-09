@@ -302,8 +302,31 @@ namespace patentdesign
             }
         }
 
-        private bool HasAttachment(string key) =>
-            model.Attachments?.Any(a => string.Equals(a.name, key, StringComparison.OrdinalIgnoreCase)) ?? false;
+        private bool HasAttachment(string key)
+        {
+            if (model.Attachments == null) return false;
+
+            // Map of old keys to possible attachment names in database
+            var nameVariations = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "pdoc", new[] { "pdoc", "designPriorityDocument", "priorityDocument", "priority" } },
+                { "nov", new[] { "nov", "noveltyStatement", "novelty", "statement" } },
+                { "form2", new[] { "form2", "powerOfAttorney", "poa", "attorney" } },
+                { "cs", new[] { "cs", "claimsSpecifications", "claims", "specifications" } },
+                { "any", new[] { "any", "other", "otherAttachments", "additionalDocuments" } }
+            };
+
+            // Check if any variation of the key exists in attachments
+            if (nameVariations.TryGetValue(key, out var variations))
+            {
+                return model.Attachments.Any(a => 
+                    variations.Any(v => string.Equals(a.name, v, StringComparison.OrdinalIgnoreCase)) &&
+                    a.url != null && a.url.Any());
+            }
+
+            // Fallback to exact match
+            return model.Attachments.Any(a => string.Equals(a.name, key, StringComparison.OrdinalIgnoreCase));
+        }
 
         private static void TwoColumnSection(ColumnDescriptor col, string title, (string Label, string Value)[] pairs)
         {

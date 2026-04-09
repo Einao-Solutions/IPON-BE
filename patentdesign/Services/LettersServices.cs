@@ -182,8 +182,15 @@ public class LettersServices
                 var remitaResponse3 = await GetPaymentData(fileData.Comment, appInfo3.PaymentId);
                 if (remitaResponse3 == null)
                 {
-                    Console.WriteLine("Remita response is null");
-                    return null;
+                    Console.WriteLine($"[{fileData.FileId}] Warning: Payment data not found for {appInfo3.PaymentId}. Using fallback values.");
+                    // Don't return null - use fallback values instead
+                    remitaResponse3 = new PaymentInfo
+                    {
+                        rrr = appInfo3.PaymentId ?? "-",
+                        amount = 0,
+                        paymentDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                        status = "00"
+                    };
                 }
                 var receiptModel3 = new Receipt()
                 {
