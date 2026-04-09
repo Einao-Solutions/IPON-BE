@@ -2536,7 +2536,8 @@ public class FilesServices
             }
 
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
-            //var renewalDue = lastRenewal.ExpiryDate.AddDays(-90);
+            var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
+            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
             var applicant = file.applicants.FirstOrDefault();
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
@@ -2552,10 +2553,10 @@ public class FilesServices
                 ApplicantName = applicant.Name,
                 Cost = cost.Item1,
                 FileNumber = fileId,
-                FileTypes = FileTypes.Design,
+                FileTypes = FileTypes.TradeMark,
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
-                IsLateRenewal = false 
+                IsLateRenewal = lateRenewal 
             };
             return renew;
         }
