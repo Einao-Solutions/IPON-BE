@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
@@ -15,9 +16,10 @@ public class StatisticsService
     private readonly IMongoCollection<StaffPerformance> _workflowCollection;
     private readonly IMongoCollection<AppUser> _userCollection;
     private readonly IMongoCollection<PaymentRecord> _paymentCollection;
-  //  private readonly ILoggerService _log;
+    private readonly IMongoCollection<Filling> _fillingCollection;
+    private readonly ILogger<StatisticsService> _log;
 
-    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
+    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<StatisticsService> log)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
         var digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
@@ -29,24 +31,29 @@ public class StatisticsService
         _workflowCollection = db.GetCollection<StaffPerformance>("staffPerformance");
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
-     //   _log = log;
+        _fillingCollection = db.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
+        _log = log;
     }
 
     #region Public API
 
     public IReadOnlyList<UnitInfoDto> GetUnits(string registryType)
     {
+        _log.LogInformation("Fetching units for RegistryType {RegistryType}", registryType);
         var unitMappings = GetUnitMappings(registryType);
-        return unitMappings.Select(unit => new UnitInfoDto
+        var result = unitMappings.Select(unit => new UnitInfoDto
         {
             UnitId = unit.UnitId,
             UnitName = unit.UnitName,
             RegistryType = registryType
         }).ToList();
+        _log.LogInformation("Fetched {UnitCount} units for RegistryType {RegistryType}", result.Count, registryType);
+        return result;
     }
 
     public async Task<IReadOnlyList<StaffInfoDto>> GetStaffAsync(string registryType, int unitId)
     {
+        _log.LogInformation("Fetching staff for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
         var unitMapping = GetUnitMapping(registryType, unitId);
         var fileType = ParseRegistryType(registryType);
 
@@ -60,6 +67,7 @@ public class StatisticsService
 
         if (staffIdList.Count == 0)
         {
+            _log.LogInformation("No staff found for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
             return [];
         }
 
@@ -72,7 +80,7 @@ public class StatisticsService
             ))).ToListAsync();
         var userLookup = BuildUserLookup(users);
 
-        return staffIdList.Distinct().Select(id =>
+        var result = staffIdList.Distinct().Select(id =>
         {
             userLookup.TryGetValue(id, out var user);
             return new StaffInfoDto
@@ -86,10 +94,14 @@ public class StatisticsService
                 UnitName = unitMapping.UnitName
             };
         }).ToList();
+
+        _log.LogInformation("Fetched {StaffCount} staff entries for RegistryType {RegistryType}, UnitId {UnitId}", result.Count, registryType, unitId);
+        return result;
     }
 
     public async Task<StaffPerformanceDataDto> GetStaffPerformanceAsync(string registryType, int unitId, string periodType, string periodValue, int year)
     {
+        _log.LogInformation("Fetching staff performance for RegistryType {RegistryType}, UnitId {UnitId}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, unitId, periodType, periodValue, year);
         var fileType = ParseRegistryType(registryType);
         var unitMapping = GetUnitMapping(registryType, unitId);
         var dateRange = GetDateRange(periodType, periodValue, year);
@@ -172,7 +184,7 @@ public class StatisticsService
             TreatmentRate = totalAssigned == 0 ? 0 : Math.Round(totalTreated * 100d / totalAssigned, 1)
         };
 
-        return new StaffPerformanceDataDto
+        var result = new StaffPerformanceDataDto
         {
             UnitId = unitMapping.UnitId,
             UnitName = unitMapping.UnitName,
@@ -186,10 +198,14 @@ public class StatisticsService
             Summary = summary,
             StaffPerformance = staffPerformance
         };
+
+        _log.LogInformation("Fetched staff performance for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
+        return result;
     }
 
     public async Task<UnitPerformanceDataDto> GetUnitPerformanceAsync(string registryType, string periodType, string periodValue, int year)
     {
+        _log.LogInformation("Fetching unit performance for RegistryType {RegistryType}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, periodType, periodValue, year);
         var fileType = ParseRegistryType(registryType);
         var unitMappings = GetUnitMappings(registryType);
         var dateRange = GetDateRange(periodType, periodValue, year);
@@ -230,7 +246,7 @@ public class StatisticsService
             });
         }
 
-        return new UnitPerformanceDataDto
+        var result = new UnitPerformanceDataDto
         {
             RegistryType = registryType,
             Period = new PeriodDto
@@ -248,6 +264,9 @@ public class StatisticsService
             },
             Units = unitResults.OrderBy(x => x.UnitId).ToList()
         };
+
+        _log.LogInformation("Fetched unit performance for RegistryType {RegistryType}", registryType);
+        return result;
     }
 
     #endregion
@@ -256,10 +275,22 @@ public class StatisticsService
 
     public async Task<FinanceComparisonDataDto> GetFinanceComparisonAsync(FinanceComparisonRequestDto request)
     {
+        _log.LogInformation("Fetching finance comparison for RegistryType {RegistryType}", request?.RegistryType);
         if (request?.Periods == null || request.Periods.Count == 0)
         {
             throw new ArgumentException("Missing required parameter: periods");
         }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var fileIds = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(x => x.Type, fileType))
+            .Project(x => x.FileId)
+            .ToListAsync();
 
         var results = new List<FinancePeriodResultDto>();
 
@@ -269,10 +300,13 @@ public class StatisticsService
 
             var filter = Builders<PaymentRecord>.Filter.And(
                 Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
-                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate)
+                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate),
+                Builders<PaymentRecord>.Filter.In(x => x.FileId, fileIds)
             );
 
-            var payments = await _paymentCollection.Find(filter).ToListAsync();
+            var payments = fileIds.Count == 0
+                ? []
+                : await _paymentCollection.Find(filter).ToListAsync();
 
             var paymentTypes = payments
                 .GroupBy(x => x.PaymentType ?? string.Empty)
@@ -296,10 +330,84 @@ public class StatisticsService
             });
         }
 
-        return new FinanceComparisonDataDto
+        var result = new FinanceComparisonDataDto
         {
             Periods = results
         };
+
+        _log.LogInformation("Fetched finance comparison for RegistryType {RegistryType}", request.RegistryType);
+        return result;
+    }
+
+    public async Task<OperationalComparisonDataDto> GetOperationalComparisonAsync(OperationalComparisonRequestDto request)
+    {
+        _log.LogInformation("Fetching operational comparison for RegistryType {RegistryType}", request?.RegistryType);
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var results = new List<OperationalPeriodResultDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Type, fileType),
+                Builders<Filling>.Filter.Gte(x => x.DateCreated, range.StartDate),
+                Builders<Filling>.Filter.Lte(x => x.DateCreated, range.EndDate)
+            );
+
+            var files = await _fillingCollection.Find(filter).ToListAsync();
+
+            var periodResult = new OperationalPeriodResultDto
+            {
+                Label = range.Label,
+                StartDate = range.StartDate,
+                EndDate = range.EndDate,
+                TotalFiles = files.Count
+            };
+
+            switch (fileType)
+            {
+                case FileTypes.TradeMark:
+                    periodResult.TrademarkClasses = BuildBreakdown(files.Select(file => file.TrademarkClass?.ToString()));
+                    periodResult.TradeMarkTypes = BuildBreakdown(files.Select(file => file.TrademarkType?.ToString()));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    break;
+                case FileTypes.Patent:
+                    periodResult.FileOrigins = BuildBreakdown(files.Select(file => file.FileOrigin));
+                    periodResult.FilingCountries = BuildBreakdown(files.Select(GetFilingCountryOrNationality));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    periodResult.PatentTypes = BuildBreakdown(files.Select(file => file.PatentType?.ToString()));
+                    periodResult.PatentApplicationTypes = BuildBreakdown(files.Select(file => file.PatentApplicationType?.ToString()));
+                    break;
+                case FileTypes.Design:
+                    periodResult.FileOrigins = BuildBreakdown(files.Select(file => file.FileOrigin));
+                    periodResult.FilingCountries = BuildBreakdown(files.Select(GetFilingCountryOrNationality));
+                    periodResult.Nationalities = BuildBreakdown(files.Select(GetFirstApplicantNationality));
+                    periodResult.DesignTypes = BuildBreakdown(files.Select(file => file.DesignType?.ToString()));
+                    break;
+            }
+
+            results.Add(periodResult);
+        }
+
+        var result = new OperationalComparisonDataDto
+        {
+            RegistryType = request.RegistryType,
+            Periods = results
+        };
+
+        _log.LogInformation("Fetched operational comparison for RegistryType {RegistryType}", request.RegistryType);
+        return result;
     }
 
     #endregion
@@ -586,6 +694,35 @@ public class StatisticsService
     private static double GetGovernmentFee(PaymentRecord payment)
     {
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    private static List<OperationalBreakdownItemDto> BuildBreakdown(IEnumerable<string?> values)
+    {
+        return values
+            .Select(value => string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim())
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new OperationalBreakdownItemDto
+            {
+                Key = group.Key,
+                Count = group.Count()
+            })
+            .OrderByDescending(item => item.Count)
+            .ToList();
+    }
+
+    private static string? GetFirstApplicantNationality(Filling file)
+    {
+        return file.applicants?.FirstOrDefault()?.country;
+    }
+
+    private static string? GetFilingCountryOrNationality(Filling file)
+    {
+        if (!string.IsNullOrWhiteSpace(file.FilingCountry))
+        {
+            return file.FilingCountry;
+        }
+
+        return GetFirstApplicantNationality(file);
     }
 
     #endregion

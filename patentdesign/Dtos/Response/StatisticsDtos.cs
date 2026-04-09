@@ -101,3 +101,31 @@ public class FinanceComparisonDataDto
 {
     public List<FinancePeriodResultDto> Periods { get; set; } = [];
 }
+
+public class OperationalBreakdownItemDto
+{
+    public string Key { get; set; } = string.Empty;
+    public int Count { get; set; }
+}
+
+public class OperationalPeriodResultDto
+{
+    public string Label { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public int TotalFiles { get; set; }
+    public List<OperationalBreakdownItemDto> TrademarkClasses { get; set; } = [];
+    public List<OperationalBreakdownItemDto> TradeMarkTypes { get; set; } = [];
+    public List<OperationalBreakdownItemDto> DesignTypes { get; set; } = [];
+    public List<OperationalBreakdownItemDto> PatentTypes { get; set; } = [];
+    public List<OperationalBreakdownItemDto> PatentApplicationTypes { get; set; } = [];
+    public List<OperationalBreakdownItemDto> FileOrigins { get; set; } = [];
+    public List<OperationalBreakdownItemDto> FilingCountries { get; set; } = [];
+    public List<OperationalBreakdownItemDto> Nationalities { get; set; } = [];
+}
+
+public class OperationalComparisonDataDto
+{
+    public string RegistryType { get; set; } = string.Empty;
+    public List<OperationalPeriodResultDto> Periods { get; set; } = [];
+}
