@@ -401,6 +401,7 @@ public class FilesServices
 
     private async Task ProcessClericalUpdate(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
+        _log.LogInformation("Processing clerical update for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
         var applied = await ApplyClericalUpdateToFile(file.FileId, application.id);
 
         if (!applied)
@@ -427,6 +428,7 @@ public class FilesServices
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
         SavePayment(paymentInfo, PaymentTypes.ClericalUpdate, file.FileId, application.id);
+        _log.LogInformation("Completed clerical update for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
     }
 
     private void AddStatusHistory(ApplicationInfo application, ApplicationStatuses beforeStatus, ApplicationStatuses afterStatus,
@@ -6022,15 +6024,25 @@ public class FilesServices
 
     public async Task<(bool Success, string Message)> PublicationStatusUpdateAsync(PublicationUpdateDto dto)
     {
+        _log.LogInformation("Starting publication status update for FileId {FileId}, UserId {UserId}", dto.FileId, dto.UserId);
         var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
         if (file == null)
+        {
+            _log.LogWarning("Publication status update failed. File not found for FileId {FileId}", dto.FileId);
             return (false, "File not found.");
+        }
         var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
         if (user == null)
+        {
+            _log.LogWarning("Publication status update failed. User not found for UserId {UserId}", dto.UserId);
             return (false, "User Not found");
+        }
         // Check if publication has already been done
         if (file.PublicationDate != null)
+        {
+            _log.LogWarning("Publication status update skipped. Publication already completed for FileId {FileId}", dto.FileId);
             return (false, "Publication has already been done on the file.");
+        }
 
         // Proceed with publication update logic
         // (existing logic for payment check, attachments, and history addition...)
@@ -6118,21 +6130,32 @@ public class FilesServices
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+        _log.LogInformation("Publication status update completed for FileId {FileId}", dto.FileId);
         return (true, "Publication status updated successfully.");
     }
 
     public async Task<(bool Success, string Message)> WithdrawalRequestAsync(WithdrawalRequestDto dto)
     {
+        _log.LogInformation("Starting withdrawal request for FileId {FileId}, UserId {UserId}", dto.FileId, dto.UserId);
         var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
         if (file == null)
+        {
+            _log.LogWarning("Withdrawal request failed. File not found for FileId {FileId}", dto.FileId);
             return (false, "File not found.");
+        }
 
         var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
         if (user == null)
+        {
+            _log.LogWarning("Withdrawal request failed. User not found for UserId {UserId}", dto.UserId);
             return (false, "User Not found");
+        }
 
         if (file.WithdrawalDate != null)
+        {
+            _log.LogWarning("Withdrawal request skipped. Withdrawal already completed for FileId {FileId}", dto.FileId);
             return (false, "Withdrawal has already been done on the file.");
+        }
 
         //Payment validation
         if (!string.IsNullOrEmpty(dto.PaymentRRR))
@@ -6243,6 +6266,7 @@ public class FilesServices
         file.ApplicationHistory.Add(withdrawalHistory);
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+        _log.LogInformation("Withdrawal request completed for FileId {FileId}", dto.FileId);
         return (true, "Withdrawal request submitted successfully.");
     }
 
@@ -6906,6 +6930,7 @@ public class FilesServices
 
         try
         {
+            _log.LogInformation("Starting clerical update for FileId {FileId}, UpdateType {UpdateType}", updateData.FileId, updateData.UpdateType);
             Console.WriteLine($"Finding file: {updateData.FileId}");
             Console.WriteLine(JsonSerializer.Serialize(updateData, new JsonSerializerOptions { WriteIndented = true }));
 
@@ -6928,6 +6953,7 @@ public class FilesServices
 
             if (existingUpdate != null)
             {
+                _log.LogInformation("Clerical update already exists for FileId {FileId}, UpdateType {UpdateType}, AppId {AppId}", updateData.FileId, updateData.UpdateType, existingUpdate.Id);
                 Console.WriteLine("Application already exists!");
                 return existingUpdate.Id;
             }
@@ -6979,6 +7005,7 @@ public class FilesServices
             if (result.MatchedCount == 0)
                 throw new Exception("Update failed: document not matched");
 
+            _log.LogInformation("Clerical update created for FileId {FileId}, AppId {AppId}", updateData.FileId, appHistoryId);
             return appHistoryId;
         }
         catch (Exception ex)
@@ -7675,6 +7702,14 @@ public class FilesServices
             );
 
             Console.WriteLine($"Clerical update applied successfully. ModifiedCount: {result.ModifiedCount}");
+            if (result.ModifiedCount > 0)
+            {
+                _log.LogInformation("Clerical update applied for FileId {FileId}, AppId {AppId}", fileId, clericalUpdateId);
+            }
+            else
+            {
+                _log.LogWarning("Clerical update produced no changes for FileId {FileId}, AppId {AppId}", fileId, clericalUpdateId);
+            }
 
             return result.ModifiedCount > 0;
         }
@@ -8753,10 +8788,15 @@ public class FilesServices
     #region Patent Assignment Registration Section
     public async Task<bool> NewPatentAssignmentApplication(PatentAssignmentDto dto)
     {
+        _log.LogInformation("Starting patent assignment application for FileId {FileId}, Rrr {Rrr}", dto.FileId, dto.Rrr);
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning("Patent assignment application failed. File not found for FileId {FileId}", dto.FileId);
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -8884,6 +8924,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.PatentAssignment, file.FileId, assignmentHistory.id);
+        }
+
+        _log.LogInformation("Completed patent assignment application for FileId {FileId}, PaymentSuccessful {PaymentSuccessful}", dto.FileId, paymentSuccessful);
         return true;
     }
 
@@ -9005,10 +9051,15 @@ public class FilesServices
     #region Patent License Post Registration Section
     public async Task<bool> NewPatentLicenseApplication(PatentLicenseDto dto)
     {
+        _log.LogInformation("Starting patent license application for FileId {FileId}, Rrr {Rrr}", dto.FileId, dto.Rrr);
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning("Patent license application failed. File not found for FileId {FileId}", dto.FileId);
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -9136,6 +9187,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.PatentLicense, file.FileId, licenseHistory.id);
+        }
+
+        _log.LogInformation("Completed patent license application for FileId {FileId}, PaymentSuccessful {PaymentSuccessful}", dto.FileId, paymentSuccessful);
         return true;
     }
 
@@ -9258,10 +9315,15 @@ public class FilesServices
     #region Patent Mortgage Post Registration Section
     public async Task<bool> NewPatentMortgageApplication(PatentMortgageDto dto)
     {
+        _log.LogInformation("Starting patent mortgage application for FileId {FileId}, Rrr {Rrr}", dto.FileId, dto.Rrr);
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning("Patent mortgage application failed. File not found for FileId {FileId}", dto.FileId);
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -9387,6 +9449,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.PatentMortgage, file.FileId, mortgageHistory.id);
+        }
+
+        _log.LogInformation("Completed patent mortgage application for FileId {FileId}, PaymentSuccessful {PaymentSuccessful}", dto.FileId, paymentSuccessful);
         return true;
     }
 
@@ -9508,10 +9576,15 @@ public class FilesServices
     #region Patent Merger Post Registration Section
     public async Task<bool> NewPatentMergerApplication(PatentMergerDto dto)
     {
+        _log.LogInformation("Starting patent merger application for FileId {FileId}, Rrr {Rrr}", dto.FileId, dto.Rrr);
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning("Patent merger application failed. File not found for FileId {FileId}", dto.FileId);
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -9637,6 +9710,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.PatentMerger, file.FileId, mergerHistory.id);
+        }
+
+        _log.LogInformation("Completed patent merger application for FileId {FileId}, PaymentSuccessful {PaymentSuccessful}", dto.FileId, paymentSuccessful);
         return true;
     }
 
@@ -9753,10 +9832,15 @@ public class FilesServices
 
     public async Task<bool> NewPatentCtcApplication(PatentCtcDto dto)
     {
+        _log.LogInformation("Starting patent CTC application for FileId {FileId}, Rrr {Rrr}", dto.FileId, dto.Rrr);
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning("Patent CTC application failed. File not found for FileId {FileId}", dto.FileId);
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -9835,6 +9919,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.PatentCtc, file.FileId, ctcHistory.id);
+        }
+
+        _log.LogInformation("Completed patent CTC application for FileId {FileId}, PaymentSuccessful {PaymentSuccessful}", dto.FileId, paymentSuccessful);
         return true;
     }
 
@@ -10224,10 +10314,15 @@ public class FilesServices
 
     public async Task<bool> NewPatentAmendmentApplication(PatentAmendmentDto dto)
     {
+        _log.LogInformation("Starting patent amendment application for FileId {FileId}, Rrr {Rrr}", dto.FileId, dto.Rrr);
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning("Patent amendment application failed. File not found for FileId {FileId}", dto.FileId);
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -10281,6 +10376,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.PatentAmendment, file.FileId, amendmentHistory.id);
+        }
+
+        _log.LogInformation("Completed patent amendment application for FileId {FileId}, PaymentSuccessful {PaymentSuccessful}", dto.FileId, paymentSuccessful);
         return true;
     }
 

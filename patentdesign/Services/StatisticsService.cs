@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
@@ -16,9 +17,9 @@ public class StatisticsService
     private readonly IMongoCollection<AppUser> _userCollection;
     private readonly IMongoCollection<PaymentRecord> _paymentCollection;
     private readonly IMongoCollection<Filling> _fillingCollection;
-  //  private readonly ILoggerService _log;
+    private readonly ILogger<StatisticsService> _log;
 
-    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
+    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<StatisticsService> log)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
         var digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
@@ -31,24 +32,28 @@ public class StatisticsService
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
         _fillingCollection = db.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-     //   _log = log;
+        _log = log;
     }
 
     #region Public API
 
     public IReadOnlyList<UnitInfoDto> GetUnits(string registryType)
     {
+        _log.LogInformation("Fetching units for RegistryType {RegistryType}", registryType);
         var unitMappings = GetUnitMappings(registryType);
-        return unitMappings.Select(unit => new UnitInfoDto
+        var result = unitMappings.Select(unit => new UnitInfoDto
         {
             UnitId = unit.UnitId,
             UnitName = unit.UnitName,
             RegistryType = registryType
         }).ToList();
+        _log.LogInformation("Fetched {UnitCount} units for RegistryType {RegistryType}", result.Count, registryType);
+        return result;
     }
 
     public async Task<IReadOnlyList<StaffInfoDto>> GetStaffAsync(string registryType, int unitId)
     {
+        _log.LogInformation("Fetching staff for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
         var unitMapping = GetUnitMapping(registryType, unitId);
         var fileType = ParseRegistryType(registryType);
 
@@ -62,6 +67,7 @@ public class StatisticsService
 
         if (staffIdList.Count == 0)
         {
+            _log.LogInformation("No staff found for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
             return [];
         }
 
@@ -74,7 +80,7 @@ public class StatisticsService
             ))).ToListAsync();
         var userLookup = BuildUserLookup(users);
 
-        return staffIdList.Distinct().Select(id =>
+        var result = staffIdList.Distinct().Select(id =>
         {
             userLookup.TryGetValue(id, out var user);
             return new StaffInfoDto
@@ -88,10 +94,14 @@ public class StatisticsService
                 UnitName = unitMapping.UnitName
             };
         }).ToList();
+
+        _log.LogInformation("Fetched {StaffCount} staff entries for RegistryType {RegistryType}, UnitId {UnitId}", result.Count, registryType, unitId);
+        return result;
     }
 
     public async Task<StaffPerformanceDataDto> GetStaffPerformanceAsync(string registryType, int unitId, string periodType, string periodValue, int year)
     {
+        _log.LogInformation("Fetching staff performance for RegistryType {RegistryType}, UnitId {UnitId}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, unitId, periodType, periodValue, year);
         var fileType = ParseRegistryType(registryType);
         var unitMapping = GetUnitMapping(registryType, unitId);
         var dateRange = GetDateRange(periodType, periodValue, year);
@@ -174,7 +184,7 @@ public class StatisticsService
             TreatmentRate = totalAssigned == 0 ? 0 : Math.Round(totalTreated * 100d / totalAssigned, 1)
         };
 
-        return new StaffPerformanceDataDto
+        var result = new StaffPerformanceDataDto
         {
             UnitId = unitMapping.UnitId,
             UnitName = unitMapping.UnitName,
@@ -188,10 +198,14 @@ public class StatisticsService
             Summary = summary,
             StaffPerformance = staffPerformance
         };
+
+        _log.LogInformation("Fetched staff performance for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
+        return result;
     }
 
     public async Task<UnitPerformanceDataDto> GetUnitPerformanceAsync(string registryType, string periodType, string periodValue, int year)
     {
+        _log.LogInformation("Fetching unit performance for RegistryType {RegistryType}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, periodType, periodValue, year);
         var fileType = ParseRegistryType(registryType);
         var unitMappings = GetUnitMappings(registryType);
         var dateRange = GetDateRange(periodType, periodValue, year);
@@ -232,7 +246,7 @@ public class StatisticsService
             });
         }
 
-        return new UnitPerformanceDataDto
+        var result = new UnitPerformanceDataDto
         {
             RegistryType = registryType,
             Period = new PeriodDto
@@ -250,6 +264,9 @@ public class StatisticsService
             },
             Units = unitResults.OrderBy(x => x.UnitId).ToList()
         };
+
+        _log.LogInformation("Fetched unit performance for RegistryType {RegistryType}", registryType);
+        return result;
     }
 
     #endregion
@@ -258,6 +275,7 @@ public class StatisticsService
 
     public async Task<FinanceComparisonDataDto> GetFinanceComparisonAsync(FinanceComparisonRequestDto request)
     {
+        _log.LogInformation("Fetching finance comparison for RegistryType {RegistryType}", request?.RegistryType);
         if (request?.Periods == null || request.Periods.Count == 0)
         {
             throw new ArgumentException("Missing required parameter: periods");
@@ -312,14 +330,18 @@ public class StatisticsService
             });
         }
 
-        return new FinanceComparisonDataDto
+        var result = new FinanceComparisonDataDto
         {
             Periods = results
         };
+
+        _log.LogInformation("Fetched finance comparison for RegistryType {RegistryType}", request.RegistryType);
+        return result;
     }
 
     public async Task<OperationalComparisonDataDto> GetOperationalComparisonAsync(OperationalComparisonRequestDto request)
     {
+        _log.LogInformation("Fetching operational comparison for RegistryType {RegistryType}", request?.RegistryType);
         if (request?.Periods == null || request.Periods.Count == 0)
         {
             throw new ArgumentException("Missing required parameter: periods");
@@ -378,11 +400,14 @@ public class StatisticsService
             results.Add(periodResult);
         }
 
-        return new OperationalComparisonDataDto
+        var result = new OperationalComparisonDataDto
         {
             RegistryType = request.RegistryType,
             Periods = results
         };
+
+        _log.LogInformation("Fetched operational comparison for RegistryType {RegistryType}", request.RegistryType);
+        return result;
     }
 
     #endregion
