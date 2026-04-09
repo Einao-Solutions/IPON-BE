@@ -12387,7 +12387,6 @@ public class FilesServices
         return (true, approve ? "Design CTC approved" : "Design CTC refused");
     }
 
-<<<<<<< HEAD
     // TRADEMARK CTC METHODS
     public async Task<bool> NewTrademarkCtcApplication(TrademarkCtcDto dto, string userId)
     {
@@ -12576,22 +12575,224 @@ public class FilesServices
 
         return (true, approve ? "Trademark CTC approved" : "Trademark CTC refused");
     }
-=======
-    //public async Task<int> DeactivateFiles()
-    //{
-    //    _log.LogInformation("Checking files due for renewal");
-    //    try
-    //    {
-    //        var cutoffDate = DateTime.Now.AddDays(-60);
 
-    //        var filter = Builders<Filling>.Filter.Lte(f => f., cutoffDate)
-    //                     & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
-    //    }
-    //    catch (Exception e)
-    //    {
-    //        Console.WriteLine(e);
-    //        throw;
-    //    }
-    //}
->>>>>>> 60ccc14b317ea717dd035f1ff56441a61bfaf546
+    /// <summary>
+    /// Get design attachments data for a specific file to verify/fix image URLs
+    /// </summary>
+    public async Task<object> GetDesignAttachmentsDataAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+
+        if (file == null)
+        {
+            return new { 
+                success = false, 
+                message = $"File {fileId} not found in database",
+                fileId = fileId
+            };
+        }
+
+        var designAttachment = file.Attachments?.FirstOrDefault(x => x.name == "designs");
+
+        // Check for alternative attachment names that might contain design images
+        var alternativeNames = new[] { "drawings", "representation", "images", "design", "attachment" };
+        var alternativeAttachments = file.Attachments?
+            .Where(a => alternativeNames.Contains(a.name?.ToLower()) && a.url?.Any() == true)
+            .Select(a => new { a.name, urlCount = a.url?.Count ?? 0, urls = a.url })
+            .ToList();
+
+        return new
+        {
+            success = true,
+            fileId = file.FileId,
+            internalId = file.Id,
+            title = file.TitleOfDesign,
+            hasDesignAttachment = designAttachment != null,
+            designUrls = designAttachment?.url ?? new List<string>(),
+            designUrlCount = designAttachment?.url?.Count ?? 0,
+            allAttachments = file.Attachments?.Select(a => new { 
+                a.name, 
+                urlCount = a.url?.Count ?? 0,
+                hasUrls = a.url?.Any() == true 
+            }).ToList(),
+            alternativeImageAttachments = alternativeAttachments
+        };
+    }
+
+    /// <summary>
+    /// Copy image URLs from one attachment to the "designs" attachment
+    /// </summary>
+    public async Task<object> CopyImagesToDesignsAttachmentAsync(string fileId, string sourceAttachmentName)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+
+        if (file == null)
+        {
+            return new { 
+                success = false, 
+                message = $"File {fileId} not found in database",
+                availableAttachments = new string[0]
+            };
+        }
+
+        Console.WriteLine($"[CopyImages] Looking for attachment '{sourceAttachmentName}' in file {fileId}");
+        Console.WriteLine($"[CopyImages] Available attachments: {string.Join(", ", file.Attachments?.Select(a => a.name) ?? new List<string>())}");
+
+        // Find source attachment
+        var sourceAttachment = file.Attachments?.FirstOrDefault(x => 
+            x.name?.Equals(sourceAttachmentName, StringComparison.OrdinalIgnoreCase) == true);
+
+        if (sourceAttachment == null)
+        {
+            return new { 
+                success = false, 
+                message = $"Source attachment '{sourceAttachmentName}' not found",
+                availableAttachments = file.Attachments?.Select(a => a.name).ToList() ?? new List<string>()
+            };
+        }
+
+        if (sourceAttachment.url == null || !sourceAttachment.url.Any())
+        {
+            return new { 
+                success = false, 
+                message = $"Source attachment '{sourceAttachmentName}' has no URLs",
+                availableAttachments = file.Attachments?.Select(a => a.name).ToList() ?? new List<string>()
+            };
+        }
+
+        Console.WriteLine($"[CopyImages] Found {sourceAttachment.url.Count} URLs in '{sourceAttachmentName}'");
+
+        // Find or create designs attachment
+        var designsAttachment = file.Attachments?.FirstOrDefault(x => x.name == "designs");
+
+        if (designsAttachment == null)
+        {
+            Console.WriteLine($"[CopyImages] Creating new 'designs' attachment");
+            // Create new designs attachment
+            designsAttachment = new AttachmentType
+            {
+                name = "designs",
+                url = new List<string>()
+            };
+
+            if (file.Attachments == null)
+                file.Attachments = new List<AttachmentType>();
+
+            file.Attachments.Add(designsAttachment);
+        }
+
+        // Copy ALL URLs (don't filter them)
+        var urlsToCopy = sourceAttachment.url.ToList();
+
+        Console.WriteLine($"[CopyImages] Copying {urlsToCopy.Count} URLs to 'designs'");
+        foreach (var url in urlsToCopy)
+        {
+            Console.WriteLine($"[CopyImages]   - {url}");
+        }
+
+        designsAttachment.url = urlsToCopy;
+
+        // Update database
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        Console.WriteLine($"[CopyImages] Successfully updated database for file {fileId}");
+
+        return new
+        {
+            success = true,
+            message = $"Copied {urlsToCopy.Count} image URL(s) from '{sourceAttachmentName}' to 'designs'",
+            fileId = file.FileId,
+            sourceAttachment = sourceAttachmentName,
+            copiedUrls = urlsToCopy
+        };
+    }
+
+    /// <summary>
+    /// Diagnostic method to check design attachments and image URLs
+    /// </summary>
+    public async Task<object> DiagnoseDesignImagesAsync(string fileId)
+    {
+        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+
+        if (file == null)
+        {
+            return new { 
+                success = false, 
+                message = "File not found",
+                fileId = fileId
+            };
+        }
+
+        var diagnosis = new
+        {
+            success = true,
+            fileId = file.FileId,
+            fileType = file.Type.ToString(),
+            title = file.TitleOfDesign ?? file.TitleOfInvention ?? file.TitleOfTradeMark,
+            hasAttachments = file.Attachments != null,
+            totalAttachments = file.Attachments?.Count ?? 0,
+            designAttachment = file.Attachments?.FirstOrDefault(x => x.name == "designs"),
+            allAttachmentNames = file.Attachments?.Select(a => a.name).ToList() ?? new List<string>()
+        };
+
+        // If there's a design attachment, check each URL
+        var designAttachment = file.Attachments?.FirstOrDefault(x => x.name == "designs");
+        if (designAttachment != null)
+        {
+            var urlChecks = new List<object>();
+
+            if (designAttachment.url != null)
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+                foreach (var url in designAttachment.url)
+                {
+                    var urlCheck = new
+                    {
+                        url = url,
+                        isNull = string.IsNullOrWhiteSpace(url),
+                        isNullString = url?.Equals("NULL", StringComparison.OrdinalIgnoreCase) ?? false,
+                        accessible = false,
+                        error = (string)null
+                    };
+
+                    if (!string.IsNullOrWhiteSpace(url) && !url.Equals("NULL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                            urlCheck = urlCheck with 
+                            { 
+                                accessible = response.IsSuccessStatusCode,
+                                error = response.IsSuccessStatusCode ? null : $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}"
+                            };
+                        }
+                        catch (Exception ex)
+                        {
+                            urlCheck = urlCheck with { error = ex.Message };
+                        }
+                    }
+
+                    urlChecks.Add(urlCheck);
+                }
+            }
+
+            return new
+            {
+                diagnosis.success,
+                diagnosis.fileId,
+                diagnosis.fileType,
+                diagnosis.title,
+                diagnosis.hasAttachments,
+                diagnosis.totalAttachments,
+                hasDesignAttachment = true,
+                designUrlCount = designAttachment.url?.Count ?? 0,
+                urlChecks = urlChecks,
+                diagnosis.allAttachmentNames
+            };
+        }
+
+        return diagnosis;
+    }
 }

@@ -1563,6 +1563,7 @@ public class LettersServices
                 {
                     if (string.IsNullOrWhiteSpace(url) || url.Equals("NULL", StringComparison.OrdinalIgnoreCase))
                     {
+                        Console.WriteLine($"[{file.FileId}] Skipping empty/NULL design image URL");
                         continue;
                     }
 
@@ -1572,13 +1573,22 @@ public class LettersServices
                         if (imgBytes?.Length > 0)
                         {
                             images.Add(imgBytes);
+                            Console.WriteLine($"[{file.FileId}] Successfully loaded design image from: {url}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[{file.FileId}] Warning: Design image URL returned empty data: {url}");
                         }
                     }
-                    catch (HttpRequestException)
+                    catch (HttpRequestException ex)
                     {
-                        // Ignore invalid image endpoints so generation can continue.
+                        Console.WriteLine($"[{file.FileId}] ERROR: Failed to load design image from URL: {url}. Error: {ex.Message}");
                     }
                 }
+            }
+            else
+            {
+                Console.WriteLine($"[{file.FileId}] No 'designs' attachment found or URL list is null");
             }
 
             data = new AcknowledgementModelDesign(file, "uri", images, filingDateText).GeneratePdf();
