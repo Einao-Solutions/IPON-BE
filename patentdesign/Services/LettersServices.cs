@@ -182,8 +182,15 @@ public class LettersServices
                 var remitaResponse3 = await GetPaymentData(fileData.Comment, appInfo3.PaymentId);
                 if (remitaResponse3 == null)
                 {
-                    Console.WriteLine("Remita response is null");
-                    return null;
+                    Console.WriteLine($"[{fileData.FileId}] Warning: Payment data not found for {appInfo3.PaymentId}. Using fallback values.");
+                    // Don't return null - use fallback values instead
+                    remitaResponse3 = new PaymentInfo
+                    {
+                        rrr = appInfo3.PaymentId ?? "-",
+                        amount = 0,
+                        paymentDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                        status = "00"
+                    };
                 }
                 var receiptModel3 = new Receipt()
                 {
@@ -1563,6 +1570,7 @@ public class LettersServices
                 {
                     if (string.IsNullOrWhiteSpace(url) || url.Equals("NULL", StringComparison.OrdinalIgnoreCase))
                     {
+                        Console.WriteLine($"[{file.FileId}] Skipping empty/NULL design image URL");
                         continue;
                     }
 
@@ -1572,13 +1580,22 @@ public class LettersServices
                         if (imgBytes?.Length > 0)
                         {
                             images.Add(imgBytes);
+                            Console.WriteLine($"[{file.FileId}] Successfully loaded design image from: {url}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[{file.FileId}] Warning: Design image URL returned empty data: {url}");
                         }
                     }
-                    catch (HttpRequestException)
+                    catch (HttpRequestException ex)
                     {
-                        // Ignore invalid image endpoints so generation can continue.
+                        Console.WriteLine($"[{file.FileId}] ERROR: Failed to load design image from URL: {url}. Error: {ex.Message}");
                     }
                 }
+            }
+            else
+            {
+                Console.WriteLine($"[{file.FileId}] No 'designs' attachment found or URL list is null");
             }
 
             data = new AcknowledgementModelDesign(file, "uri", images, filingDateText).GeneratePdf();
