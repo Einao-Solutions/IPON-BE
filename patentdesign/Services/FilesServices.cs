@@ -4534,10 +4534,16 @@ public class FilesServices
 
     public async Task<bool> NewDesignCtcApplication(DesignCtcDto dto, string userId)
     {
+        _log.LogInformation($"[NewDesignCtcApplication] Starting - FileId: {dto.FileId}, RRR: {dto.Rrr}, UserId: {userId}, AttachmentCount: {dto.AttachmentIds?.Count ?? 0}");
+
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning($"[NewDesignCtcApplication] File not found - FileId: {dto.FileId}");
+            return false;
+        }
 
         var applicant = file.applicants.FirstOrDefault();
 
@@ -4602,6 +4608,13 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
             update
         );
+
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.DesignCtc, file.FileId, ctcHistory.id);
+        }
+
+        _log.LogInformation($"[NewDesignCtcApplication] Completed successfully - FileId: {dto.FileId}, AppId: {ctcHistory.id}, PaymentSuccessful: {paymentSuccessful}");
         return true;
     }
 
@@ -10623,10 +10636,16 @@ public class FilesServices
 
     public async Task<bool> NewDesignAmendmentApplication(DesignAmendmentDto dto, string userId)
     {
+        _log.LogInformation($"[NewDesignAmendmentApplication] Starting - FileId: {dto.FileId}, RRR: {dto.Rrr}, UserId: {userId}, UpdateType: {dto.UpdateType}");
+
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning($"[NewDesignAmendmentApplication] File not found - FileId: {dto.FileId}");
+            return false;
+        }
 
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId)).FirstOrDefaultAsync();
         if (user == null)
@@ -10688,6 +10707,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.DesignAmendment, file.FileId, amendmentHistory.id);
+        }
+
+        _log.LogInformation($"[NewDesignAmendmentApplication] Completed successfully - FileId: {dto.FileId}, AppId: {amendmentHistory.id}, PaymentSuccessful: {paymentSuccessful}");
         return true;
     }
 
@@ -10906,10 +10931,16 @@ public class FilesServices
     //Design License Post Registration Section
     public async Task<bool> NewDesignLicenseApplication(DesignLicenseDto dto)
     {
+        _log.LogInformation($"[NewDesignLicenseApplication] Starting - FileId: {dto.FileId}, RRR: {dto.Rrr}, UserId: {dto.UserId}");
+
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning($"[NewDesignLicenseApplication] File not found - FileId: {dto.FileId}");
+            return false;
+        }
 
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
         if (user == null)
@@ -11038,6 +11069,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.DesignLicense, file.FileId, licenseHistory.id);
+        }
+
+        _log.LogInformation($"[NewDesignLicenseApplication] Completed successfully - FileId: {dto.FileId}, AppId: {licenseHistory.id}, PaymentSuccessful: {paymentSuccessful}");
         return true;
     }
 
@@ -11154,10 +11191,16 @@ public class FilesServices
     //Design Mortgage Post Registration Section
     public async Task<bool> NewDesignMortgageApplication(DesignMortgageDto dto)
     {
+        _log.LogInformation($"[NewDesignMortgageApplication] Starting - FileId: {dto.FileId}, RRR: {dto.Rrr}, UserId: {dto.UserId}");
+
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning($"[NewDesignMortgageApplication] File not found - FileId: {dto.FileId}");
+            return false;
+        }
 
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
         if (user == null)
@@ -11284,6 +11327,12 @@ public class FilesServices
             update
         );
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.DesignMortgage, file.FileId, mortgageHistory.id);
+        }
+
+        _log.LogInformation($"[NewDesignMortgageApplication] Completed successfully - FileId: {dto.FileId}, AppId: {mortgageHistory.id}, PaymentSuccessful: {paymentSuccessful}");
         return true;
     }
 
@@ -11421,10 +11470,16 @@ public class FilesServices
     //Design Assignment Post Registration Section
     public async Task<bool> NewDesignAssignmentApplication(DesignAssignmentDto dto)
     {
+        _log.LogInformation($"[NewDesignAssignmentApplication] Starting - FileId: {dto.FileId}, RRR: {dto.Rrr}, UserId: {dto.UserId}");
+
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null)
+        {
+            _log.LogWarning($"[NewDesignAssignmentApplication] File not found - FileId: {dto.FileId}");
+            return false;
+        }
 
         var user = await _userCollection.Find(Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId)).FirstOrDefaultAsync();
         if (user == null)
@@ -11550,6 +11605,12 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
             update);
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.DesignAssignment, file.FileId, assignmentHistory.id);
+        }
+
+        _log.LogInformation($"[NewDesignAssignmentApplication] Completed successfully - FileId: {dto.FileId}, AppId: {assignmentHistory.id}, PaymentSuccessful: {paymentSuccessful}");
         return true;
     }
 
@@ -11713,10 +11774,12 @@ public class FilesServices
     //Design Merger Post Registration Section
     public async Task<bool> NewDesignMergerApplication(DesignMergerDto dto)
     {
+        _log.LogInformation($"[NewDesignMergerApplication] Starting - FileId: {dto.FileId}, RRR: {dto.Rrr}, UserId: {dto.UserId}");
+
         var fileId = dto.FileId?.Trim();
         if (string.IsNullOrWhiteSpace(fileId))
         {
-            _log.LogWarning("Design merger submission missing file id");
+            _log.LogWarning("[NewDesignMergerApplication] Design merger submission missing file id");
             return false;
         }
 
@@ -11859,6 +11922,12 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
             update);
 
+        if (paymentSuccessful)
+        {
+            SavePayment(paymentDetails, PaymentTypes.DesignMerger, file.FileId, mergerHistory.id);
+        }
+
+        _log.LogInformation($"[NewDesignMergerApplication] Completed successfully - FileId: {fileId}, AppId: {mergerHistory.id}, PaymentSuccessful: {paymentSuccessful}");
         return true;
     }
 
