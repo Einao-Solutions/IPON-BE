@@ -2480,4 +2480,56 @@ public class FilesController(FilesServices fileService) : ControllerBase
 
     #endregion
 
+    /// <summary>
+    /// Get design attachments data for a specific file
+    /// </summary>
+    [HttpGet("design-attachments/{fileId}")]
+    public async Task<IActionResult> GetDesignAttachments(string fileId)
+    {
+        try
+        {
+            var result = await fileService.GetDesignAttachmentsDataAsync(fileId);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Copy images from another attachment to designs attachment
+    /// Example: POST /api/files/copy-to-designs?fileId=F/DS/NT/O/2026/6687&sourceAttachmentName=designDrawings
+    /// </summary>
+    [HttpPost("copy-to-designs")]
+    public async Task<IActionResult> CopyToDesignsAttachment([FromQuery] string fileId, [FromQuery] string sourceAttachmentName)
+    {
+        try
+        {
+            var result = await fileService.CopyImagesToDesignsAttachmentAsync(fileId, sourceAttachmentName);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Diagnostic endpoint to check design attachments for a specific file
+    /// </summary>
+    [HttpGet("diagnose-design-images/{fileId}")]
+    public async Task<IActionResult> DiagnoseDesignImages(string fileId)
+    {
+        try
+        {
+            var result = await fileService.DiagnoseDesignImagesAsync(fileId);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
 }
