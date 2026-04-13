@@ -7,7 +7,7 @@ using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 namespace patentdesign.Controllers
 {
 
-    [Authorize]
+    //[Authorize]
     [ApiController]
     [Route("api/admin")]
     public class AdminController(AdminServices adminServices) : ControllerBase
@@ -61,12 +61,12 @@ namespace patentdesign.Controllers
             return Ok(new { message = "Reset Password" });
         }
 
-        [HttpPost("UploadAttachment")]
-        public async Task<IActionResult> UploadAttachment([FromForm] AdminUploadAttachmentDto dto)
+        [HttpPost("UploadSignature")]
+        public async Task<IActionResult> UploadSignature([FromForm] SignatoryDto dto)
         {
-            var result = await adminServices.AdminUploadAttach(dto);
-            if (result) return Ok(new { message = "Attachment Uploaded" });
-            return BadRequest(new { message = "Failed to Upload Attachment" });
+            var result = await adminServices.UploadSignature(dto);
+            if (result) return Ok(new { message = "Signature Uploaded" });
+            return BadRequest(new { message = "Failed to Upload Signature" });
         }
 
         [HttpGet("GetUserByEmail")]

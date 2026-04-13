@@ -23,14 +23,14 @@ public class RegisteredUserCert(Filling model, string url, byte[]? imageData, st
         private void ComposeContent(IContainer container)
         {
             var regUser = model.RegisteredUsers?.FirstOrDefault(r=>r.Id == applicationId);
-            // var app = model.ApplicationHistory?.FirstOrDefault(a=>a.id == applicationId);
-            // container.PaddingVertical(5)
-            //     .Column(column =>
-            //     {
-            //         column.Item().AlignCenter().Text("Invalid applicant data").FontSize(16).FontColor(Colors.Red.Medium);
-            //     }
-            //     );
-            container.PaddingVertical(5).Column(column =>
+            var app = model.ApplicationHistory?.FirstOrDefault(a=>a.id == applicationId);
+        // container.PaddingVertical(5)
+        //     .Column(column =>
+        //     {
+        //         column.Item().AlignCenter().Text("Invalid applicant data").FontSize(16).FontColor(Colors.Red.Medium);
+        //     }
+        //     );
+        container.PaddingVertical(5).Column(column =>
             {
                 column.Item().Height(30);
                 column.Item().Height(70).Row(row =>
@@ -88,9 +88,10 @@ public class RegisteredUserCert(Filling model, string url, byte[]? imageData, st
                     : date;
                 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                column.Item().Height(35).Image("assets/reg.png").FitArea();
-                column.Item().Height(20);
-                column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Height(5);
+                column.Item().Height(30).Image(app.Signature ?? Array.Empty<byte>()).FitArea();
+                column.Item().Height(5);
+                column.Item().Text(app.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Federal Ministry of Industry, Trade and Investment.").SemiBold()

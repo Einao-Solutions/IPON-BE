@@ -20,6 +20,7 @@ namespace patentdesign.Services
         private static IMongoCollection<PerformanceMarker> _performanceCollection;
         private static IMongoCollection<OppositionType> _oppositionCollection;
         private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
+        private static IMongoCollection<SignatureInfo> _signatures;
         private static IMongoCollection<StatusChangeLog> _statusLogs;
         private readonly ILogger<AdminServices> _log;
         
@@ -35,7 +36,7 @@ namespace patentdesign.Services
         private string attachmentBaseUrl = "https://integration.iponigeria.com";
         //private string attachmentBaseUrl = "http://localhost:5044";
 
-       
+
         public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<AdminServices> log, PaymentService paymentService, EmailServices emailServices)
         {
             var useSandbox = patentDesignDbSettings.Value.UseSandbox;
@@ -58,6 +59,7 @@ namespace patentdesign.Services
             _oppositionCollection = pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
             _ticketsCollection = pdDb.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
             _userCollection = pdDb.GetCollection<AppUser>("appUsers");
+            _signatures = pdDb.GetCollection<SignatureInfo>("signatures");
             _attachmentCollection =
                 pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
             _remitaPaymentUtils = remitaPaymentUtils;
@@ -311,29 +313,30 @@ namespace patentdesign.Services
             }
         }
 
-        public async Task<bool> AdminUploadAttach(AdminUploadAttachmentDto req)
+        public async Task<bool> UploadSignature(SignatoryDto req)
         {
             try
             {
-                if (req.Attachment == null) throw new Exception("Document is required");
+                _log.LogInformation("Admin uploading signature for {Name}", req.Name);
+                if (req.Signature == null) throw new Exception("Signature Image is required");
 
                 // Read the uploaded file into a byte array
                 using var ms = new MemoryStream();
-                await req.Attachment.CopyToAsync(ms);
+                await req.Signature.CopyToAsync(ms);
                 var attachmentData = ms.ToArray();
 
                 // Generate a unique filename and save to attachments collection
                 var trustedFileName = Path.GetRandomFileName();
-                trustedFileName = trustedFileName.Split(".")[0] + Path.GetExtension(req.Attachment.FileName);
+                trustedFileName = trustedFileName.Split(".")[0] + Path.GetExtension(req.Signature.FileName);
 
-                await _attachmentCollection.InsertOneAsync(new AttachmentInfo
+                await _signatures.InsertOneAsync(new SignatureInfo
                 {
-                    Id = trustedFileName,
-                    ContentType = req.Attachment.ContentType,
-                    Data = attachmentData,
-                    Name = "TradeCertificationSignature"
+                    Id = Guid.NewGuid().ToString(),
+                    Designation = req.Designation,
+                    SignatureData = attachmentData,
+                    Name = req.Name,
+                    ApplicationTypes = req.ApplicationTypes,
                 });
-
                 return true;
             }
             catch (Exception e)
@@ -342,7 +345,26 @@ namespace patentdesign.Services
                 throw;
             }
         }
-
+        public async Task<SignatureInfo> GetSignatures(FormApplicationTypes appType)
+        {
+            try
+            {
+                _log.LogInformation("Retrieving signature for {AppType}...", appType);
+                var signature = await _signatures.Find(s => s.ApplicationTypes.Contains(appType)).FirstOrDefaultAsync();
+                if (signature == null)
+                {
+                    _log.LogWarning("No signature found for {AppType}", appType);
+                    throw new KeyNotFoundException("Signature not found");
+                }
+                _log.LogInformation("Signature retrieved for {AppType}", appType);
+                return signature;
+            }
+            catch (Exception e)
+            {
+                _log.LogError(e, "Error retrieving signature");
+                throw;
+            }
+        }
         public async Task<AppUser> GetUserByEmail(string email)
         {
             _log.LogInformation("Getting user details for {email}",email);

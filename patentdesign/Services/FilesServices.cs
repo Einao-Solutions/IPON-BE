@@ -58,6 +58,7 @@ public class FilesServices
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
     private static IMongoCollection<PublicationInfo> _publicationCollection;
+    private static IMongoCollection<SignatureInfo> _signatures;
     private readonly ILogger<FilesServices> _log;
 
 
@@ -101,6 +102,7 @@ public class FilesServices
         _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
         _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
         _publicationServices = publicationServices;
+        _signatures = pdDb.GetCollection<SignatureInfo>("signatures");
     }
 
     public async Task<Filling?> GetFileAsync(string id)
@@ -4727,6 +4729,7 @@ public class FilesServices
     {
         try
         {
+            _log.LogInformation($"[GetFileWithdrawalCost] Starting - FileId: {fileId}, FileType: {fileType}");
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.FileWithdrawal, fileType, "", null, null, null);
 
             var fileInfo = await _fillingCollection
@@ -4735,13 +4738,13 @@ public class FilesServices
 
             if (fileInfo == null || fileInfo.applicants == null || fileInfo.applicants.Count == 0)
             {
-                Console.WriteLine("No file or applicants found.");
+                _log.LogError("No file or applicants found.");
                 return null;
             }
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GenerateFileWithdrawalRemitaPaymentId(
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "File Withdrawal",
                 applicant.Name, applicant.Email, applicant.Phone);
 
@@ -4750,7 +4753,7 @@ public class FilesServices
                 Amount = data.Item1,
                 rrr = paymentId,
                 FileId = fileId,
-                FileTitle = fileInfo.TitleOfTradeMark ?? "",
+                FileTitle = fileInfo.TitleOfTradeMark ?? fileInfo.TitleOfInvention ?? fileInfo.TitleOfDesign ?? "",
                 ApplicantName = applicant.Name,
                 TrademarkClass = fileInfo.TrademarkClass
             };
@@ -5087,6 +5090,11 @@ public class FilesServices
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
 
+            //Signature for Certificate
+            var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
+            app.SignatoryName = signature.Name;
+            app.Signature = signature.SignatureData;
+
             //Update reg user
             var regUser = file.RegisteredUsers?.FirstOrDefault(r => r.Id == recordalApp.appId);
             if (regUser == null) return false;
@@ -5404,6 +5412,11 @@ public class FilesServices
             if (app == null) return false;
 
             app.CurrentStatus = ApplicationStatuses.Approved;
+
+            //Signature for Certificate
+            var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
+            app.SignatoryName = signature.Name;
+            app.Signature = signature.SignatureData;
 
             // Update Applicant
             var applicant = file.applicants?.FirstOrDefault();
@@ -5774,7 +5787,12 @@ public class FilesServices
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
-            
+
+            //Signature for Certificate
+            var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
+            app.SignatoryName = signature.Name;
+            app.Signature = signature.SignatureData;
+
             var history = new ApplicationHistory
             {
                 beforeStatus = ApplicationStatuses.AwaitingPayment,
@@ -6711,12 +6729,15 @@ public class FilesServices
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status
+
             var app = file.ApplicationHistory?.FirstOrDefault(p => p.id == recordalApp.appId);
             if (app == null) return false;
             app.CurrentStatus = ApplicationStatuses.Approved;
-            app.SignatoryName = "Onyinye H. Emoka";
-            var signature = await _attachmentCollection.Find(a => a.Name == "TradeCertificationSignature")
-                .FirstOrDefaultAsync();
+
+            //Signature for Certificate
+            var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
+            app.SignatoryName = signature.Name;
+            app.Signature = signature.SignatureData;
 
             // Update Applicant
             var applicant = file.applicants?.FirstOrDefault();

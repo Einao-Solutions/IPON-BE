@@ -54,3 +54,11 @@ public class AnnouncementMailDto
     public string? Subject { get; set; }
     public string? Message { get; set; }
 }
+
+public class SignatoryDto
+{
+    public string? Name { get; set; }
+    public string? Designation { get; set; }
+    public IFormFile? Signature { get; set; }
+    public List<FormApplicationTypes> ApplicationTypes { get; set; }
+}

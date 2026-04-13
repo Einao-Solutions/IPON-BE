@@ -467,6 +467,7 @@ public record PostRegistrationApp
     // Complex field amendments (JSON serialized for lists/objects)
     public string? OldDataJson { get; set; }
     public string? NewDataJson { get; set; }
+    
 
 }
 
@@ -543,6 +544,7 @@ public record ApplicationInfo
     public List<ApplicantInfo>? Applicants { get; set; } 
     public string? SignatoryName { get; set; }
     public string? SignatureUrl { get; set; }
+    public byte[]? Signature { get; set; }
 }
 
 
@@ -1748,4 +1750,16 @@ public enum DesignAmendmentTypes
     StatementOfNovelty = 14,
     CreatorInformation = 15,
     DesignAttachments = 16
+}
+
+public record SignatureInfo
+{
+    [BsonId]
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public byte[] SignatureData { get; set; }
+    public string? Designation { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public List<FormApplicationTypes> ApplicationTypes { get; set; } = new ();
+    public bool IsActive { get; set; } = true;
 }

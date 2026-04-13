@@ -22,7 +22,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
 
         private void ComposeContent(IContainer container)
         {
-            var app = model.PostRegApplications?.FirstOrDefault(r=>r.Id == applicationId);
+            var app = model.ApplicationHistory.FirstOrDefault(r=>r.id == applicationId);
             var firstApplicant = model.ApplicationHistory[0].Applicants.FirstOrDefault();
             var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
             var date = postRegApp?.DateTreated;
@@ -32,7 +32,6 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 out var parsedDate)
                 ? parsedDate.ToString("dd MMMM, yyyy")
                 : date;
-
             var assignee = model.Assignees.FirstOrDefault(a => a.Id == applicationId);
             var assignor = model.ApplicationHistory[0].Applicants[0]; 
             container.PaddingVertical(5).Column(column =>
@@ -76,7 +75,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 column.Item().Height(5);
                 column.Item().Text($"I hereby certify that your name has been entered into the Register as a proprietor(s) of the trademark {model.TitleOfTradeMark}, with file number {model.FileId} and RTM {model.RtmNumber}, in class {model.TrademarkClass}, in respect of Abstract.")
                     .FontFamily(Fonts.TimesNewRoman).Justify();
-                column.Item().Text($"Pursuant to the Deed of Assignment dated {(DateTime.TryParse(app?.FilingDate, out var d) ? d.ToString("dd MM yyyy") : app?.FilingDate)}")
+                column.Item().Text($"Pursuant to the Deed of Assignment dated {(DateTime.TryParse(postRegApp?.FilingDate, out var d) ? d.ToString("dd MM yyyy") : postRegApp?.FilingDate)}")
                     .FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(10);
 
@@ -172,9 +171,10 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
 
                 column.Item().Height(40);
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                column.Item().Height(30).Image("assets/reg.png").FitArea();
-                column.Item().Height(10);
-                column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Height(5);
+                column.Item().Height(30).Image(app.Signature ?? Array.Empty<byte>()).FitArea();
+                column.Item().Height(5);
+                column.Item().Text(app.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Federal Ministry of Industry, Trade and Investment.").SemiBold()

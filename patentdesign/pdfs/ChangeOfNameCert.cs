@@ -24,7 +24,7 @@ public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, stri
         {
             var app = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
             var applicants = model.applicants.FirstOrDefault();
-
+            var appHistory = model.ApplicationHistory?.FirstOrDefault(h => h.id == applicationId);
             if (app == null) throw new Exception("Application not found");
             container.PaddingVertical(5).Column(column =>
             {
@@ -121,9 +121,10 @@ public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, stri
                 column.Item().Height(50);
 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                column.Item().Height(30).Image("assets/reg.png").FitArea();
-                column.Item().Height(10);
-                column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Height(5);
+                column.Item().Height(30).Image(appHistory.Signature ?? Array.Empty<byte>()).FitArea();
+                column.Item().Height(5);
+                column.Item().Text(appHistory.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Federal Ministry of Industry, Trade and Investment.").SemiBold()
