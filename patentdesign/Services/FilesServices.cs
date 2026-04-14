@@ -380,10 +380,10 @@ public class FilesServices
         file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Active;
         
 
-        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingApproval,
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
             paymentDate, userName, userId, "Payment Successful, License Renewed");
 
-        application.CurrentStatus = ApplicationStatuses.AwaitingApproval;
+        application.CurrentStatus = ApplicationStatuses.AutoApproved;
         application.ApplicationDate = paymentDate;
         switch (file.Type)
         {
