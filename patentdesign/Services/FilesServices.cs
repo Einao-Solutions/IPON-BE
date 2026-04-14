@@ -370,7 +370,7 @@ public class FilesServices
     private async Task ProcessLicenseRenewal(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
         _log.LogInformation("Processing license renewal for FileId {FileId}", file.FileId);
-
+        var isTrademark = file.Type == FileTypes.TradeMark;
         var firstRenewal = !file.ApplicationHistory
             .Any(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal
                     && a.CurrentStatus == ApplicationStatuses.Approved);
@@ -380,11 +380,12 @@ public class FilesServices
         file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Active;
         
 
-        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, isTrademark ? ApplicationStatuses.AutoApproved : ApplicationStatuses.AwaitingApproval,
             paymentDate, userName, userId, "Payment Successful, License Renewed");
 
-        application.CurrentStatus = ApplicationStatuses.AutoApproved;
         application.ApplicationDate = paymentDate;
+        application.CurrentStatus = isTrademark ? ApplicationStatuses.AutoApproved : ApplicationStatuses.AwaitingApproval;
+
         switch (file.Type)
         {
             case FileTypes.TradeMark:
