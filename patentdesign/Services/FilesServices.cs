@@ -2135,7 +2135,30 @@ public class FilesServices
 
             var result = await _fillingCollection.Aggregate<BsonDocument>(pipeline).ToListAsync();
             List<FileStatsRes> stats_mapped = [];
-            result.ForEach(e => stats_mapped.Add(BsonSerializer.Deserialize<FileStatsRes>(e)));
+
+            foreach (var doc in result)
+            {
+                var detailedStatsBson = doc.Contains("detailedStats") ? doc["detailedStats"].AsBsonArray : new BsonArray();
+                var fileStatsBson     = doc.Contains("fileStats")     ? doc["fileStats"].AsBsonArray     : new BsonArray();
+                var inactiveBson      = doc.Contains("inactive")      ? doc["inactive"].AsBsonArray      : new BsonArray();
+
+                var detailedStats = new List<DetailedStats>();
+                foreach (BsonDocument item in detailedStatsBson)
+                {
+                    try { detailedStats.Add(BsonSerializer.Deserialize<DetailedStats>(item)); }
+                    catch { /* skip records with corrupted/unrecognised enum values */ }
+                }
+
+                stats_mapped.Add(new FileStatsRes
+                {
+                    detailedStats = detailedStats,
+                    fileStats = fileStatsBson.Select(x => BsonSerializer.Deserialize<FilesCount>(x.AsBsonDocument)).ToList(),
+                    inactive  = inactiveBson
+                        .Select(x => (dynamic)new { total = x.AsBsonDocument.Contains("total") ? x.AsBsonDocument["total"].AsInt32 : 0 })
+                        .ToList()
+                });
+            }
+
             return stats_mapped;
             // var builder=Builders<Filling>.Filter;
             // List <dynamic > stats = [];
