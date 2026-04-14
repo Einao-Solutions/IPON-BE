@@ -61,7 +61,6 @@ public class FilesServices
     private static IMongoCollection<SignatureInfo> _signatures;
     private readonly ILogger<FilesServices> _log;
 
-
     private PaymentUtils _remitaPaymentUtils;
     private MongoClient _mongoClient;
     private FinanceService _financeService;
@@ -208,7 +207,7 @@ public class FilesServices
                 break;
 
             case FormApplicationTypes.LicenseRenewal:
-                ProcessLicenseRenewal(file, application, paymentDate, userName, userId);
+                await ProcessLicenseRenewal(file, application, paymentDate, userName, userId);
                 break;
 
             case FormApplicationTypes.ChangeOfName:
@@ -368,19 +367,39 @@ public class FilesServices
             throw;
         }
     }
-    private async void ProcessLicenseRenewal(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
+    private async Task ProcessLicenseRenewal(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
-        file.FileStatus = ApplicationStatuses.Active;
-        file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Active;
-        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.Approved,
-            paymentDate, userName, userId, "Payment Successful, License Renewed");
+        _log.LogInformation("Processing license renewal for FileId {FileId}", file.FileId);
 
-        application.CurrentStatus = ApplicationStatuses.Approved;
+        var firstRenewal = !file.ApplicationHistory
+            .Any(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal
+                    && a.CurrentStatus == ApplicationStatuses.Approved);
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
-        SavePayment(paymentInfo, PaymentTypes.NewCreation, file.FileId, application.id);
-    }
+        file.FileStatus = ApplicationStatuses.Active;
+        file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Active;
+        
 
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingApproval,
+            paymentDate, userName, userId, "Payment Successful, License Renewed");
+
+        application.CurrentStatus = ApplicationStatuses.AwaitingApproval;
+        application.ApplicationDate = paymentDate;
+        switch (file.Type)
+        {
+            case FileTypes.TradeMark:
+                application.ExpiryDate = firstRenewal ? DateOnly.FromDateTime(paymentDate.AddYears(7)) : DateOnly.FromDateTime(paymentDate.AddYears(14));
+                break;
+            case FileTypes.Patent:
+                application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(1));
+                break;
+            case FileTypes.Design:
+                application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(5));
+                break;
+        }
+
+        SavePayment(paymentInfo, PaymentTypes.LicenseRenew, file.FileId, application.id);
+    }
     private async Task ProcessChangeData(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
         var approved = await ApproveChangeDataRecordal(new TreatRecordalDto
@@ -1968,85 +1987,7 @@ public class FilesServices
         }
     }
 
-    // public async Task<string?> GenerateRemitaPaymentId(string total, string serviceFee, string description, 
-    //     string applicantName, string applicantEmail, string applicantNumber, string id) {
-    //     // jsonp ({"statuscode" :"025","RRR":"281108917526","status":"Payment Reference generated"})
-    //     // return "311092445036";
-    //      var _client = new HttpClient();
-    //          var orderId =$"IPONMWD{DateTime.Now.Ticks}";
-    //          var serviceId = "4019135160";
-    //          // var serviceId = id;
-    //          var merchantId = "6230040240";
-    //          var apiKey = "192753";
-    //          using StringContent jsonContent = new(
-    //              JsonSerializer.Serialize(new
-    //              {
-    //                  serviceTypeId= serviceId,
-    //                  amount= total,
-    //                  // amount= "500",
-    //                  orderId,
-    //                  payerName= applicantName,
-    //                  payerEmail= applicantEmail,
-    //                  payerPhone= applicantNumber,
-    //                  // payerName= "test teser",
-    //                  // payerEmail= "abdulhadih48@gmail.com",
-    //                  // payerPhone= "08159730537",
-    //                  description,
-    //                  lineItems= new []
-    //                  {
-    //                      new {
-    //                          lineItemsId= "itemid1",
-    //                          beneficiaryName= "Federal Ministry of Commerce",
-    //                          beneficiaryAccount= "0020110961047",
-    //                          bankCode= "000",
-    //                          beneficiaryAmount= (int.Parse(total) - int.Parse(serviceFee)).ToString(),
-    //                          // beneficiaryAmount="250",
-    //                          deductFeeFrom= "1",
-    //                      },
-    //                      new {
-    //                          lineItemsId= "itemid2",
-    //                          beneficiaryName= "Einao Solutions",
-    //                          beneficiaryAccount= "1013590643",
-    //                          bankCode= "057",
-    //                          // beneficiaryAmount= "250",
-    //                          beneficiaryAmount= serviceFee,
-    //                          deductFeeFrom= "0",
-    //                      }
-    //                  }
-    //              }
-    //              ),
-    //              Encoding.UTF8,
-    //              "application/json");
-    //          _client = new HttpClient();
-    //          // var test=merchantId + serviceId +orderId+ "500" + apiKey;
-    //          var test=merchantId + serviceId +orderId+ total + apiKey;
-    //          var apiHash = SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(test));
-    //          var convertedHash=Convert.ToHexString(apiHash).ToLower();
-    //          var request = new HttpRequestMessage(HttpMethod.Post,
-    //              "https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/merchant/api/paymentinit");
-    //          request.Headers.TryAddWithoutValidation("Authorization",$"remitaConsumerKey={merchantId},remitaConsumerToken={convertedHash}");
-    //          request.Content = jsonContent;
-    //          var response = await _client.SendAsync(request);
-    //          var dataMod = await response.Content.ReadAsStringAsync();
-    //          Console.WriteLine(dataMod);
-    //          try
-    //          {
-    //              int startIndex = dataMod.IndexOf("{");
-    //              int stopIndex = dataMod.IndexOf("}") + 1;
-    //              var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(
-    //                  dataMod.Substring(startIndex: startIndex, length: stopIndex - startIndex));
-    //              Console.WriteLine(dict);
-    //              string rrr = dict["RRR"].ToString();
-    //              return rrr;
-    //          }
-    //          catch (Exception e)
-    //          {
-    //              return null;
-    //          }
-    //
-    //          
-    // }
-    //
+    
     public async Task<List<FileStatsRes>?> FileStats(string? userId)
     {
         try
@@ -2295,6 +2236,7 @@ public class FilesServices
 
     }
 
+
     public async Task<RenewalDto> GetRenewalCost(string fileNumber, string userId, FileTypes fileType)
     {
         _log.LogInformation("Fetching renewal cost...");
@@ -2308,22 +2250,15 @@ public class FilesServices
         }
 
         var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
-        var renew = new RenewalDto();
-        switch (fileType)
+        var renew = fileType switch
         {
-            case FileTypes.Patent:
-                renew = await PatentRenewalCost(fileNumber, FileTypes.Patent);
-                return renew;
-            case FileTypes.Design:
-                renew = await DesignRenewalCost(fileNumber, FileTypes.Design);
-                return renew;
-            case FileTypes.TradeMark:
-                renew = await TrademarkRenewalCost(fileNumber, FileTypes.TradeMark);
-                return renew;
-            default:
-                return renew;
-        }
-        var app =  new ApplicationInfo
+            FileTypes.Patent => await PatentRenewalCost(fileNumber, FileTypes.Patent),
+            FileTypes.Design => await DesignRenewalCost(fileNumber, FileTypes.Design),
+            FileTypes.TradeMark => await TrademarkRenewalCost(fileNumber, FileTypes.TradeMark),
+            _ => throw new ArgumentOutOfRangeException(nameof(fileType), $"Unsupported file type: {fileType}")
+        };
+
+        var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
@@ -2348,7 +2283,7 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.FileId, fileNumber),
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
         );
-
+        _log.LogInformation("Renewal application created and awaiting payment.");
         return renew;
     }
 
