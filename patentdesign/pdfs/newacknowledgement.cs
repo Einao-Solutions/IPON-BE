@@ -319,9 +319,8 @@ namespace patentdesign
             // Check if any variation of the key exists in attachments
             if (nameVariations.TryGetValue(key, out var variations))
             {
-                return model.Attachments.Any(a => 
-                    variations.Any(v => string.Equals(a.name, v, StringComparison.OrdinalIgnoreCase)) &&
-                    a.url != null && a.url.Any());
+                return model.Attachments.Any(a =>
+                    variations.Any(v => string.Equals(a.name, v, StringComparison.OrdinalIgnoreCase)));
             }
 
             // Fallback to exact match

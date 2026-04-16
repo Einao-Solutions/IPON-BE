@@ -2135,7 +2135,30 @@ public class FilesServices
 
             var result = await _fillingCollection.Aggregate<BsonDocument>(pipeline).ToListAsync();
             List<FileStatsRes> stats_mapped = [];
-            result.ForEach(e => stats_mapped.Add(BsonSerializer.Deserialize<FileStatsRes>(e)));
+
+            foreach (var doc in result)
+            {
+                var detailedStatsBson = doc.Contains("detailedStats") ? doc["detailedStats"].AsBsonArray : new BsonArray();
+                var fileStatsBson     = doc.Contains("fileStats")     ? doc["fileStats"].AsBsonArray     : new BsonArray();
+                var inactiveBson      = doc.Contains("inactive")      ? doc["inactive"].AsBsonArray      : new BsonArray();
+
+                var detailedStats = new List<DetailedStats>();
+                foreach (BsonDocument item in detailedStatsBson)
+                {
+                    try { detailedStats.Add(BsonSerializer.Deserialize<DetailedStats>(item)); }
+                    catch { /* skip records with corrupted/unrecognised enum values */ }
+                }
+
+                stats_mapped.Add(new FileStatsRes
+                {
+                    detailedStats = detailedStats,
+                    fileStats = fileStatsBson.Select(x => BsonSerializer.Deserialize<FilesCount>(x.AsBsonDocument)).ToList(),
+                    inactive  = inactiveBson
+                        .Select(x => (dynamic)new { total = x.AsBsonDocument.Contains("total") ? x.AsBsonDocument["total"].AsInt32 : 0 })
+                        .ToList()
+                });
+            }
+
             return stats_mapped;
             // var builder=Builders<Filling>.Filter;
             // List <dynamic > stats = [];
@@ -6619,6 +6642,10 @@ public class FilesServices
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
+
+
+        if (file == null) throw new KeyNotFoundException("File not found");
+
         var assignee = file.Assignees?.FirstOrDefault(a => a.Id == appId);
         var assignor = file.ApplicationHistory[0].Applicants[0];
         Console.WriteLine(JsonSerializer.Serialize(assignor));
@@ -12552,7 +12579,7 @@ public class FilesServices
     }
 
     // TRADEMARK CTC METHODS
-    public async Task<bool> NewTrademarkCtcApplication(TrademarkCtcDto dto, string userId)
+    public async Task<bool> NewTrademarkCtcApplication(TrademarkCtcDto dto)
     {
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileId))
@@ -12560,11 +12587,6 @@ public class FilesServices
         if (file == null) return false;
 
         var applicant = file.applicants.FirstOrDefault();
-
-        // Fetch user for performance tracking
-        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-        if (user == null)
-            throw new UnauthorizedAccessException("User not found");
 
         // Verify payment
         var paymentDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.Rrr);
@@ -12596,8 +12618,8 @@ public class FilesServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = status,
                     Message = statusMessage,
-                    User = user.FirstName + " " + user.LastName,
-                    UserId = user.Id
+                    User = applicant?.Name,
+                    UserId = file.CreatorAccount
                 }
             }
         };
@@ -12660,6 +12682,12 @@ public class FilesServices
             }
         }
 
+        var applicantName = file.applicants != null && file.applicants.Count > 0
+            ? (file.applicants.Count > 1
+                ? file.applicants[0]?.Name + " et al."
+                : file.applicants[0]?.Name)
+            : "";
+
         return new
         {
             FileId = file.FileId,
@@ -12669,7 +12697,8 @@ public class FilesServices
             Status = appHistory?.CurrentStatus,
             RequestedAttachments = requestedAttachments,
             DateTreated = ctcApp.DateTreated,
-            Reason = ctcApp.Reason
+            Reason = ctcApp.Reason,
+            ApplicantName = applicantName
         };
     }
 
@@ -12684,12 +12713,13 @@ public class FilesServices
         if (file == null)
             return (false, "File not found");
 
-        if (string.IsNullOrWhiteSpace(userId))
-            return (false, "User ID is required");
-
-        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-        if (user == null)
-            return (false, "User not found or unauthorized");
+        AppUser? user = null;
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            if (user == null)
+                return (false, "User not found or unauthorized");
+        }
 
         var ctcApp = file.ApplicationHistory?
             .FirstOrDefault(a => a.id == appId && a.ApplicationType == FormApplicationTypes.CertifiedTrueCopy);
@@ -12704,8 +12734,8 @@ public class FilesServices
             Message = reason,
             beforeStatus = ctcApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
-            User = user.FirstName + " " + user.LastName,
-            UserId = user.Id
+            User = user != null ? user.FirstName + " " + user.LastName : "",
+            UserId = user?.Id
         };
 
         ctcApp.StatusHistory ??= new List<ApplicationHistory>();
@@ -12723,19 +12753,22 @@ public class FilesServices
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
 
-        var performance = new PerformanceDto
+        if (user != null)
         {
-            AppUserId = user.Id ?? user.CreatorId,
-            AfterStatus = ctcApp.CurrentStatus,
-            BeforeStatus = beforeStatus,
-            ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
-            FileNumber = file.FileId,
-            FileType = file.Type,
-            Reason = reason,
-            Date = DateTime.Now,
-            OfficeUnit = Roles.TrademarkCertification
-        };
-        SavePerformance(performance);
+            var performance = new PerformanceDto
+            {
+                AppUserId = user.Id ?? user.CreatorId,
+                AfterStatus = ctcApp.CurrentStatus,
+                BeforeStatus = beforeStatus,
+                ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
+                FileNumber = file.FileId,
+                FileType = file.Type,
+                Reason = reason,
+                Date = DateTime.Now,
+                OfficeUnit = Roles.TrademarkCertification
+            };
+            SavePerformance(performance);
+        }
 
         return (true, approve ? "Trademark CTC approved" : "Trademark CTC refused");
     }

@@ -82,44 +82,114 @@ namespace patentdesign.pdfs
                 col.Item().AlignCenter()
                     .Text("TRADEMARK CTC RECEIPT")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(16)
-                    .FontColor(Colors.Green.Darken3).ExtraBold();
+                    .FontColor(Colors.Green.Darken2).ExtraBold();
                 col.Item().Height(10);
 
-                // Receipt Table
+                // PAYMENT INFORMATION
                 col.Item().Table(table =>
                 {
                     table.ColumnsDefinition(columns =>
                     {
-                        columns.RelativeColumn(1);
-                        columns.RelativeColumn(1);
+                        columns.RelativeColumn();
+                        columns.RelativeColumn();
                     });
 
-                    table.Cell().Element(HeaderElement).Text("Date").Bold();
-                    table.Cell().Element(Block).Text(date);
+                    table.Cell().ColumnSpan(2).Element(HeaderElement).Text("PAYMENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                    table.Cell().Element(HeaderElement).Text("File Number").Bold();
-                    table.Cell().Element(Block).Text(F(model.FileId));
+                    table.Cell().Element(Block).Text("Payment Date:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(date).FontFamily(Fonts.TimesNewRoman).FontSize(12);
 
-                    table.Cell().Element(HeaderElement).Text("Trademark Title").Bold();
-                    table.Cell().Element(Block).Text(F(model.TitleOfTradeMark));
+                    table.Cell().Element(Block).Text("Payment RRR:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(receipt.rrr)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
 
-                    table.Cell().Element(HeaderElement).Text("Fee Title").Bold();
-                    table.Cell().Element(Block).Text(F(receipt.PaymentFor));
+                    table.Cell().Element(Block).Text("File Number:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(model.FileId)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
 
-                    table.Cell().Element(HeaderElement).Text("Payment RRR").Bold();
-                    table.Cell().Element(Block).Text(F(receipt.rrr));
+                    table.Cell().Element(Block).Text("Amount Paid:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(amountDisplay).FontFamily(Fonts.TimesNewRoman).FontSize(12);
 
-                    table.Cell().Element(HeaderElement).Text("Amount Paid").Bold();
-                    table.Cell().Element(Block).Text(amountDisplay).Bold();
+                    table.Cell().ColumnSpan(2).Element(Block).Column(c =>
+                    {
+                        c.Item().Text("Fee Title:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        c.Item().Text(F(receipt.PaymentFor)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+                    });
+
+                    table.Cell().ColumnSpan(2).Element(Block).Column(c =>
+                    {
+                        c.Item().Text("Trademark Title:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        c.Item().Text(F(model.TitleOfTradeMark)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+                    });
                 });
 
-                col.Item().PaddingTop(30).AlignCenter()
-                    .Text("THANK YOU FOR YOUR PAYMENT")
-                    .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Green.Darken2);
+                col.Item().Height(10);
 
-                col.Item().AlignCenter().PaddingTop(10)
-                    .Text("For inquiries, please contact us at info@trademarks.gov.ng")
-                    .FontFamily(Fonts.TimesNewRoman).FontSize(10);
+                // APPLICANT INFORMATION
+                col.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.RelativeColumn();
+                        columns.RelativeColumn();
+                    });
+
+                    table.Cell().ColumnSpan(2).Element(HeaderElement).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+                    var applicant = model.applicants?.FirstOrDefault();
+
+                    table.Cell().Element(Block).Text("Applicant Name:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(applicant?.Name)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+
+                    table.Cell().Element(Block).Text("Email:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(applicant?.Email)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+
+                    table.Cell().Element(Block).Text("Phone Number:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(applicant?.Phone)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+
+                    table.Cell().Element(Block).Text("Nationality:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(applicant?.country)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+
+                    table.Cell().ColumnSpan(2).Element(Block).Column(c =>
+                    {
+                        c.Item().Text("Applicant Address:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        c.Item().Text(F(applicant?.Address)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+                    });
+                });
+
+                col.Item().Height(10);
+
+                // CORRESPONDENCE INFORMATION
+                col.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.RelativeColumn();
+                        columns.RelativeColumn();
+                    });
+
+                    table.Cell().ColumnSpan(2).Element(HeaderElement).Text("CORRESPONDENCE INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+
+                    table.Cell().Element(Block).Text("Name:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(model.Correspondence?.name)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+
+                    table.Cell().ColumnSpan(2).Element(Block).Column(c =>
+                    {
+                        c.Item().Text("Address:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                        c.Item().Text(F(model.Correspondence?.address)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+                    });
+
+                    table.Cell().Element(Block).Text("Email:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(model.Correspondence?.email)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+
+                    table.Cell().Element(Block).Text("Phone Number:").FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold();
+                    table.Cell().Element(Block).Text(F(model.Correspondence?.phone)).FontFamily(Fonts.TimesNewRoman).FontSize(12);
+                });
+
+                col.Item().Height(10);
+
+                // Footer
+                col.Item().AlignCenter().PaddingTop(20)
+                    .Text("PLEASE KEEP THIS RECEIPT FOR FUTURE REFERENCE")
+                    .FontFamily(Fonts.TimesNewRoman).FontSize(12).Bold().FontColor(Colors.Green.Darken2);
             });
         }
     }
