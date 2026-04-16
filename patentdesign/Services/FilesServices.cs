@@ -6642,6 +6642,10 @@ public class FilesServices
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
+
+
+        if (file == null) throw new KeyNotFoundException("File not found");
+
         var assignee = file.Assignees?.FirstOrDefault(a => a.Id == appId);
         var assignor = file.ApplicationHistory[0].Applicants[0];
         Console.WriteLine(JsonSerializer.Serialize(assignor));
