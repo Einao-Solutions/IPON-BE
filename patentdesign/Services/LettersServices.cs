@@ -1561,7 +1561,11 @@ public class LettersServices
         if (file.Type is FileTypes.Design)
         {
             List<byte[]> images = [];
-            var designAttachment = file.Attachments?.FirstOrDefault(x => x.name == "designs");
+            var designAttachment = file.Attachments?.FirstOrDefault(x =>
+                string.Equals(x.name, "designs", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.name, "design_drawing", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.name, "designDrawing", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.name, "design_drawings", StringComparison.OrdinalIgnoreCase));
             var filingDateText = receipt.Date;
             if (designAttachment?.url != null)
             {

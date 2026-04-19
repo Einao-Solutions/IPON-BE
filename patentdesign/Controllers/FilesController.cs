@@ -1545,12 +1545,9 @@ public class FilesController(FilesServices fileService) : ControllerBase
     {
         try
         {
-            var userId = dto.UserId;
-            var created = await fileService.NewTrademarkCtcApplication(dto, userId);
+            var created = await fileService.NewTrademarkCtcApplication(dto);
             if (!created)
-            {
                 return BadRequest(ApiResponse<string>.Fail("Trademark CTC application could not be created."));
-            }
 
             return Ok(ApiResponse<string>.Ok("Trademark CTC application submitted successfully."));
         }
