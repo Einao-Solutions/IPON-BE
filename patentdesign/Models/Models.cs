@@ -865,7 +865,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration
 }
 public enum ApplicationLetters
 {
@@ -994,7 +994,7 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval
+    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval, AwaitingRenewalConfirmation, PendingRenewal
 }
 
 public record AssignmentCertificateType
@@ -1036,7 +1036,7 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification
+    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration
 }
 
 
@@ -1428,6 +1428,11 @@ public record PaymentInfo
     public string? ReclassificationCost { get; set; }
     public string? ReclassificationServiceFee { get; set; }
     public string? ReclassificationServiceID { get; set; }
+
+    //File Restoration
+    public string? TrademarkRestorationCost { get; set; }
+    public string? TrademarkRestorationServiceFee { get; set; }
+    public string? TrademarkRestorationServiceId { get; set; }
 }
 
 public record PaymentRecord

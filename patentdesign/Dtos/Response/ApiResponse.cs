@@ -1,4 +1,6 @@
-﻿namespace patentdesign.Dtos.Response
+﻿using patentdesign.Models;
+
+namespace patentdesign.Dtos.Response
 {
     public class ApiResponse<T>
     {
@@ -17,5 +19,13 @@
 
         public static ApiResponse<T> Ok(T data, string? message = null) => new(true, message, data);
         public static ApiResponse<T> Fail(string message) => new(false, message, default);
+    }
+    public class RestorationDto
+    {
+        public string? FileNumber { get; set; }
+        public ApplicationStatuses? FileStatus { get; set; }
+        public string? Applicant { get; set; }
+        public string? PaymentId { get; set; }
+
     }
 }
