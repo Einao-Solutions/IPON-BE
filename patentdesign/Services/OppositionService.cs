@@ -69,7 +69,7 @@ public class OppositionService
                 _log.LogError("File not found");
                 throw new KeyNotFoundException("File not found");
             }
-
+            
             if (file.FileStatus != ApplicationStatuses.Publication)
             {
                 _log.LogError("Only Files in Publication can be opposed.");
@@ -133,7 +133,12 @@ public class OppositionService
         _log.LogInformation($"Submitting Opposition {data.FileNumber}...");
         try
         {
-
+            var user = await _userCollection.Find(u => u.Id == data.UserId).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                _log.LogError("User not found");
+                throw new KeyNotFoundException("User not found");
+            }
             var oppDocUrls = new List<string>();
             
             if (data?.SupportingDocs?.Count > 0)
@@ -173,13 +178,37 @@ public class OppositionService
                 Nationality = data.Nationality,
                 Reason = data.Reason,
                 SupportingDocs = oppDocUrls,
-                Status = ApplicationStatuses.NewOpposition,
+                Status = ApplicationStatuses.AwaitingCounter,
                 FileTitle = data.FileTitle,
                 FileId = data.FileId,
+                UserId = data.UserId,
             };
             await _oppositionCollection.InsertOneAsync(oppose);
             _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
-            
+
+            var otherApp = new ApplicationInfo
+            {
+                ApplicationDate = DateTime.Now,
+                ApplicationType = FormApplicationTypes.NewOpposition,
+                CurrentStatus = ApplicationStatuses.AwaitingCounter,
+                PaymentId = data.PaymentId,
+                id = oppose.id,
+                FileNumber = data.FileNumber,
+                StatusHistory = new List<ApplicationHistory>
+                {
+                    new ApplicationHistory
+                    {
+                        beforeStatus = null,
+                        afterStatus = ApplicationStatuses.AwaitingCounter,
+                        Date = DateTime.Now,
+                        Message = data.Reason,
+                        User = user.Name ?? $"{user.FirstName} {user.LastName}",
+                        UserId = data.UserId
+                    }
+                }
+            };
+         //   var update = Builders<AppUser>.Update.Push(f => f.OtherApplications, app);
+
             return true;
         }
         catch (Exception e)
