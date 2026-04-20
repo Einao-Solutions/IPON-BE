@@ -2529,4 +2529,14 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
     }
 
+    [HttpPost("RestorationRequest")]
+    public async Task<IActionResult> RestorationRequest([FromQuery] string fileId, string userId)
+    {
+        var result = await fileService.FileRestorationCost(fileId,userId);
+        if(result == null)
+        {
+            return BadRequest("Failed to calculate restoration cost. File may not exist or is not eligible for restoration.");
+        }
+        return Ok(result);
+    }
 }
