@@ -169,6 +169,8 @@ public record FileSummary
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
     public int? TrademarkClass { get; set; }
+    public PatentTypes? PatentType { get; set; }
+    public DesignTypes? DesignType { get; set; }
 }
 
 public record FileApplicationSummary

@@ -1282,7 +1282,9 @@ public class FilesServices
             }).ToList(),
             id = x.Id.ToString(),
             Type = x.Type,
-            TrademarkClass = x.TrademarkClass
+            TrademarkClass = x.TrademarkClass,
+            PatentType = x.PatentType,
+            DesignType = x.DesignType
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
