@@ -200,6 +200,7 @@ public class FilesServices
 
     private async Task ProcessApplicationType(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
+        var firstApp = file.ApplicationHistory.FirstOrDefault();
         switch (application.ApplicationType)
         {
             case FormApplicationTypes.NewApplication:
@@ -220,6 +221,9 @@ public class FilesServices
                 return;
             case FormApplicationTypes.Restoration:
                 application.CurrentStatus = ApplicationStatuses.PendingRenewal;
+                firstApp.CurrentStatus = ApplicationStatuses.PendingRenewal;
+                file.FileStatus = ApplicationStatuses.PendingRenewal;
+                
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.PendingRenewal,
                    paymentDate, userName, userId, "Payment Successful, Awaiting Renewal Application");
                 break;
@@ -13085,7 +13089,7 @@ public class FilesServices
             var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
             if (file == null || file.FileStatus != ApplicationStatuses.Inactive){
                 _log.LogError("File not found or inactive");
-                throw new ArgumentNullException("File is either Active or Not found");
+                throw new Exception("File is either Active or Not found");
             }
             var user = await _userCollection
            .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
@@ -13132,14 +13136,15 @@ public class FilesServices
                 Applicant = applicant.Name,
                 FileNumber = fileId,
                 PaymentId = rrr,
-                FileStatus = file.FileStatus
+                FileStatus = file.FileStatus,
+                Cost = cost.Item1
             };
             return restore;
         }
         catch (Exception e)
         {
             _log.LogError(e, "Failed to create restoration application");
-            throw;
+            throw e;
         }
     }
 }

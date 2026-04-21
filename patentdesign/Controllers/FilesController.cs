@@ -2529,7 +2529,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
     }
 
-    [HttpPost("RestorationRequest")]
+    [HttpGet("RestorationRequest")]
     public async Task<IActionResult> RestorationRequest([FromQuery] string fileId, string userId)
     {
         var result = await fileService.FileRestorationCost(fileId,userId);
