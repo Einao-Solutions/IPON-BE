@@ -2,6 +2,7 @@ namespace patentdesign.Dtos.Request;
 
 public class OppositionRequestDto
 {
+    public string? UserId { get; set; }
     public string? FileNumber { get; set; }
     public string? FileId { get; set; }
     public string? FileTitle { get; set; }

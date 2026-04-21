@@ -547,6 +547,7 @@ public record ApplicationInfo
     public string? SignatoryName { get; set; }
     public string? SignatureUrl { get; set; }
     public byte[]? Signature { get; set; }
+    public string? FileNumber { get; set; }
 }
 
 
@@ -1717,6 +1718,7 @@ public record Opposition
     public bool? ApplicantNotified { get; set; } = false;
     public DateTime? ApplicantNotifiedDate { get; set; }
     public DateTime? ResolvedDate { get; set; }
+    public string? UserId { get; set; }
     public bool? Paid { get; set; } = false;
     public bool? IsStaffOpposition = false;
 }
