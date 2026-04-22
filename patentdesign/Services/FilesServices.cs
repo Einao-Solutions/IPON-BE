@@ -7619,7 +7619,8 @@ public class FilesServices
 
                     if (!string.IsNullOrWhiteSpace(clerical.NewClassDescription))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
-
+                    if (!string.IsNullOrWhiteSpace(clerical.NewAdditionalDescription))
+                        updates.Add(Builders<Filling>.Update.Set(f => f.AdditionalDescription, clerical.NewAdditionalDescription));
                     if (!string.IsNullOrWhiteSpace(clerical.NewDisclaimer))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
                     break;
