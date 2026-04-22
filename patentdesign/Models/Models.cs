@@ -228,6 +228,7 @@ public record Filling
     public string? TitleOfTradeMark {get;set;}
     public int?  TrademarkClass {get;set;}
     public string? TrademarkClassDescription { get; set; }
+    public string? AdditionalDescription { get; set; }
     public TradeMarkLogo? TrademarkLogo {get;set;}
     public TradeMarkType?  TrademarkType {get;set;}
     public string? TrademarkDisclaimer {get;set;}
@@ -278,6 +279,8 @@ public record ClericalUpdate
     public string? NewFileClass { get; set; }
     public string? OldClassDescription { get; set; }
     public string? NewClassDescription { get; set; }
+    public string? OldAdditionalDescription { get; set; }
+    public string? NewAdditionalDescription {get; set; }
     public string? OldFileTitle { get; set; }
     public string? NewFileTitle { get; set; }
     public string? OldCorrespondenceName {get; set; }
@@ -1771,4 +1774,17 @@ public record SignatureInfo
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public List<FormApplicationTypes> ApplicationTypes { get; set; } = new ();
     public bool IsActive { get; set; } = true;
+}
+
+public record Announcements
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? Title { get; set; }
+    public string? Content { get; set; }
+    public DateTime DateCreated { get; set; } = DateTime.Now;
+    public string? UserId { get; set; }
+    public AnnouncementType AnnouncementType { get; set; }
+    public AnnouncementSeverity AnnouncementSeverity { get; set; }
+
 }

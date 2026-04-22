@@ -21,6 +21,7 @@ namespace patentdesign.Dtos.Request
         public List<ApplicantInfo>? Inventors { get; set; }
         public int? FileClass { get; set; }
         public string? ClassDescription { get; set; }
+        public string? AdditionalDescription { get; set; }
         public string? FileTitle { get; set; }
         public FileTypes FileType { get; set; }
         public TradeMarkType? TrademarkType { get; set; }

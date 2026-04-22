@@ -1700,7 +1700,9 @@ public class FilesServices
 
     public async Task ProcessNewCreation(Filling newFile, List<TT> attachments)
     {
-
+        _log.LogInformation("Processing new creation for FileId {FileId}, Type {Type}", newFile.FileId, newFile.Type);
+        _log.LogDebug("Attachments count: {Count} for FileId {FileId}", attachments.Count, newFile.FileId);
+        _log.LogDebug("Additional Description: ", newFile.AdditionalDescription);
         if (newFile.Type is FileTypes.Design)
         {
             var designReps = attachments.Where(x => x.Name is "design1" or "design2" or "design3" or "design4").ToList();
@@ -1866,6 +1868,7 @@ public class FilesServices
         var applicantNationality = newFile.applicants.Select(x => x.country).Any(y => y.ToLower() != "nigeria") ? "Other" : "nigeria";
         // create fileId,
         var fileId = CreateTempFileNumber(newFile.Type, applicantNationality, newFile.PatentType, newFile.DesignType, newFile.TrademarkType);
+
         // add license history
         newFile.FileId = fileId;
         var fileStatusId = Guid.NewGuid().ToString();
@@ -1890,6 +1893,7 @@ public class FilesServices
             ],
             PaymentId = null
         };
+        _log.LogInformation("Created application history for new file with FileId {FileId}, ApplicationId {AppId}", fileId, fileStatusId);
         // add date created
         newFile.DateCreated = applicationDate;
         // add last request date
@@ -1902,6 +1906,7 @@ public class FilesServices
             applicantName, newFile.Correspondence.email, newFile.Correspondence.phone);
         if (rrr != null)
         {
+            _log.LogInformation("Generated RRR {Rrr} for new file with FileId {FileId}", rrr, fileId);
             fileHistory.PaymentId = rrr;
         }
         fileHistory.Applicants = newFile.applicants;
@@ -1938,6 +1943,8 @@ public class FilesServices
     private string CreateTempFileNumber(FileTypes type, string applicantsCountry, PatentTypes? patentType = null,
         DesignTypes? designType = null, TradeMarkType? tradeMarkType = null)
     {
+        _log.LogInformation("Creating temporary file number for Type {Type}, ApplicantCountry {Country}, PatentType {PatentType}, DesignType {DesignType}, TradeMarkType {TradeMarkType}",
+            type, applicantsCountry, patentType, designType, tradeMarkType);
         var firstSection = applicantsCountry.ToLower() == "nigeria".ToLower() ? "NG" : "F";
         var secondSection = type is FileTypes.Design ? "DS" : type is FileTypes.Patent ? "PT" : "TM";
         var thirdSection = "";
@@ -1960,6 +1967,7 @@ public class FilesServices
         }
 
         var fileNumber = string.Join("/", [firstSection, secondSection, thirdSection, "O", year]);
+        _log.LogDebug("Generated temporary file number {FileNumber}", fileNumber);
         return fileNumber;
     }
 
@@ -7200,6 +7208,11 @@ public class FilesServices
                     var oldDescription = FileUtils.TrademarkClassMapper.GetDescription(file.TrademarkClass.Value);
                     clerical.OldClassDescription = oldDescription;
                     clerical.NewClassDescription = newDescription;
+                }
+                if (updateData.AdditionalDescription != null)
+                {
+                    clerical.OldAdditionalDescription = file?.AdditionalDescription;
+                    clerical.NewAdditionalDescription = updateData.AdditionalDescription;
                 }
                 break;
 
