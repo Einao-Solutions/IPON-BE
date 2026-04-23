@@ -20,9 +20,10 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // ------------------ Load .env ONLY in Development ------------------
-if (builder.Environment.IsDevelopment())
+var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+if (File.Exists(envPath))
 {
-    DotNetEnv.Env.Load();
+    DotNetEnv.Env.Load(envPath);
 }
 // ------------------ Serilog ------------------
 var logPath = builder.Configuration["PatentDesignDatabase:LogPath"] ?? @"C:\IpoApiLog";

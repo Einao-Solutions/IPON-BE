@@ -107,5 +107,18 @@
         Acceptance,
         Certificate
     }
-
+    public enum AnnouncementType
+    {
+        General,
+        PatentDesignRegistry,
+        TrademarkRegistry,
+        Technical,
+    }
+    public enum AnnouncementSeverity
+    {
+        Low,
+        Medium,
+        High,
+        Critical
+    }
 }

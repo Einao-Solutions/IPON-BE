@@ -171,6 +171,8 @@ public record FileSummary
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
     public int? TrademarkClass { get; set; }
+    public PatentTypes? PatentType { get; set; }
+    public DesignTypes? DesignType { get; set; }
 }
 
 public record FileApplicationSummary
@@ -228,6 +230,7 @@ public record Filling
     public string? TitleOfTradeMark {get;set;}
     public int?  TrademarkClass {get;set;}
     public string? TrademarkClassDescription { get; set; }
+    public string? AdditionalDescription { get; set; }
     public TradeMarkLogo? TrademarkLogo {get;set;}
     public TradeMarkType?  TrademarkType {get;set;}
     public string? TrademarkDisclaimer {get;set;}
@@ -278,6 +281,8 @@ public record ClericalUpdate
     public string? NewFileClass { get; set; }
     public string? OldClassDescription { get; set; }
     public string? NewClassDescription { get; set; }
+    public string? OldAdditionalDescription { get; set; }
+    public string? NewAdditionalDescription {get; set; }
     public string? OldFileTitle { get; set; }
     public string? NewFileTitle { get; set; }
     public string? OldCorrespondenceName {get; set; }
@@ -547,6 +552,7 @@ public record ApplicationInfo
     public string? SignatoryName { get; set; }
     public string? SignatureUrl { get; set; }
     public byte[]? Signature { get; set; }
+    public string? FileNumber { get; set; }
 }
 
 
@@ -867,7 +873,7 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration
 }
 public enum ApplicationLetters
 {
@@ -996,8 +1002,8 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval,
-    StatutoryDeclaration
+AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval, AwaitingRenewalConfirmation, PendingRenewal,
+StatutoryDeclaration
 }
 
 public record AssignmentCertificateType
@@ -1039,8 +1045,8 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification,
-    CounterStatement
+PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
+CounterStatement
 }
 
 
@@ -1437,6 +1443,11 @@ public record PaymentInfo
     public string? ReclassificationCost { get; set; }
     public string? ReclassificationServiceFee { get; set; }
     public string? ReclassificationServiceID { get; set; }
+
+    //File Restoration
+    public string? TrademarkRestorationCost { get; set; }
+    public string? TrademarkRestorationServiceFee { get; set; }
+    public string? TrademarkRestorationServiceId { get; set; }
 }
 
 public record PaymentRecord
@@ -1719,9 +1730,9 @@ public record Opposition
     public bool? ApplicantNotified { get; set; } = false;
     public DateTime? ApplicantNotifiedDate { get; set; }
     public DateTime? ResolvedDate { get; set; }
+    public string? UserId { get; set; }
     public bool? Paid { get; set; } = false;
     public bool? IsStaffOpposition = false;
-    public string? UserId { get; set; }
     public ApplicationStatuses? PreviousFileStatus { get; set; }
     public string? Decision { get; set; }
     public string? ResolutionStatement { get; set; }
@@ -1805,4 +1816,17 @@ public record SignatureInfo
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public List<FormApplicationTypes> ApplicationTypes { get; set; } = new ();
     public bool IsActive { get; set; } = true;
+}
+
+public record Announcements
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? Title { get; set; }
+    public string? Content { get; set; }
+    public DateTime DateCreated { get; set; } = DateTime.Now;
+    public string? UserId { get; set; }
+    public AnnouncementType AnnouncementType { get; set; }
+    public AnnouncementSeverity AnnouncementSeverity { get; set; }
+
 }

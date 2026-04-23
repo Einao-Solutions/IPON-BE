@@ -200,6 +200,7 @@ public class FilesServices
 
     private async Task ProcessApplicationType(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
+        var firstApp = file.ApplicationHistory.FirstOrDefault();
         switch (application.ApplicationType)
         {
             case FormApplicationTypes.NewApplication:
@@ -218,6 +219,14 @@ public class FilesServices
             case FormApplicationTypes.ClericalUpdate:
                 await ProcessClericalUpdate(file, application, paymentDate, userName, userId);
                 return;
+            case FormApplicationTypes.Restoration:
+                application.CurrentStatus = ApplicationStatuses.PendingRenewal;
+                firstApp.CurrentStatus = ApplicationStatuses.PendingRenewal;
+                file.FileStatus = ApplicationStatuses.PendingRenewal;
+                
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.PendingRenewal,
+                   paymentDate, userName, userId, "Payment Successful, Awaiting Renewal Application");
+                break;
             case FormApplicationTypes.Reclassification:
                 application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
@@ -259,7 +268,27 @@ public class FilesServices
                     file.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(15));
                     break;
                 case FileTypes.Patent:
-                    application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(1));
+                    var fPriority = file.FirstPriorityInfo.FirstOrDefault();
+                    var priority = file.PriorityInfo.FirstOrDefault();
+                    if (file.PatentType == PatentTypes.PCT || file.PatentType == PatentTypes.Conventional)
+                    {
+                        if (fPriority != null && DateOnly.TryParse(fPriority.Date, out var priorityDate))
+                        {
+                            application.ExpiryDate = priorityDate.AddYears(1);
+                        }
+                        else if (priority != null && DateOnly.TryParse(priority.Date, out var priorityDate2))
+                        {
+                            application.ExpiryDate = priorityDate2.AddYears(1);
+                        }
+                        else
+                        {
+                            application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(20));
+                        }
+                    }
+                    else if (file.PatentType == PatentTypes.Non_Conventional)
+                    {
+                        application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(10));
+                    }
                     file.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(20));
                     break;
                 case FileTypes.TradeMark:
@@ -370,7 +399,7 @@ public class FilesServices
     private async Task ProcessLicenseRenewal(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
         _log.LogInformation("Processing license renewal for FileId {FileId}", file.FileId);
-
+        var isTrademark = file.Type == FileTypes.TradeMark;
         var firstRenewal = !file.ApplicationHistory
             .Any(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal
                     && a.CurrentStatus == ApplicationStatuses.Approved);
@@ -380,11 +409,12 @@ public class FilesServices
         file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Active;
         
 
-        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AutoApproved,
-            paymentDate, userName, userId, "Payment Successful, License Renewed");
+        AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, isTrademark ? ApplicationStatuses.AutoApproved : ApplicationStatuses.AwaitingApproval,
+            paymentDate, userName, userId, "Payment Successful");
 
-        application.CurrentStatus = ApplicationStatuses.AutoApproved;
         application.ApplicationDate = paymentDate;
+        application.CurrentStatus = isTrademark ? ApplicationStatuses.AutoApproved : ApplicationStatuses.AwaitingRenewalConfirmation;
+
         switch (file.Type)
         {
             case FileTypes.TradeMark:
@@ -727,8 +757,6 @@ public class FilesServices
         _log.LogDebug("Search result for FileNumber {FileNumber}: {Result}", fileNumber, JsonSerializer.Serialize(res));
         return res;
     }
-
-
     public async Task<List<string>> LoadListOfIds(int startingIndex,
         SummaryRequestObj filter)
     {
@@ -1258,7 +1286,9 @@ public class FilesServices
             }).ToList(),
             id = x.Id.ToString(),
             Type = x.Type,
-            TrademarkClass = x.TrademarkClass
+            TrademarkClass = x.TrademarkClass,
+            PatentType = x.PatentType,
+            DesignType = x.DesignType
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
@@ -1670,7 +1700,9 @@ public class FilesServices
 
     public async Task ProcessNewCreation(Filling newFile, List<TT> attachments)
     {
-
+        _log.LogInformation("Processing new creation for FileId {FileId}, Type {Type}", newFile.FileId, newFile.Type);
+        _log.LogDebug("Attachments count: {Count} for FileId {FileId}", attachments.Count, newFile.FileId);
+        _log.LogDebug("Additional Description: ", newFile.AdditionalDescription);
         if (newFile.Type is FileTypes.Design)
         {
             var designReps = attachments.Where(x => x.Name is "design1" or "design2" or "design3" or "design4").ToList();
@@ -1836,6 +1868,7 @@ public class FilesServices
         var applicantNationality = newFile.applicants.Select(x => x.country).Any(y => y.ToLower() != "nigeria") ? "Other" : "nigeria";
         // create fileId,
         var fileId = CreateTempFileNumber(newFile.Type, applicantNationality, newFile.PatentType, newFile.DesignType, newFile.TrademarkType);
+
         // add license history
         newFile.FileId = fileId;
         var fileStatusId = Guid.NewGuid().ToString();
@@ -1860,6 +1893,7 @@ public class FilesServices
             ],
             PaymentId = null
         };
+        _log.LogInformation("Created application history for new file with FileId {FileId}, ApplicationId {AppId}", fileId, fileStatusId);
         // add date created
         newFile.DateCreated = applicationDate;
         // add last request date
@@ -1872,6 +1906,7 @@ public class FilesServices
             applicantName, newFile.Correspondence.email, newFile.Correspondence.phone);
         if (rrr != null)
         {
+            _log.LogInformation("Generated RRR {Rrr} for new file with FileId {FileId}", rrr, fileId);
             fileHistory.PaymentId = rrr;
         }
         fileHistory.Applicants = newFile.applicants;
@@ -1908,6 +1943,8 @@ public class FilesServices
     private string CreateTempFileNumber(FileTypes type, string applicantsCountry, PatentTypes? patentType = null,
         DesignTypes? designType = null, TradeMarkType? tradeMarkType = null)
     {
+        _log.LogInformation("Creating temporary file number for Type {Type}, ApplicantCountry {Country}, PatentType {PatentType}, DesignType {DesignType}, TradeMarkType {TradeMarkType}",
+            type, applicantsCountry, patentType, designType, tradeMarkType);
         var firstSection = applicantsCountry.ToLower() == "nigeria".ToLower() ? "NG" : "F";
         var secondSection = type is FileTypes.Design ? "DS" : type is FileTypes.Patent ? "PT" : "TM";
         var thirdSection = "";
@@ -1930,6 +1967,7 @@ public class FilesServices
         }
 
         var fileNumber = string.Join("/", [firstSection, secondSection, thirdSection, "O", year]);
+        _log.LogDebug("Generated temporary file number {FileNumber}", fileNumber);
         return fileNumber;
     }
 
@@ -2309,7 +2347,53 @@ public class FilesServices
         _log.LogInformation("Renewal application created and awaiting payment.");
         return renew;
     }
+    public async Task<RenewalDto> PatentRenewalCost(string fileId, FileTypes fileType)
+    {
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+            if (file is null)
+            {
+                _log.LogError("File not found");
+                throw new KeyNotFoundException();
+            }
 
+            var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
+            var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
+            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            {
+                _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
+                throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
+            }
+            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
+            var applicant = file.applicants.FirstOrDefault();
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, file.PatentType);
+            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+                "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
+            if (rrr is null)
+            {
+                _log.LogError("Failed to Generate RRR");
+                throw new NullReferenceException();
+            }
+
+            var renew = new RenewalDto
+            {
+                ApplicantName = applicant.Name,
+                Cost = cost.Item1,
+                FileNumber = fileId,
+                FileTypes = FileTypes.Patent,
+                PaymentId = rrr ?? "",
+                ServiceFee = cost.Item3,
+                IsLateRenewal = DateOnly.FromDateTime(DateTime.Now) > lastRenewal?.ExpiryDate.Value
+            };
+            return renew;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, $"Error in RenewalApplication: {ex.Message}");
+            throw;
+        }
+    }
     public async Task<RenewalDto> DesignRenewalCost(string fileId, FileTypes fileType)
     {
         _log.LogInformation("Fetching design renewal cost...");
@@ -2322,7 +2406,13 @@ public class FilesServices
                 _log.LogError("File not found");
                 throw new KeyNotFoundException();
             }
-
+            var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
+            var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
+            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            {
+                _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
+                throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
+            }
             var applicant = file.applicants.FirstOrDefault();
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
@@ -2351,141 +2441,141 @@ public class FilesServices
             throw;
         }
     }
-    public async Task<RenewalDto> PatentRenewalCost(string fileId, FileTypes fileType)
-    {
-        var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
-        if (file == null)
-            throw new Exception("File not found");
+    //public async Task<RenewalDto> PatentRenewalCost(string fileId, FileTypes fileType)
+    //{
+    //    var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+    //    if (file == null)
+    //        throw new Exception("File not found");
 
-        if (file.Type != FileTypes.Patent)
-            throw new Exception("This method is strictly for patent files.");
+    //    if (file.Type != FileTypes.Patent)
+    //        throw new Exception("This method is strictly for patent files.");
 
-        // --- Patent logic below ---
-        // Only for PCT/Conventional: use FirstPriorityInfo
-        DateOnly? baseDate = null;
-        if (file.PatentType == PatentTypes.PCT || file.PatentType == PatentTypes.Conventional)
-        {
-            if (file.FirstPriorityInfo != null && file.FirstPriorityInfo.Count > 0)
-            {
-                baseDate = file.FirstPriorityInfo
-                    .Where(x => !string.IsNullOrWhiteSpace(x.Date))
-                    .Select(x => DateOnly.Parse(x.Date))
-                    .Min();
-            }
-            else
-            {
-                throw new Exception("No valid First Priority Date found for this patent.");
-            }
-        }
-        else
-        {
-            // For Non-Conventional, use FilingDate or DateCreated
-            if (file.FilingDate != null)
-                baseDate = DateOnly.FromDateTime(file.FilingDate.Value);
-            else
-                baseDate = DateOnly.FromDateTime(file.DateCreated);
-        }
+    //    // --- Patent logic below ---
+    //    // Only for PCT/Conventional: use FirstPriorityInfo
+    //    DateOnly? baseDate = null;
+    //    if (file.PatentType == PatentTypes.PCT || file.PatentType == PatentTypes.Conventional)
+    //    {
+    //        if (file.FirstPriorityInfo != null && file.FirstPriorityInfo.Count > 0)
+    //        {
+    //            baseDate = file.FirstPriorityInfo
+    //                .Where(x => !string.IsNullOrWhiteSpace(x.Date))
+    //                .Select(x => DateOnly.Parse(x.Date))
+    //                .Min();
+    //        }
+    //        else
+    //        {
+    //            throw new Exception("No valid First Priority Date found for this patent.");
+    //        }
+    //    }
+    //    else
+    //    {
+    //        // For Non-Conventional, use FilingDate or DateCreated
+    //        if (file.FilingDate != null)
+    //            baseDate = DateOnly.FromDateTime(file.FilingDate.Value);
+    //        else
+    //            baseDate = DateOnly.FromDateTime(file.DateCreated);
+    //    }
 
-        // Find the most recent renewal (if any)
-        DateOnly? lastRenewalDate = null;
-        if (file.ApplicationHistory != null)
-        {
-            var lastRenewal = file.ApplicationHistory
-                .Where(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal)
-                .OrderByDescending(a => a.ApplicationDate)
-                .FirstOrDefault();
-            if (lastRenewal != null)
-                lastRenewalDate = DateOnly.FromDateTime(lastRenewal.ApplicationDate);
-        }
+    //    // Find the most recent renewal (if any)
+    //    DateOnly? lastRenewalDate = null;
+    //    if (file.ApplicationHistory != null)
+    //    {
+    //        var lastRenewal = file.ApplicationHistory
+    //            .Where(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal)
+    //            .OrderByDescending(a => a.ApplicationDate)
+    //            .FirstOrDefault();
+    //        if (lastRenewal != null)
+    //            lastRenewalDate = DateOnly.FromDateTime(lastRenewal.ApplicationDate);
+    //    }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        // --- Anniversary logic for first-time renewal ---
-        if (lastRenewalDate == null)
-        {
-            var firstAnniversary = baseDate.Value.AddYears(1);
-            if (today < firstAnniversary)
-            {
-                throw new Exception($"Renewal can only begin on or after the first anniversary: {firstAnniversary:yyyy-MM-dd}");
-            }
-        }
+    //    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    //    // --- Anniversary logic for first-time renewal ---
+    //    if (lastRenewalDate == null)
+    //    {
+    //        var firstAnniversary = baseDate.Value.AddYears(1);
+    //        if (today < firstAnniversary)
+    //        {
+    //            throw new Exception($"Renewal can only begin on or after the first anniversary: {firstAnniversary:yyyy-MM-dd}");
+    //        }
+    //    }
 
-        // Use last renewal date if available, else base date
-        var renewalStartDate = lastRenewalDate ?? baseDate.Value;
+    //    // Use last renewal date if available, else base date
+    //    var renewalStartDate = lastRenewalDate ?? baseDate.Value;
 
-        // Calculate missed years
-        //int missedYears = today.Year - renewalStartDate.Year;
-        //if (today > renewalStartDate.AddYears(missedYears)) missedYears++;
-        //if (missedYears < 1) missedYears = 1;
+    //    // Calculate missed years
+    //    //int missedYears = today.Year - renewalStartDate.Year;
+    //    //if (today > renewalStartDate.AddYears(missedYears)) missedYears++;
+    //    //if (missedYears < 1) missedYears = 1;
 
-        int missedYears = (today.DayOfYear >= renewalStartDate.DayOfYear)
-        ? today.Year - renewalStartDate.Year
-        : today.Year - renewalStartDate.Year - 1;
-        if (missedYears < 1) missedYears = 1;
+    //    int missedYears = (today.DayOfYear >= renewalStartDate.DayOfYear)
+    //    ? today.Year - renewalStartDate.Year
+    //    : today.Year - renewalStartDate.Year - 1;
+    //    if (missedYears < 1) missedYears = 1;
 
-        // Get normal and late renewal costs
-        var (normalFeeStr, serviceId, serviceFeeStr) = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, file.Type, file.FilingCountry ?? "", file.DesignType, file.PatentType);
-        var (lateFeeStr, _, lateServiceFeeStr) = _remitaPaymentUtils.GetCost(PaymentTypes.PatentLateRenewal, file.Type, file.FilingCountry ?? "", file.DesignType, file.PatentType);
+    //    // Get normal and late renewal costs
+    //    var (normalFeeStr, serviceId, serviceFeeStr) = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, file.Type, file.FilingCountry ?? "", file.DesignType, file.PatentType);
+    //    var (lateFeeStr, _, lateServiceFeeStr) = _remitaPaymentUtils.GetCost(PaymentTypes.PatentLateRenewal, file.Type, file.FilingCountry ?? "", file.DesignType, file.PatentType);
 
-        int normalFee = int.TryParse(normalFeeStr, out var nf) ? nf : 0;
-        int lateFee = int.TryParse(lateFeeStr, out var lf) ? lf : 0;
-        int serviceFee = int.TryParse(serviceFeeStr, out var sf) ? sf : 0;
-        int lateServiceFee = int.TryParse(lateServiceFeeStr, out var lsf) ? lsf : 0;
+    //    int normalFee = int.TryParse(normalFeeStr, out var nf) ? nf : 0;
+    //    int lateFee = int.TryParse(lateFeeStr, out var lf) ? lf : 0;
+    //    int serviceFee = int.TryParse(serviceFeeStr, out var sf) ? sf : 0;
+    //    int lateServiceFee = int.TryParse(lateServiceFeeStr, out var lsf) ? lsf : 0;
 
-        bool isFirstRenewal = lastRenewalDate == null;
-        bool isWithinFirst6Months = false;
-        if (isFirstRenewal)
-        {
-            var baseDateTime = baseDate.Value.ToDateTime(TimeOnly.MinValue);
-            var monthsSinceBase = ((today.Year - baseDate.Value.Year) * 12) + today.Month - baseDate.Value.Month;
-            var windowStart = new DateOnly(today.Year, baseDate.Value.Month, baseDate.Value.Day);
-            var windowEnd = windowStart.AddMonths(6).AddDays(-1);
-            isWithinFirst6Months = today >= windowStart && today <= windowEnd;
-        }
+    //    bool isFirstRenewal = lastRenewalDate == null;
+    //    bool isWithinFirst6Months = false;
+    //    if (isFirstRenewal)
+    //    {
+    //        var baseDateTime = baseDate.Value.ToDateTime(TimeOnly.MinValue);
+    //        var monthsSinceBase = ((today.Year - baseDate.Value.Year) * 12) + today.Month - baseDate.Value.Month;
+    //        var windowStart = new DateOnly(today.Year, baseDate.Value.Month, baseDate.Value.Day);
+    //        var windowEnd = windowStart.AddMonths(6).AddDays(-1);
+    //        isWithinFirst6Months = today >= windowStart && today <= windowEnd;
+    //    }
 
-        int totalNormal = 0;
-        int totalLate = 0;
-        int totalService = 0;
-        int lateYearsCount = 0;
+    //    int totalNormal = 0;
+    //    int totalLate = 0;
+    //    int totalService = 0;
+    //    int lateYearsCount = 0;
 
-        if (isFirstRenewal && isWithinFirst6Months)
-        {
-            // Multiply normal fee by missed years, no late fee
-            totalNormal = missedYears * normalFee;
-            totalLate = 0;
-            totalService = missedYears * serviceFee;
-            lateYearsCount = 0;
-        }
-        else
-        {
-            // For all missed years, charge both normal and late fee
-            totalNormal = missedYears * normalFee;
-            totalLate = missedYears * lateFee;
-            totalService = missedYears * (serviceFee + lateServiceFee);
-            lateYearsCount = missedYears;
-        }
+    //    if (isFirstRenewal && isWithinFirst6Months)
+    //    {
+    //        // Multiply normal fee by missed years, no late fee
+    //        totalNormal = missedYears * normalFee;
+    //        totalLate = 0;
+    //        totalService = missedYears * serviceFee;
+    //        lateYearsCount = 0;
+    //    }
+    //    else
+    //    {
+    //        // For all missed years, charge both normal and late fee
+    //        totalNormal = missedYears * normalFee;
+    //        totalLate = missedYears * lateFee;
+    //        totalService = missedYears * (serviceFee + lateServiceFee);
+    //        lateYearsCount = missedYears;
+    //    }
 
-        int total = totalNormal + totalLate;
+    //    int total = totalNormal + totalLate;
 
-        // Generate RRR
-        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(
-            total.ToString(), totalService.ToString(), serviceId, $"{file.Type} renewal",
-            file.applicants.FirstOrDefault()?.Name ?? "",
-            file.applicants.FirstOrDefault()?.Email ?? "",
-            file.applicants.FirstOrDefault()?.Phone ?? "");
+    //    // Generate RRR
+    //    var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+    //        total.ToString(), totalService.ToString(), serviceId, $"{file.Type} renewal",
+    //        file.applicants.FirstOrDefault()?.Name ?? "",
+    //        file.applicants.FirstOrDefault()?.Email ?? "",
+    //        file.applicants.FirstOrDefault()?.Phone ?? "");
 
-        return new RenewalDto
-        {
-            Cost = total.ToString(),
-            PaymentId = rrr,
-            FileNumber = fileId,
-            IsLateRenewal = lateYearsCount > 0,
-            LateRenewalCost = totalLate > 0 ? totalLate.ToString() : null,
-            ServiceFee = totalService.ToString(),
-            MissedYearsCount = missedYears,
-            LateYearsCount = lateYearsCount,
-            FileTypes = file.Type,
-        };
-    }
+    //    return new RenewalDto
+    //    {
+    //        Cost = total.ToString(),
+    //        PaymentId = rrr,
+    //        FileNumber = fileId,
+    //        IsLateRenewal = lateYearsCount > 0,
+    //        LateRenewalCost = totalLate > 0 ? totalLate.ToString() : null,
+    //        ServiceFee = totalService.ToString(),
+    //        MissedYearsCount = missedYears,
+    //        LateYearsCount = lateYearsCount,
+    //        FileTypes = file.Type,
+    //    };
+    //}
     public async Task<RenewalDto> TrademarkRenewalCost(string fileId, FileTypes fileType)
     {
         try
@@ -2496,10 +2586,16 @@ public class FilesServices
                 _log.LogError("File not found");
                 throw new KeyNotFoundException();
             }
-
+            var firstApp = file.ApplicationHistory.FirstOrDefault();
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
-            var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
+            var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90) ?? firstApp.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
+            Console.WriteLine($"Renewal due date: {renewalDue?.ToString("yyyy-MM-dd")}");
             var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
+            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            {
+                _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
+                throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
+            }
             var applicant = file.applicants.FirstOrDefault();
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
@@ -2509,7 +2605,7 @@ public class FilesServices
                 _log.LogError("Failed to Generate RRR");
                 throw new NullReferenceException();
             }
-
+            
             var renew = new RenewalDto
             {
                 ApplicantName = applicant.Name,
@@ -2518,7 +2614,7 @@ public class FilesServices
                 FileTypes = FileTypes.TradeMark,
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
-                IsLateRenewal = lateRenewal 
+                IsLateRenewal = lateRenewal
             };
             return renew;
         }
@@ -6642,6 +6738,10 @@ public class FilesServices
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
+
+
+        if (file == null) throw new KeyNotFoundException("File not found");
+
         var assignee = file.Assignees?.FirstOrDefault(a => a.Id == appId);
         var assignor = file.ApplicationHistory[0].Applicants[0];
         Console.WriteLine(JsonSerializer.Serialize(assignor));
@@ -7109,6 +7209,11 @@ public class FilesServices
                     clerical.OldClassDescription = oldDescription;
                     clerical.NewClassDescription = newDescription;
                 }
+                if (updateData.AdditionalDescription != null)
+                {
+                    clerical.OldAdditionalDescription = file?.AdditionalDescription;
+                    clerical.NewAdditionalDescription = updateData.AdditionalDescription;
+                }
                 break;
 
             case ClericalUpdateTypes.CorrespondenceInformation:
@@ -7514,7 +7619,8 @@ public class FilesServices
 
                     if (!string.IsNullOrWhiteSpace(clerical.NewClassDescription))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkClassDescription, clerical.NewClassDescription));
-
+                    if (!string.IsNullOrWhiteSpace(clerical.NewAdditionalDescription))
+                        updates.Add(Builders<Filling>.Update.Set(f => f.AdditionalDescription, clerical.NewAdditionalDescription));
                     if (!string.IsNullOrWhiteSpace(clerical.NewDisclaimer))
                         updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
                     break;
@@ -12989,9 +13095,76 @@ public class FilesServices
         return diagnosis;
     }
 
-    public async Task<string?> GetFileIdByFileNumber(string fileNumber)
+public async Task<string?> GetFileIdByFileNumber(string fileNumber)
+{
+    var file = await _fillingCollection.Find(f => f.FileId == fileNumber).FirstOrDefaultAsync();
+    return file?.Id;
+}
+
+public async Task<RestorationDto> FileRestorationCost(string fileId, string userId)
+{
+    _log.LogInformation($"Filing restoration for {fileId}");
+    try
     {
-        var file = await _fillingCollection.Find(f => f.FileId == fileNumber).FirstOrDefaultAsync();
-        return file?.Id;
+        var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null || file.FileStatus != ApplicationStatuses.Inactive){
+            _log.LogError("File not found or inactive");
+            throw new Exception("File is either Active or Not found");
+        }
+        var user = await _userCollection
+       .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
+       .FirstOrDefaultAsync();
+        var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
+        var applicant = file.applicants.FirstOrDefault();
+        var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            "Payment for Trademark File Restoration", applicant.Name, applicant.Email, applicant.Phone);
+        if (rrr is null)
+        {
+            _log.LogError("Failed to Generate RRR");
+            throw new NullReferenceException();
+        }
+
+        var app = new ApplicationInfo
+        {
+            ApplicationDate = DateTime.Now,
+            CurrentStatus = ApplicationStatuses.AwaitingPayment,
+            ExpiryDate = null,
+            LicenseType = "",
+            ApplicationType = FormApplicationTypes.Restoration,
+            PaymentId = rrr,
+            StatusHistory =
+            [
+                new ApplicationHistory
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingPayment,
+                    Message = "File Restoration initiated, awaiting payment",
+                    UserId = userId,
+                    User = userName
+                }
+            ],
+        };
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+            Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
+        );
+        _log.LogInformation("Restoration application created and awaiting payment.");
+        var restore = new RestorationDto
+        {
+            Applicant = applicant.Name,
+            FileNumber = fileId,
+            PaymentId = rrr,
+            FileStatus = file.FileStatus,
+            Cost = cost.Item1
+        };
+        return restore;
+    }
+    catch (Exception e)
+    {
+        _log.LogError(e, "Failed to create restoration application");
+        throw e;
+    }
     }
 }

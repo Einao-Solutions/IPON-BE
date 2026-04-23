@@ -75,7 +75,7 @@ public class OppositionService
                 _log.LogError("File not found");
                 throw new KeyNotFoundException("File not found");
             }
-
+            
             if (file.FileStatus != ApplicationStatuses.Publication)
             {
                 _log.LogError("Only Files in Publication can be opposed.");
@@ -140,7 +140,12 @@ public class OppositionService
         _log.LogInformation($"[DEBUG] SubmitOpposition received — UserId: '{data.UserId}', Name: '{data.Name}', Email: '{data.Email}', PaymentId: '{data.PaymentId}'");
         try
         {
-
+            var user = await _userCollection.Find(u => u.Id == data.UserId).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                _log.LogError("User not found");
+                throw new KeyNotFoundException("User not found");
+            }
             var oppDocUrls = new List<string>();
             
             if (data?.SupportingDocs?.Count > 0)
@@ -180,15 +185,15 @@ public class OppositionService
                 Nationality = data.Nationality,
                 Reason = data.Reason,
                 SupportingDocs = oppDocUrls,
-                Status = ApplicationStatuses.AwaitingPayment,
-                FileTitle = data.FileTitle,
-                FileId = data.FileId,
-                UserId = data.UserId,
-            };
-            await _oppositionCollection.InsertOneAsync(oppose);
-            _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
+    Status = ApplicationStatuses.AwaitingPayment,
+    FileTitle = data.FileTitle,
+    FileId = data.FileId,
+    UserId = data.UserId,
+};
+await _oppositionCollection.InsertOneAsync(oppose);
+_log.LogInformation($"New Opposition {oppose.FileNumber} saved");
 
-            return oppose.id;
+return oppose.id;
         }
         catch (Exception e)
         {

@@ -345,6 +345,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceFee = _paymentInfo.ReclassificationServiceFee;
                 serviceId = _paymentInfo.ReclassificationServiceID;
                 break;
+            case PaymentTypes.FileRestoration:
+                amount = _paymentInfo.TrademarkRestorationCost;
+                serviceId = _paymentInfo.TrademarkRestorationServiceId;
+                serviceFee = _paymentInfo.TrademarkRestorationServiceFee;
+                break;
         }
 
         return (amount, serviceId, serviceFee);
