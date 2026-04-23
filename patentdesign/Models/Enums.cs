@@ -96,7 +96,7 @@
 
     public enum EmailType
     {
-        ResetPassword, Opposition, StatusUpdate, Announcement
+        ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, OppositionConfirmation
     }
     public enum ApplicationUnits
     {

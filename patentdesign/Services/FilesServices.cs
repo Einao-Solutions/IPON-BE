@@ -12988,4 +12988,10 @@ public class FilesServices
 
         return diagnosis;
     }
+
+    public async Task<string?> GetFileIdByFileNumber(string fileNumber)
+    {
+        var file = await _fillingCollection.Find(f => f.FileId == fileNumber).FirstOrDefaultAsync();
+        return file?.Id;
+    }
 }
