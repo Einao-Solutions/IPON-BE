@@ -1002,8 +1002,8 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval, AwaitingRenewalConfirmation, PendingRenewal,
-StatutoryDeclaration
+AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval,
+StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal
 }
 
 public record AssignmentCertificateType
