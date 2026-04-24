@@ -58,3 +58,4 @@ Write-Host "❌ url contains 'NULL' or empty strings -> Upload failed"
 Write-Host "❌ url points to deleted/moved files -> Storage cleanup removed files"
 Write-Host "❌ url returns 404/403 errors -> Permission or file not found issues"
 Write-Host ""
+do

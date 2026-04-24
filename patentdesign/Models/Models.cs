@@ -95,6 +95,8 @@ public record PatentDesignDBSettings
     public string FinanceCollectionName { get; set; } = null!;
     public string AttachmentCollectionName { get; set; } = null!;
     public string OppositionCollectionName { get; set; } = null!;
+    public string CounterStatementsCollectionName { get; set; } = null!;
+    public string StatutoryDeclarationsCollectionName { get; set; } = null!;
     public string UseSandbox { get; set; } = null!;
     public string LogPath { get; set; } = null!;
 
@@ -1000,7 +1002,8 @@ public enum ApplicationStatuses
     Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval, AwaitingRenewalConfirmation, PendingRenewal
+AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval, AwaitingRenewalConfirmation, PendingRenewal,
+StatutoryDeclaration
 }
 
 public record AssignmentCertificateType
@@ -1042,7 +1045,8 @@ public enum PaymentTypes
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
-    PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration
+PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
+CounterStatement
 }
 
 
@@ -1366,6 +1370,11 @@ public record PaymentInfo
     public string OppositionCost { get; set; }
     public string OppositionServiceFee { get; set; }
     public string OppositionServiceID { get; set; }
+
+    //Counter Statement
+    public string? CounterStatementCost { get; set; }
+    public string? CounterStatementServiceFee { get; set; }
+    public string? CounterStatementServiceID { get; set; }
 
     //appeal
     public string AppealCost { get; set; }
@@ -1724,6 +1733,39 @@ public record Opposition
     public string? UserId { get; set; }
     public bool? Paid { get; set; } = false;
     public bool? IsStaffOpposition = false;
+    public ApplicationStatuses? PreviousFileStatus { get; set; }
+    public string? Decision { get; set; }
+    public string? ResolutionStatement { get; set; }
+    public string? ResolvedBy { get; set; }
+    public string? ResolvedByUserId { get; set; }
+    public List<CounterStatement>? CounterStatements { get; set; } = new();
+    public List<StatutoryDeclaration>? StatutoryDeclarations { get; set; } = new();
+}
+
+public record CounterStatement
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? OppositionId { get; set; }
+    public string? Text { get; set; }
+    public List<string>? Attachments { get; set; }
+    public string? PaymentId { get; set; }
+    public bool? Paid { get; set; } = false;
+    public string? UserId { get; set; }
+    public DateTime SubmittedDate { get; set; } = DateTime.Now;
+}
+
+public record StatutoryDeclaration
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? OppositionId { get; set; }
+    public string? Text { get; set; }
+    public List<string>? Attachments { get; set; }
+    public string? PaymentId { get; set; }
+    public bool? Paid { get; set; } = false;
+    public string? UserId { get; set; }
+    public DateTime SubmittedDate { get; set; } = DateTime.Now;
 }
 
 public class StatusChangeLog

@@ -13095,70 +13095,76 @@ public class FilesServices
         return diagnosis;
     }
 
-    public async Task<RestorationDto> FileRestorationCost(string fileId, string userId)
-    {
-        _log.LogInformation($"Filing restoration for {fileId}");
-        try
-        {
-            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
-            if (file == null || file.FileStatus != ApplicationStatuses.Inactive){
-                _log.LogError("File not found or inactive");
-                throw new Exception("File is either Active or Not found");
-            }
-            var user = await _userCollection
-           .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
-           .FirstOrDefaultAsync();
-            var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
-            var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-                "Payment for Trademark File Restoration", applicant.Name, applicant.Email, applicant.Phone);
-            if (rrr is null)
-            {
-                _log.LogError("Failed to Generate RRR");
-                throw new NullReferenceException();
-            }
+public async Task<string?> GetFileIdByFileNumber(string fileNumber)
+{
+    var file = await _fillingCollection.Find(f => f.FileId == fileNumber).FirstOrDefaultAsync();
+    return file?.Id;
+}
 
-            var app = new ApplicationInfo
-            {
-                ApplicationDate = DateTime.Now,
-                CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ExpiryDate = null,
-                LicenseType = "",
-                ApplicationType = FormApplicationTypes.Restoration,
-                PaymentId = rrr,
-                StatusHistory =
-                [
-                    new ApplicationHistory
-                    {
-                        Date = DateTime.Now,
-                        beforeStatus = ApplicationStatuses.None,
-                        afterStatus = ApplicationStatuses.AwaitingPayment,
-                        Message = "File Restoration initiated, awaiting payment",
-                        UserId = userId,
-                        User = userName
-                    }
-                ],
-            };
-            await _fillingCollection.UpdateOneAsync(
-                Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
-                Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
-            );
-            _log.LogInformation("Restoration application created and awaiting payment.");
-            var restore = new RestorationDto
-            {
-                Applicant = applicant.Name,
-                FileNumber = fileId,
-                PaymentId = rrr,
-                FileStatus = file.FileStatus,
-                Cost = cost.Item1
-            };
-            return restore;
+public async Task<RestorationDto> FileRestorationCost(string fileId, string userId)
+{
+    _log.LogInformation($"Filing restoration for {fileId}");
+    try
+    {
+        var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+        if (file == null || file.FileStatus != ApplicationStatuses.Inactive){
+            _log.LogError("File not found or inactive");
+            throw new Exception("File is either Active or Not found");
         }
-        catch (Exception e)
+        var user = await _userCollection
+       .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
+       .FirstOrDefaultAsync();
+        var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
+        var applicant = file.applicants.FirstOrDefault();
+        var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            "Payment for Trademark File Restoration", applicant.Name, applicant.Email, applicant.Phone);
+        if (rrr is null)
         {
-            _log.LogError(e, "Failed to create restoration application");
-            throw e;
+            _log.LogError("Failed to Generate RRR");
+            throw new NullReferenceException();
         }
+
+        var app = new ApplicationInfo
+        {
+            ApplicationDate = DateTime.Now,
+            CurrentStatus = ApplicationStatuses.AwaitingPayment,
+            ExpiryDate = null,
+            LicenseType = "",
+            ApplicationType = FormApplicationTypes.Restoration,
+            PaymentId = rrr,
+            StatusHistory =
+            [
+                new ApplicationHistory
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingPayment,
+                    Message = "File Restoration initiated, awaiting payment",
+                    UserId = userId,
+                    User = userName
+                }
+            ],
+        };
+        await _fillingCollection.UpdateOneAsync(
+            Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+            Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
+        );
+        _log.LogInformation("Restoration application created and awaiting payment.");
+        var restore = new RestorationDto
+        {
+            Applicant = applicant.Name,
+            FileNumber = fileId,
+            PaymentId = rrr,
+            FileStatus = file.FileStatus,
+            Cost = cost.Item1
+        };
+        return restore;
+    }
+    catch (Exception e)
+    {
+        _log.LogError(e, "Failed to create restoration application");
+        throw e;
+    }
     }
 }
