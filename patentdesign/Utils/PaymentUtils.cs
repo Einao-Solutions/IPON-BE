@@ -215,7 +215,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.StatusServiceId;
                 serviceFee = _paymentInfo.StatusServiceFee;
                 break;
-            case PaymentTypes.LateRenewal:
+            case PaymentTypes.LateTrademarkRenewal:
                 amount = _paymentInfo.LateTrademarkRenewalCost;
                 serviceId = _paymentInfo.LateTrademarkRenewalID;
                 serviceFee = _paymentInfo.LateTrademarkRenewalServiceFee;

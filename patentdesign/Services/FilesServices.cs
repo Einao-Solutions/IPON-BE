@@ -2590,16 +2590,18 @@ public class FilesServices
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90) ?? firstApp.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
             Console.WriteLine($"Renewal due date: {renewalDue?.ToString("yyyy-MM-dd")}");
-            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
+            var lateRenewal = file.FileStatus == ApplicationStatuses.PendingRenewal;
             if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
             {
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
             }
+            
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
+
             if (rrr is null)
             {
                 _log.LogError("Failed to Generate RRR");
@@ -2614,7 +2616,8 @@ public class FilesServices
                 FileTypes = FileTypes.TradeMark,
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
-                IsLateRenewal = lateRenewal
+                IsLateRenewal = lateRenewal,
+                LateRenewalCost = "9500"
             };
             return renew;
         }
