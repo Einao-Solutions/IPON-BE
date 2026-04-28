@@ -22,16 +22,23 @@ public class LettersController(LettersServices lettersServices) : ControllerBase
         Console.WriteLine("FileId: " + fileId);
         Console.WriteLine("ApplicationId: " + applicationId);
         Console.WriteLine("OppositionId: " + oppositionId);
-        var result = await lettersServices.GenerateLetter(fileId, r, applicationId, oppositionId);
-        if (result == null || !result.ContainsKey("data") || result["data"] == null)
+        try
         {
-            Console.WriteLine("Result: " + JsonSerializer.Serialize(result));
-            
-            return NotFound("No letter could be generated for the provided parameters.");
+            var result = await lettersServices.GenerateLetter(fileId, r, applicationId, oppositionId);
+            if (result == null || !result.ContainsKey("data") || result["data"] == null)
+            {
+                Console.WriteLine("Result: " + JsonSerializer.Serialize(result));
+                return NotFound("No letter could be generated for the provided parameters.");
+            }
+            Response.Headers.Add("Content-Disposition", $"inline; filename={result["name"]}");
+            Response.Headers.Add("Content-Type", result["type"] as string);
+            return File(result["data"] as byte[], result["type"] as string);
         }
-        Response.Headers.Add("Content-Disposition", $"inline; filename={result["name"]}");
-        Response.Headers.Add("Content-Type", result["type"] as string);
-        return File(result["data"] as byte[], result["type"] as string);
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Letter generation error: {ex.Message}\n{ex.StackTrace}");
+            return StatusCode(500, new { message = ex.Message, stackTrace = ex.StackTrace });
+        }
     }
     [HttpGet("GetDocuments")]
     public async Task<IActionResult> GetDocuments([FromQuery] string fileId, [FromQuery] string paymentId)

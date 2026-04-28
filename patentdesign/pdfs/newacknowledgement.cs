@@ -141,19 +141,39 @@ namespace patentdesign
                     ("Other Attachments", "any", "OTH")
                 };
 
-                var attachmentRows = attachmentDefinitions
-                    .Where(def => HasAttachment(def.Key))
-                    .Select(def => ($"{def.Label}:", def.Acronym))
-                    .ToArray();
+                var matchedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var attachmentRows = new List<(string Label, string Value)>();
 
-                if (attachmentRows.Length > 0)
+                foreach (var def in attachmentDefinitions)
                 {
-                    TwoColumnSection(col, "ATTACHMENTS", attachmentRows);
+                    bool found = HasAttachment(def.Key);
+                    attachmentRows.Add(($"{def.Label}:", found ? "Attached" : "Not Attached"));
+                    if (found)
+                    {
+                        var matched = GetMatchedAttachmentNames(def.Key);
+                        foreach (var m in matched) matchedNames.Add(m);
+                    }
                 }
-                else
+
+                // Add any remaining attachments not matched by predefined keys
+                if (model.Attachments != null)
                 {
-                    FullWidthBox(col, "ATTACHMENTS", "No supporting documents uploaded.");
+                    int extra = 1;
+                    foreach (var att in model.Attachments)
+                    {
+                        if (att.name != null && !matchedNames.Contains(att.name) 
+                            && !string.Equals(att.name, "representation", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(att.name, "representations", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(att.name, "designs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var label = !string.IsNullOrWhiteSpace(att.name) ? att.name : $"Attachment {extra}";
+                            attachmentRows.Add(($"{label}:", "Attached"));
+                            extra++;
+                        }
+                    }
                 }
+
+                TwoColumnSection(col, "ATTACHMENTS", attachmentRows.ToArray());
 
                 col.Item().AlignCenter().PaddingTop(30).Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
                     .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Green.Darken2);
@@ -292,8 +312,16 @@ namespace patentdesign
             {
                 foreach (var img in images)
                 {
-                    var questImage = Image.FromBinaryData(img);
-                    col.Item().Height(120).AlignCenter().Image(questImage).FitArea();
+                    try
+                    {
+                        var questImage = Image.FromBinaryData(img);
+                        col.Item().Height(120).AlignCenter().Image(questImage).FitArea();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to render design image: {ex.Message}");
+                        col.Item().Element(Box).Text("[Image could not be rendered]").FontFamily(Fonts.TimesNewRoman).FontSize(10).Italic();
+                    }
                 }
             }
             else
@@ -325,6 +353,33 @@ namespace patentdesign
 
             // Fallback to exact match
             return model.Attachments.Any(a => string.Equals(a.name, key, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private List<string> GetMatchedAttachmentNames(string key)
+        {
+            if (model.Attachments == null) return new List<string>();
+
+            var nameVariations = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "pdoc", new[] { "pdoc", "designPriorityDocument", "priorityDocument", "priority" } },
+                { "nov", new[] { "nov", "noveltyStatement", "novelty", "statement" } },
+                { "form2", new[] { "form2", "powerOfAttorney", "poa", "attorney" } },
+                { "cs", new[] { "cs", "claimsSpecifications", "claims", "specifications" } },
+                { "any", new[] { "any", "other", "otherAttachments", "additionalDocuments" } }
+            };
+
+            if (nameVariations.TryGetValue(key, out var variations))
+            {
+                return model.Attachments
+                    .Where(a => a.name != null && variations.Any(v => string.Equals(a.name, v, StringComparison.OrdinalIgnoreCase)))
+                    .Select(a => a.name)
+                    .ToList();
+            }
+
+            return model.Attachments
+                .Where(a => string.Equals(a.name, key, StringComparison.OrdinalIgnoreCase))
+                .Select(a => a.name)
+                .ToList();
         }
 
         private static void TwoColumnSection(ColumnDescriptor col, string title, (string Label, string Value)[] pairs)

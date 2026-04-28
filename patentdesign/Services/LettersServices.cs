@@ -170,13 +170,19 @@ public class LettersServices
                 var fileData = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 if (fileData == null)
                 {
-                    Console.WriteLine("File not found");
+                    Console.WriteLine($"[Acknowledgement] File not found for fileId: {fileId}");
                     return null;
                 }
+                if (fileData.ApplicationHistory == null || fileData.ApplicationHistory.Count == 0)
+                {
+                    Console.WriteLine($"[Acknowledgement] ApplicationHistory is null/empty for file: {fileData.FileId}");
+                    return null;
+                }
+                Console.WriteLine($"[Acknowledgement] File: {fileData.FileId}, Type: {fileData.Type}, ApplicationId: {applicationId}");
                 var appInfo3 = fileData.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
                 if (appInfo3 == null)
                 {
-                    Console.WriteLine("App not found");
+                    Console.WriteLine($"[Acknowledgement] App not found for applicationId: {applicationId}. Available IDs: {string.Join(", ", fileData.ApplicationHistory.Select(x => x.id))}");
                     return null;
                 }
                 var remitaResponse3 = await GetPaymentData(fileData.Comment, appInfo3.PaymentId);
@@ -1591,7 +1597,7 @@ public class LettersServices
                             Console.WriteLine($"[{file.FileId}] Warning: Design image URL returned empty data: {url}");
                         }
                     }
-                    catch (HttpRequestException ex)
+                    catch (Exception ex)
                     {
                         Console.WriteLine($"[{file.FileId}] ERROR: Failed to load design image from URL: {url}. Error: {ex.Message}");
                     }
