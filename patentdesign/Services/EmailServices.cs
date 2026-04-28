@@ -34,6 +34,12 @@ public class EmailServices
             case EmailType.Opposition:
                 body = PopulateOppositionMail(dto.OppositionMail);
                 break;
+            case EmailType.CounterStatement:
+                body = PopulateCounterStatementMail(dto.CounterStatementMail);
+                break;
+            case EmailType.OppositionConfirmation:
+                body = PopulateOppositionConfirmationMail(dto.OppositionConfirmationMail);
+                break;
             case EmailType.ResetPassword:
                 body = ResetPasswordMail(dto.ResetPasswordMail);
                 break;
@@ -162,6 +168,46 @@ public class EmailServices
             if (client.IsConnected)
                 await client.DisconnectAsync(true);
         }
+    }
+
+    private string PopulateOppositionConfirmationMail(OppositionConfirmationMail dto)
+    {
+        _log.LogDebug("Populating opposition confirmation mail for {Opposer}, file {FileNumber}",
+            dto.OpposerName, dto.FileNumber);
+
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\OppositionConfirmation.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{OpposerName}",     dto.OpposerName);
+        body = body.Replace("{OppositionId}",    dto.OppositionId);
+        body = body.Replace("{FileNumber}",      dto.FileNumber);
+        body = body.Replace("{FileTitle}",       dto.FileTitle);
+        body = body.Replace("{DateFiled}",       dto.DateFiled);
+        body = body.Replace("{PaymentReference}", dto.PaymentReference);
+        return body;
+    }
+
+    private string PopulateCounterStatementMail(CounterStatementMail dto)
+    {
+        _log.LogDebug("Populating counter statement mail template for opposer {Opposer}, file {FileNumber}",
+            dto.OpposerName, dto.FileNumber);
+
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\CounterStatementNotification.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{OpposerName}", dto.OpposerName);
+        body = body.Replace("{FileNumber}", dto.FileNumber);
+        body = body.Replace("{Title}", dto.Title);
+        body = body.Replace("{FileOwnerName}", dto.FileOwnerName);
+        body = body.Replace("{CounterStatementDate}", dto.CounterStatementDate);
+        body = body.Replace("{SignatoryName}", dto.SignatoryName ?? "");
+        return body;
     }
 
     private string PopulateOppositionMail(OppositionMail dto)

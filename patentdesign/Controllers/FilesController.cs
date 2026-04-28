@@ -2529,6 +2529,15 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
     }
 
+    [HttpGet("GetFileIdByFileNumber")]
+    public async Task<IActionResult> GetFileIdByFileNumber([FromQuery] string fileNumber)
+    {
+        var file = await fileService.GetFileIdByFileNumber(fileNumber);
+        if (file == null)
+            return NotFound(new { message = "File not found" });
+        return Ok(new { id = file });
+    }
+
     [HttpGet("RestorationRequest")]
     public async Task<IActionResult> RestorationRequest([FromQuery] string fileId, string userId)
     {

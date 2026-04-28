@@ -86,7 +86,8 @@ namespace patentdesign.pdfs
                     .FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(9);
-                column.Item().Text(model.TrademarkClassDescription ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman).AlignCenter().ClampLines(6);
+                column.Item().Text(model.TrademarkClassDescription ?? " ").FontSize(12).FontFamily(Fonts.TimesNewRoman).AlignCenter().ClampLines(6);
+                column.Item().Text(model.AdditionalDescription ?? " ").FontSize(12).FontFamily(Fonts.TimesNewRoman).AlignCenter().ClampLines(3);
 
                 //QR Code
                 column.Item().AlignCenter().Element(GetQrCode);

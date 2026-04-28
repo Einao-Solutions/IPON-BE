@@ -104,11 +104,11 @@ namespace patentdesign
                         table.Cell().ColumnSpan(2).Element(HeaderElement).Text("PAYMENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Payment Date:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(date).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(DateTime.TryParse(date, out var parsedDate) ? parsedDate.ToString("dd MMMM, yyyy") : date).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
 
                         table.Cell().Element(Block).Column(c => {
-                            c.Item().Text("Payment rrr:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                            c.Item().Text("Payment ID:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                             c.Item().Text(receipt.rrr).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                         table.Cell().Element(Block).Column(c => {
@@ -121,7 +121,7 @@ namespace patentdesign
                         //});
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Fee Title:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(receipt.PaymentFor).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text("Trademark Registration").FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
 
                     });
@@ -141,15 +141,15 @@ namespace patentdesign
                                 c.Item().Text(applicant.Name).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             });
                             table.Cell().Element(Block).Column(c => {
-                                c.Item().Text("Email:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text("Applicant Email:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                                 c.Item().Text(applicant.Email).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             });
                             table.Cell().Element(Block).Column(c => {
-                                c.Item().Text("Phone Number:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text("Applicant Phone Number:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                                 c.Item().Text(applicant.Phone).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             });
                             table.Cell().Element(Block).Column(c => {
-                                c.Item().Text("Nationality:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                c.Item().Text("Applicant Nationality:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                                 c.Item().Text(applicant.country).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             });
                             table.Cell().ColumnSpan(2).Element(Block).Column(c => {
@@ -169,7 +169,7 @@ namespace patentdesign
 
                         table.Cell().ColumnSpan(2).Element(HeaderElement).Text("TRADEMARK INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                         table.Cell().Element(Block).Column(c => {
-                            c.Item().Text("Product Title:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                            c.Item().Text("Title:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                             c.Item().Text(model.TitleOfTradeMark).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                         table.Cell().Element(Block).Column(c => {
@@ -201,7 +201,7 @@ namespace patentdesign
                             }
                             else
                             {
-                                c.Item().Text(model.TrademarkLogo?.ToString() ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                c.Item().Text("Word Mark").FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             }
                         });
                         table.Cell().Element(Block).Column(c => {
@@ -220,7 +220,8 @@ namespace patentdesign
                         });
                         table.Cell().ColumnSpan(2).Element(Block).Column(c => {
                             c.Item().Text("Description of Goods:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.TrademarkClassDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(model.TrademarkClassDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman).Justify();
+                            c.Item().Text(model?.AdditionalDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman).Justify();
                         });
                     });
                     // Correspondence Information Section
