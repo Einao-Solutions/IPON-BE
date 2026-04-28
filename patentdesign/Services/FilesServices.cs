@@ -2357,6 +2357,7 @@ public class FilesServices
                 _log.LogError("File not found");
                 throw new KeyNotFoundException();
             }
+            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
 
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
@@ -2365,9 +2366,9 @@ public class FilesServices
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
             }
-            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
+            
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, file.PatentType);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.PatentLateRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, file.PatentType);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
             if (rrr is null)
@@ -2384,7 +2385,8 @@ public class FilesServices
                 FileTypes = FileTypes.Patent,
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
-                IsLateRenewal = DateOnly.FromDateTime(DateTime.Now) > lastRenewal?.ExpiryDate.Value
+                IsLateRenewal = lateRenewal,
+                LateRenewalCost = "5000"
             };
             return renew;
         }
@@ -2406,6 +2408,8 @@ public class FilesServices
                 _log.LogError("File not found");
                 throw new KeyNotFoundException();
             }
+
+            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
             if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
@@ -2414,7 +2418,7 @@ public class FilesServices
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
             }
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.PatentLateRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Design Renewal", applicant.Name, applicant.Email, applicant.Phone);
             if (rrr is null)
@@ -2430,7 +2434,9 @@ public class FilesServices
                 FileNumber = fileId,
                 FileTypes = FileTypes.Design,
                 PaymentId = rrr ?? "",
-                ServiceFee = cost.Item3
+                ServiceFee = cost.Item3,
+                LateRenewalCost = "5000",
+                IsLateRenewal = lateRenewal
             };
             return renew;
 
@@ -2587,11 +2593,12 @@ public class FilesServices
                 throw new KeyNotFoundException();
             }
             var firstApp = file.ApplicationHistory.FirstOrDefault();
+            var lateRenewal = file.FileStatus == ApplicationStatuses.PendingRenewal;
+
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90) ?? firstApp.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
             Console.WriteLine($"Renewal due date: {renewalDue?.ToString("yyyy-MM-dd")}");
-            var lateRenewal = file.FileStatus == ApplicationStatuses.PendingRenewal;
-            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            if (!lateRenewal && (renewalDue.HasValue && DateTime.Now < renewalDue.Value))
             {
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
