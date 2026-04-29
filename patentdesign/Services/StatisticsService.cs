@@ -319,6 +319,8 @@ public class StatisticsService
                 .OrderByDescending(x => x.TotalGovernmentFee)
                 .ToList();
 
+            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments);
+
             results.Add(new FinancePeriodResultDto
             {
                 Label = range.Label,
@@ -326,7 +328,8 @@ public class StatisticsService
                 EndDate = range.EndDate,
                 TotalGovernmentFee = paymentTypes.Sum(x => x.TotalGovernmentFee),
                 TotalPayments = payments.Count,
-                PaymentTypes = paymentTypes
+                PaymentTypes = paymentTypes,
+                MonthlyBreakdown = monthlyBreakdown
             });
         }
 
@@ -694,6 +697,34 @@ public class StatisticsService
     private static double GetGovernmentFee(PaymentRecord payment)
     {
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    private static List<FinanceMonthlyBreakdownDto> BuildMonthlyBreakdown(DateTime startDate, DateTime endDate, List<PaymentRecord> payments)
+    {
+        var breakdown = new List<FinanceMonthlyBreakdownDto>();
+        var current = new DateTime(startDate.Year, startDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        while (current <= endDate)
+        {
+            var monthStart = current;
+            var monthEnd = current.AddMonths(1).AddTicks(-1);
+            var monthPayments = payments
+                .Where(p => p.Date >= monthStart && p.Date <= monthEnd)
+                .ToList();
+
+            breakdown.Add(new FinanceMonthlyBreakdownDto
+            {
+                Label = $"{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(current.Month)} {current.Year}",
+                StartDate = monthStart,
+                EndDate = monthEnd,
+                TotalGovernmentFee = monthPayments.Sum(GetGovernmentFee),
+                TotalPayments = monthPayments.Count
+            });
+
+            current = current.AddMonths(1);
+        }
+
+        return breakdown;
     }
 
     private static List<OperationalBreakdownItemDto> BuildBreakdown(IEnumerable<string?> values)
