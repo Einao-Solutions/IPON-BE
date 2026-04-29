@@ -6,7 +6,7 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs;
 
-public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, string applicationId): IDocument
+public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, string applicationId, byte[] signature): IDocument
 {
      private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -122,7 +122,7 @@ public class ChangeOfNameCert(Filling model, string url, byte[]? imageData, stri
 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(5);
-                column.Item().Height(30).Image(appHistory.Signature ?? Array.Empty<byte>()).FitArea();
+                column.Item().Height(30).Image(appHistory.Signature ?? signature).FitArea();
                 column.Item().Height(5);
                 column.Item().Text(appHistory.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
