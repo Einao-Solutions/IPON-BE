@@ -42,6 +42,7 @@ public class LettersServices
         _statusRequestsCollection = pdDb.GetCollection<StatusRequests>("statusrequests");
         _migratedFinanceCollection = pdDb.GetCollection<DBRemitaPayment>("migratedFinance");
         _financeCollection = pdDb.GetCollection<FinanceHistory>("finance");
+        _signatures = pdDb.GetCollection<SignatureInfo>("signatures");
         _remitaPaymentUtils = remitaPaymentUtils;
         _oppositionCollection =
             pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
@@ -52,6 +53,7 @@ public class LettersServices
     private static IMongoCollection<OppositionType> _oppositionCollection;
     private static IMongoCollection<StatusRequests> _statusRequestsCollection;
     private static IMongoCollection<UserCreateType> _usersCollection;
+    private static IMongoCollection<SignatureInfo> _signatures;
     private MongoClient _mongoClient;
     private PaymentUtils _remitaPaymentUtils;
     
@@ -2505,8 +2507,15 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.ApplicationHistory), "Application history cannot be null");
         if (file.Attachments == null)
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
+        
         byte[] images = [];
+        
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
+        
+        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+        
+        var signature = GetSignature(signId);
+        
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2520,7 +2529,7 @@ public class LettersServices
                 images = null;
             }
         }
-        var data = new RegisteredUserCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId).GeneratePdf();
+        var data = new RegisteredUserCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId, signature).GeneratePdf();
         return ReturnDocument(data);
     }
     public async Task<Dictionary<string, object>> MergerCertificate(Filling file, string applicationId)
@@ -2533,6 +2542,9 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
+        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+
+        var signature = GetSignature(signId);
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2546,7 +2558,7 @@ public class LettersServices
                 images = null;
             }
         }
-        var data = new MergerCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId).GeneratePdf();
+        var data = new MergerCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId, signature).GeneratePdf();
         return ReturnDocument(data);
     }
     public async Task<Dictionary<string, object>> AssignmentCertificate(Filling file, string applicationId)
@@ -2559,6 +2571,9 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
+        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+
+        var signature = GetSignature(signId);
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2572,7 +2587,7 @@ public class LettersServices
                 images = null;
             }
         }
-        var data = new AssignmentCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId).GeneratePdf();
+        var data = new AssignmentCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId, signature).GeneratePdf();
         return ReturnDocument(data);
     }
     public async Task<Dictionary<string, object>> ChangeOfNameCertificate(Filling file, string applicationId)
@@ -2585,6 +2600,9 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
+        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+
+        var signature = GetSignature(signId);
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2598,7 +2616,7 @@ public class LettersServices
                 images = null;
             }
         }
-        var data = new ChangeOfNameCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId).GeneratePdf();
+        var data = new ChangeOfNameCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId, signature).GeneratePdf();
         return ReturnDocument(data);
     }
     public async Task<Dictionary<string, object>> ChangeOfAddressCertificate(Filling file, string applicationId)
@@ -2611,6 +2629,9 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
+        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+
+        var signature = GetSignature(signId);
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2624,11 +2645,15 @@ public class LettersServices
                 images = null;
             }
         }
-        var data = new ChangeOfAddressCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId).GeneratePdf();
+        var data = new ChangeOfAddressCert(file,"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", images, applicationId, signature).GeneratePdf();
         return ReturnDocument(data);
     }
 
-
+    public byte[] GetSignature(string id)
+    {
+        var sign = _signatures.Find(s=>s.Id == id).FirstOrDefault() ?? _signatures.Find(s => s.Name == id).FirstOrDefault();
+        return sign.SignatureData;
+    }
     public Dictionary<string, object> ReturnDocument(byte[] data)
     {
         var trustedFileName = Path.GetRandomFileName();
