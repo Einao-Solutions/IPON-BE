@@ -319,7 +319,7 @@ public class StatisticsService
                 .OrderByDescending(x => x.TotalGovernmentFee)
                 .ToList();
 
-            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments);
+            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments, GetGovernmentFee);
 
             results.Add(new FinancePeriodResultDto
             {
@@ -339,6 +339,75 @@ public class StatisticsService
         };
 
         _log.LogInformation("Fetched finance comparison for RegistryType {RegistryType}", request.RegistryType);
+        return result;
+    }
+
+    public async Task<FinanceComparisonDataDto> GetFinanceTechFeeComparisonAsync(FinanceComparisonRequestDto request)
+    {
+        _log.LogInformation("Fetching finance tech fee comparison for RegistryType {RegistryType}", request?.RegistryType);
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var fileType = ParseRegistryType(request.RegistryType);
+        var fileIds = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(x => x.Type, fileType))
+            .Project(x => x.FileId)
+            .ToListAsync();
+
+        var results = new List<FinancePeriodResultDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+
+            var filter = Builders<PaymentRecord>.Filter.And(
+                Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
+                Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate),
+                Builders<PaymentRecord>.Filter.In(x => x.FileId, fileIds)
+            );
+
+            var payments = fileIds.Count == 0
+                ? []
+                : await _paymentCollection.Find(filter).ToListAsync();
+
+            var paymentTypes = payments
+                .GroupBy(x => x.PaymentType ?? string.Empty)
+                .Select(group => new FinancePaymentTypeResultDto
+                {
+                    PaymentType = group.Key,
+                    TotalGovernmentFee = group.Sum(GetTechFee),
+                    Count = group.Count()
+                })
+                .OrderByDescending(x => x.TotalGovernmentFee)
+                .ToList();
+
+            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments, GetTechFee);
+
+            results.Add(new FinancePeriodResultDto
+            {
+                Label = range.Label,
+                StartDate = range.StartDate,
+                EndDate = range.EndDate,
+                TotalGovernmentFee = paymentTypes.Sum(x => x.TotalGovernmentFee),
+                TotalPayments = payments.Count,
+                PaymentTypes = paymentTypes,
+                MonthlyBreakdown = monthlyBreakdown
+            });
+
+        }
+        var result = new FinanceComparisonDataDto
+        {
+            Periods = results
+        };
+
+        _log.LogInformation("Fetched finance tech fee comparison for RegistryType {RegistryType}", request.RegistryType);
         return result;
     }
 
@@ -699,7 +768,12 @@ public class StatisticsService
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
     }
 
-    private static List<FinanceMonthlyBreakdownDto> BuildMonthlyBreakdown(DateTime startDate, DateTime endDate, List<PaymentRecord> payments)
+    private static double GetTechFee(PaymentRecord payment)
+    {
+        return payment?.RemitaResponse?.lineItems?.Skip(1).FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    private static List<FinanceMonthlyBreakdownDto> BuildMonthlyBreakdown(DateTime startDate, DateTime endDate, List<PaymentRecord> payments, Func<PaymentRecord, double> feeSelector)
     {
         var breakdown = new List<FinanceMonthlyBreakdownDto>();
         var current = new DateTime(startDate.Year, startDate.Month, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -717,7 +791,7 @@ public class StatisticsService
                 Label = $"{CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(current.Month)} {current.Year}",
                 StartDate = monthStart,
                 EndDate = monthEnd,
-                TotalGovernmentFee = monthPayments.Sum(GetGovernmentFee),
+                TotalGovernmentFee = monthPayments.Sum(feeSelector),
                 TotalPayments = monthPayments.Count
             });
 
