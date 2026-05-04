@@ -1705,14 +1705,15 @@ public class FilesServices
         _log.LogDebug("Additional Description: ", newFile.AdditionalDescription);
         if (newFile.Type is FileTypes.Design)
         {
-            var designReps = attachments.Where(x => x.Name is "design1" or "design2" or "design3" or "design4").ToList();
+            var designReps = attachments.Where(x => x.Name is "design1" or "design2" or "design3" or "design4" or "designDrawings").ToList();
             var designUrls = await UploadAttachment(designReps);
             newFile.Attachments.Add(new AttachmentType()
             {
                 name = "designs",
                 url = designUrls
             });
-            var nov = attachments.FirstOrDefault(x => x.Name == "nov");
+
+            var nov = attachments.FirstOrDefault(x => x.Name is "nov" or "novelty" or "noveltyStatement" or "statementOfNovelty");
             if (nov != null)
             {
                 var novurl = await UploadAttachment([nov]);
@@ -1723,7 +1724,7 @@ public class FilesServices
                 });
             }
 
-            var form2 = attachments.FirstOrDefault(x => x.Name == "form2");
+            var form2 = attachments.FirstOrDefault(x => x.Name is "form2" or "poa");
             if (form2 != null)
             {
                 var form2url = await UploadAttachment([form2]);
@@ -1734,7 +1735,7 @@ public class FilesServices
                 });
             }
 
-            var priorityDoc = attachments.FirstOrDefault(x => x.Name == "pdoc");
+            var priorityDoc = attachments.FirstOrDefault(x => x.Name is "pdoc" or "priorityDocument" or "designPriorityDocument");
             if (priorityDoc != null)
             {
                 var priorityDocurl = await UploadAttachment([priorityDoc]);
@@ -1742,6 +1743,17 @@ public class FilesServices
                 {
                     name = "pdoc",
                     url = priorityDocurl
+                });
+            }
+
+            var otherDocs = attachments.Where(x => x.Name is "any" or "others").ToList();
+            if (otherDocs.Any())
+            {
+                var otherUrls = await UploadAttachment(otherDocs);
+                newFile.Attachments.Add(new AttachmentType()
+                {
+                    name = "others",
+                    url = otherUrls
                 });
             }
         }
