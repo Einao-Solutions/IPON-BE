@@ -95,6 +95,16 @@ public class FinancePeriodResultDto
     public double TotalGovernmentFee { get; set; }
     public int TotalPayments { get; set; }
     public List<FinancePaymentTypeResultDto> PaymentTypes { get; set; } = [];
+    public List<FinanceMonthlyBreakdownDto> MonthlyBreakdown { get; set; } = [];
+}
+
+public class FinanceMonthlyBreakdownDto
+{
+    public string Label { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public double TotalGovernmentFee { get; set; }
+    public int TotalPayments { get; set; }
 }
 
 public class FinanceComparisonDataDto

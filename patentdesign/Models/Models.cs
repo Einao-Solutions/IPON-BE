@@ -552,6 +552,7 @@ public record ApplicationInfo
     public string? SignatoryName { get; set; }
     public string? SignatureUrl { get; set; }
     public byte[]? Signature { get; set; }
+    public string? SignatureId { get; set; }
     public string? FileNumber { get; set; }
 }
 
