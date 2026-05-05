@@ -1455,11 +1455,11 @@ public record PaymentRecord
 {
     [BsonId]
     public string Id { get; set; } =  Guid.NewGuid().ToString();
-    public string PaymentType { get; set; }
+    public string? PaymentType { get; set; }
     public DateTime Date { get; set; }
     public string? ApplicationId { get; set; }
     public string? FileId { get; set; }
-    public string FileType { get; set; }
+    public string? FileType { get; set; }
     public RemitaResponseClass RemitaResponse { get; set; }
 }
 public record MarkInfo
