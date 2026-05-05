@@ -65,7 +65,15 @@ var mongoConnectionString =
 
 if (string.IsNullOrWhiteSpace(mongoConnectionString))
 {
-    throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
+    if (builder.Environment.IsDevelopment())
+    {
+        mongoConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionString"];
+        Log.Information("Using local MongoDB connection string for development.");
+    }
+    else
+    {
+        throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
+    }
 }
 
 builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
@@ -147,7 +155,10 @@ FontManager.RegisterFont(fontStream);
 
 // ------------------ Mongo Client ------------------
 var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(mongoConnectionString));
-mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
+if (!builder.Environment.IsDevelopment())
+{
+    mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
+}
 var mongoClient = new MongoClient(mongoSettings);
 
 // ------------------ Config Bindings ------------------

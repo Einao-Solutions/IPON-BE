@@ -49,13 +49,36 @@ stages:
     - download: current
       artifact: backend
 
-    # ---------------------- 1️⃣ Inject production secrets into appsettings.Production.json ----------------------
-    - task: FileTransform@2
-      displayName: 'Inject production secrets'
+    # ---------------------- 1️⃣ Inject environment variables into IIS App Pool (Production) ----------------------
+    - task: PowerShell@2
+      displayName: 'Inject environment variables into IIS App Pool (Production)'
       inputs:
-        folderPath: '$(Pipeline.Workspace)/backend'
-        fileType: 'json'
-        targetFiles: '**/appsettings.Production.json'
+        targetType: 'inline'
+        script: |
+          Import-Module WebAdministration
+
+          $appPool = "integration.iponigeria.com(domain)(4.0)(pool)"
+
+          $envVars = @{
+              ASPNETCORE_ENVIRONMENT   = "Production"
+              MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
+              JWT_KEY                   = "$(JWT_KEY)"
+              SMTP_SERVER               = "$(SMTP_SERVER)"
+              SMTP_USERNAME             = "$(SMTP_USERNAME)"
+              SMTP_PASSWORD             = "$(SMTP_PASSWORD)"
+          }
+
+          Write-Host "Clearing existing environment variables for App Pool: $appPool"
+          Clear-WebConfiguration -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" -PSPath "IIS:\" -ErrorAction SilentlyContinue
+
+          Write-Host "Injecting environment variables into App Pool: $appPool"
+          foreach ($name in $envVars.Keys) {
+              Add-WebConfigurationProperty -PSPath "IIS:\" `
+                  -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
+                  -Name "." `
+                  -Value @{name=$name; value=$envVars[$name]}
+              Write-Host " - $name set"
+          }
 
     # ---------------------- 2️⃣ Set ASPNETCORE_ENVIRONMENT=Production for this App Pool ----------------------
     - task: PowerShell@2

@@ -6,7 +6,7 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs;
 
-public class AssignmentCert(Filling model, string url, byte[]? imageData, string applicationId): IDocument
+public class AssignmentCert(Filling model, string url, byte[]? imageData, string applicationId, byte[] signature): IDocument
 {
      private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -172,7 +172,7 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 column.Item().Height(40);
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Height(5);
-                column.Item().Height(30).Image(app.Signature ?? Array.Empty<byte>()).FitArea();
+                column.Item().Height(30).Image(app.Signature ?? signature).FitArea();
                 column.Item().Height(5);
                 column.Item().Text(app.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);

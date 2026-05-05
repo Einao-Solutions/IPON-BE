@@ -1741,14 +1741,15 @@ public class FilesServices
         _log.LogDebug("Additional Description: ", newFile.AdditionalDescription);
         if (newFile.Type is FileTypes.Design)
         {
-            var designReps = attachments.Where(x => x.Name is "design1" or "design2" or "design3" or "design4").ToList();
+            var designReps = attachments.Where(x => x.Name is "design1" or "design2" or "design3" or "design4" or "designDrawings").ToList();
             var designUrls = await UploadAttachment(designReps);
             newFile.Attachments.Add(new AttachmentType()
             {
                 name = "designs",
                 url = designUrls
             });
-            var nov = attachments.FirstOrDefault(x => x.Name == "nov");
+
+            var nov = attachments.FirstOrDefault(x => x.Name is "nov" or "novelty" or "noveltyStatement" or "statementOfNovelty");
             if (nov != null)
             {
                 var novurl = await UploadAttachment([nov]);
@@ -1759,7 +1760,7 @@ public class FilesServices
                 });
             }
 
-            var form2 = attachments.FirstOrDefault(x => x.Name == "form2");
+            var form2 = attachments.FirstOrDefault(x => x.Name is "form2" or "poa");
             if (form2 != null)
             {
                 var form2url = await UploadAttachment([form2]);
@@ -1770,7 +1771,7 @@ public class FilesServices
                 });
             }
 
-            var priorityDoc = attachments.FirstOrDefault(x => x.Name == "pdoc");
+            var priorityDoc = attachments.FirstOrDefault(x => x.Name is "pdoc" or "priorityDocument" or "designPriorityDocument");
             if (priorityDoc != null)
             {
                 var priorityDocurl = await UploadAttachment([priorityDoc]);
@@ -1778,6 +1779,17 @@ public class FilesServices
                 {
                     name = "pdoc",
                     url = priorityDocurl
+                });
+            }
+
+            var otherDocs = attachments.Where(x => x.Name is "any" or "others").ToList();
+            if (otherDocs.Any())
+            {
+                var otherUrls = await UploadAttachment(otherDocs);
+                newFile.Attachments.Add(new AttachmentType()
+                {
+                    name = "others",
+                    url = otherUrls
                 });
             }
         }
@@ -2393,6 +2405,7 @@ public class FilesServices
                 _log.LogError("File not found");
                 throw new KeyNotFoundException();
             }
+            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
 
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
@@ -2401,9 +2414,9 @@ public class FilesServices
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
             }
-            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
+            
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, file.PatentType);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.PatentLateRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, file.PatentType);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
             if (rrr is null)
@@ -2420,7 +2433,8 @@ public class FilesServices
                 FileTypes = FileTypes.Patent,
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
-                IsLateRenewal = DateOnly.FromDateTime(DateTime.Now) > lastRenewal?.ExpiryDate.Value
+                IsLateRenewal = lateRenewal,
+                LateRenewalCost = "5000"
             };
             return renew;
         }
@@ -2442,6 +2456,8 @@ public class FilesServices
                 _log.LogError("File not found");
                 throw new KeyNotFoundException();
             }
+
+            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
             if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
@@ -2450,7 +2466,7 @@ public class FilesServices
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
             }
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.PatentLateRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Design Renewal", applicant.Name, applicant.Email, applicant.Phone);
             if (rrr is null)
@@ -2466,7 +2482,9 @@ public class FilesServices
                 FileNumber = fileId,
                 FileTypes = FileTypes.Design,
                 PaymentId = rrr ?? "",
-                ServiceFee = cost.Item3
+                ServiceFee = cost.Item3,
+                LateRenewalCost = "5000",
+                IsLateRenewal = lateRenewal
             };
             return renew;
 
@@ -2623,19 +2641,22 @@ public class FilesServices
                 throw new KeyNotFoundException();
             }
             var firstApp = file.ApplicationHistory.FirstOrDefault();
+            var lateRenewal = file.FileStatus == ApplicationStatuses.PendingRenewal;
+
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90) ?? firstApp.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
             Console.WriteLine($"Renewal due date: {renewalDue?.ToString("yyyy-MM-dd")}");
-            var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
-            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            if (!lateRenewal && (renewalDue.HasValue && DateTime.Now < renewalDue.Value))
             {
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
             }
+            
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
+
             if (rrr is null)
             {
                 _log.LogError("Failed to Generate RRR");
@@ -2650,7 +2671,8 @@ public class FilesServices
                 FileTypes = FileTypes.TradeMark,
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
-                IsLateRenewal = lateRenewal
+                IsLateRenewal = lateRenewal,
+                LateRenewalCost = "9500"
             };
             return renew;
         }
