@@ -161,15 +161,51 @@ public class FilesServices
     {
         _log.LogDebug("Saving payment record for FileId {FileId}, AppId {AppId}, Type {PaymentType}", fileId, appId, type);
         var paymentDate = DateTime.TryParse(pay.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
+        var fileType = await _fillingCollection
+            .Find(f => f.FileId == fileId)
+            .Project(f => (FileTypes?)f.Type)
+            .FirstOrDefaultAsync();
+        var fileTypeValue = ResolvePaymentFileType(fileId, fileType);
         var payment = new PaymentRecord
         {
             ApplicationId = appId,
             PaymentType = type.ToString(),
             Date = paymentDate,
             FileId = fileId,
+            FileType = fileTypeValue,
             RemitaResponse = pay
         };
         await _paymentService.AddPaymentRecord(payment);
+    }
+
+    private static string ResolvePaymentFileType(string? fileId, FileTypes? fileType)
+    {
+        if (fileType.HasValue)
+        {
+            return fileType.Value.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(fileId))
+        {
+            return string.Empty;
+        }
+
+        if (fileId.Contains("/TM/", StringComparison.OrdinalIgnoreCase))
+        {
+            return FileTypes.TradeMark.ToString();
+        }
+
+        if (fileId.Contains("/PT/", StringComparison.OrdinalIgnoreCase))
+        {
+            return FileTypes.Patent.ToString();
+        }
+
+        if (fileId.Contains("/DS/", StringComparison.OrdinalIgnoreCase))
+        {
+            return FileTypes.Design.ToString();
+        }
+
+        return string.Empty;
     }
     private async Task<Filling?> HandleCertificateValidation(Filling file, ApplicationInfo application, string? userName, string? userId)
     {
@@ -6146,6 +6182,7 @@ public class FilesServices
                 PaymentType = "Publication Status Update",
                 Date = DateTime.Now,
                 FileId = file.FileId,
+                FileType = file.Type.ToString(),
                 RemitaResponse = payDetails
             };
             Console.WriteLine(payment);
@@ -6255,6 +6292,7 @@ public class FilesServices
                 PaymentType = "File Withdrawal",
                 Date = DateTime.Now,
                 FileId = file.FileId,
+                FileType = file.Type.ToString(),
                 RemitaResponse = payDetails
             };
             await _paymentService.AddPaymentRecord(payment);
@@ -7907,6 +7945,7 @@ public class FilesServices
                 Date = DateTime.Now,
                 FileId = fileId,
                 ApplicationId = recordal.id,
+                FileType = file.Type.ToString(),
                 RemitaResponse = remita
             };
             await _paymentService.AddPaymentRecord(payment);

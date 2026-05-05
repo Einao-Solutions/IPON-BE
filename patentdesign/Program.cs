@@ -70,6 +70,24 @@ if (string.IsNullOrWhiteSpace(mongoConnectionString))
 
 builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
 
+// ------------------ Redis Cache Config ------------------
+var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")
+    ?? builder.Configuration["Redis:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "patentdesign:";
+    });
+    Log.Information("Redis cache configured with instance name {InstanceName}", "patentdesign:");
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+    Log.Information("Redis connection string not found. Using in-memory cache.");
+}
+
 // ------------------ SMTP Overrides ------------------
 var smtpServer = Environment.GetEnvironmentVariable("SMTP_SERVER");
 var smtpUsername = Environment.GetEnvironmentVariable("SMTP_USERNAME");

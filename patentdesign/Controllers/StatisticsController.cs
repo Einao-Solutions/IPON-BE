@@ -251,4 +251,15 @@ public class StatisticsController(StatisticsService statisticsService) : Control
             return BadRequest(new { success = false, error = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Invalidates cached statistics responses.
+    /// </summary>
+    /// <returns>New cache version identifier.</returns>
+    [HttpPost("statistics/cache/invalidate")]
+    public async Task<IActionResult> InvalidateStatisticsCache()
+    {
+        var version = await statisticsService.InvalidateStatisticsCacheAsync();
+        return Ok(new { success = true, cacheVersion = version });
+    }
 }
