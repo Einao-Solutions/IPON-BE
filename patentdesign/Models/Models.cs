@@ -1459,7 +1459,7 @@ public record PaymentRecord
     public DateTime Date { get; set; }
     public string? ApplicationId { get; set; }
     public string? FileId { get; set; }
-    public string FileType { get; set; }
+    public string? FileType { get; set; }
     public RemitaResponseClass RemitaResponse { get; set; }
 }
 public record MarkInfo
