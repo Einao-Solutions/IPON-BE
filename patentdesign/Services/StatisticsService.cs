@@ -77,7 +77,7 @@ public class StatisticsService
     public IReadOnlyList<UnitInfoDto> GetUnits(string registryType)
     {
         var cacheKey = $"stats:{GetCacheVersion()}:units:{registryType}";
-        var cached = _cache.GetString(cacheKey);
+        var cached = TryGetCache(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
             _log.LogInformation("Units cache hit for RegistryType {RegistryType}", registryType);
@@ -96,7 +96,7 @@ public class StatisticsService
             UnitName = unit.UnitName,
             RegistryType = registryType
         }).ToList();
-        _cache.SetString(cacheKey, JsonSerializer.Serialize(result), UnitsCacheOptions);
+        TrySetCache(cacheKey, JsonSerializer.Serialize(result), UnitsCacheOptions);
         _log.LogInformation("Units cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched {UnitCount} units for RegistryType {RegistryType}", result.Count, registryType);
         return result;
@@ -105,7 +105,7 @@ public class StatisticsService
     public async Task<IReadOnlyList<StaffInfoDto>> GetStaffAsync(string registryType, int unitId)
     {
         var cacheKey = $"stats:{GetCacheVersion()}:staff:{registryType}:{unitId}";
-        var cached = await _cache.GetStringAsync(cacheKey);
+        var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
             _log.LogInformation("Staff cache hit for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
@@ -158,7 +158,7 @@ public class StatisticsService
             };
         }).ToList();
 
-        await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result), StaffCacheOptions);
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), StaffCacheOptions);
         _log.LogInformation("Staff cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched {StaffCount} staff entries for RegistryType {RegistryType}, UnitId {UnitId}", result.Count, registryType, unitId);
         return result;
@@ -167,7 +167,7 @@ public class StatisticsService
     public async Task<StaffPerformanceDataDto> GetStaffPerformanceAsync(string registryType, int unitId, string periodType, string periodValue, int year)
     {
         var cacheKey = $"stats:{GetCacheVersion()}:staff-performance:{registryType}:{unitId}:{periodType}:{periodValue}:{year}";
-        var cached = await _cache.GetStringAsync(cacheKey);
+        var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
             _log.LogInformation("Staff performance cache hit for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
@@ -276,7 +276,7 @@ public class StatisticsService
             StaffPerformance = staffPerformance
         };
 
-        await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result), StaffPerformanceCacheOptions);
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), StaffPerformanceCacheOptions);
         _log.LogInformation("Staff performance cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched staff performance for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
         return result;
@@ -285,7 +285,7 @@ public class StatisticsService
     public async Task<UnitPerformanceDataDto> GetUnitPerformanceAsync(string registryType, string periodType, string periodValue, int year)
     {
         var cacheKey = $"stats:{GetCacheVersion()}:unit-performance:{registryType}:{periodType}:{periodValue}:{year}";
-        var cached = await _cache.GetStringAsync(cacheKey);
+        var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
             _log.LogInformation("Unit performance cache hit for RegistryType {RegistryType}", registryType);
@@ -356,7 +356,7 @@ public class StatisticsService
             Units = unitResults.OrderBy(x => x.UnitId).ToList()
         };
 
-        await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result), UnitPerformanceCacheOptions);
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), UnitPerformanceCacheOptions);
         _log.LogInformation("Unit performance cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched unit performance for RegistryType {RegistryType}", registryType);
         return result;
@@ -370,7 +370,7 @@ public class StatisticsService
     {
         var periodKey = request?.Periods == null ? string.Empty : JsonSerializer.Serialize(request.Periods);
         var cacheKey = $"stats:{GetCacheVersion()}:finance:{request?.RegistryType}:{periodKey}";
-        var cached = await _cache.GetStringAsync(cacheKey);
+        var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
             _log.LogInformation("Finance comparison cache hit for RegistryType {RegistryType}", request?.RegistryType);
@@ -439,7 +439,7 @@ public class StatisticsService
             Periods = results
         };
 
-        await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result), FinanceCacheOptions);
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), FinanceCacheOptions);
         _log.LogInformation("Finance comparison cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched finance comparison for RegistryType {RegistryType}", request.RegistryType);
         return result;
@@ -513,7 +513,7 @@ public class StatisticsService
     {
         var periodKey = request?.Periods == null ? string.Empty : JsonSerializer.Serialize(request.Periods);
         var cacheKey = $"stats:{GetCacheVersion()}:operational:{request?.RegistryType}:{periodKey}";
-        var cached = await _cache.GetStringAsync(cacheKey);
+        var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
             _log.LogInformation("Operational comparison cache hit for RegistryType {RegistryType}", request?.RegistryType);
@@ -589,7 +589,7 @@ public class StatisticsService
             Periods = results
         };
 
-        await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result), OperationalCacheOptions);
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), OperationalCacheOptions);
         _log.LogInformation("Operational comparison cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched operational comparison for RegistryType {RegistryType}", request.RegistryType);
         return result;
@@ -598,21 +598,85 @@ public class StatisticsService
     public async Task<string> InvalidateStatisticsCacheAsync()
     {
         var newVersion = Guid.NewGuid().ToString("N");
-        await _cache.SetStringAsync(CacheVersionKey, newVersion);
+        await TrySetCacheAsync(CacheVersionKey, newVersion, null);
         _log.LogInformation("Statistics cache invalidated with version {CacheVersion}", newVersion);
         return newVersion;
     }
 
     private string GetCacheVersion()
     {
-        var version = _cache.GetString(CacheVersionKey);
+        var version = TryGetCache(CacheVersionKey);
         if (string.IsNullOrWhiteSpace(version))
         {
             version = "v1";
-            _cache.SetString(CacheVersionKey, version);
+            TrySetCache(CacheVersionKey, version, null);
         }
 
         return version;
+    }
+
+    private string? TryGetCache(string key)
+    {
+        try
+        {
+            return _cache.GetString(key);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable for key {CacheKey}. Falling back to live data.", key);
+            return null;
+        }
+    }
+
+    private async Task<string?> TryGetCacheAsync(string key)
+    {
+        try
+        {
+            return await _cache.GetStringAsync(key);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable for key {CacheKey}. Falling back to live data.", key);
+            return null;
+        }
+    }
+
+    private void TrySetCache(string key, string value, DistributedCacheEntryOptions? options)
+    {
+        try
+        {
+            if (options == null)
+            {
+                _cache.SetString(key, value);
+            }
+            else
+            {
+                _cache.SetString(key, value, options);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable while setting key {CacheKey}. Continuing without cache.", key);
+        }
+    }
+
+    private async Task TrySetCacheAsync(string key, string value, DistributedCacheEntryOptions? options)
+    {
+        try
+        {
+            if (options == null)
+            {
+                await _cache.SetStringAsync(key, value);
+            }
+            else
+            {
+                await _cache.SetStringAsync(key, value, options);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable while setting key {CacheKey}. Continuing without cache.", key);
+        }
     }
 
     #endregion
