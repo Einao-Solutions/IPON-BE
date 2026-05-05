@@ -228,6 +228,7 @@ public class EmailServices
         body = body.Replace("{Reason}", dto.Reason);
         body = body.Replace("{OppositionDate}", dto.OppositionDate);
         body = body.Replace("{SignatoryName}", dto.SignatoryName);
+        body = body.Replace("{OppositionId}", dto.OppositionId ?? "");
 
         return body;
     }

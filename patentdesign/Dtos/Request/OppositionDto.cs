@@ -43,6 +43,7 @@ public class CounterStatementRequestDto
     public string? FileNumber { get; set; }
     public string? FileId { get; set; }
     public string? FileTitle { get; set; }
+    public string? OppositionId { get; set; }
     public string? CounterStatement { get; set; }
     public List<IFormFile>? SupportingDocs { get; set; }
     public string? UserId { get; set; }

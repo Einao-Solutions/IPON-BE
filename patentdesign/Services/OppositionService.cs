@@ -13,6 +13,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Tfunctions.pdfs;
+using patentdesign;
 
 public class OppositionService
 {
@@ -76,10 +77,10 @@ public class OppositionService
                 throw new KeyNotFoundException("File not found");
             }
             
-            if (file.FileStatus != ApplicationStatuses.Publication)
+            if (file.FileStatus != ApplicationStatuses.Publication && file.FileStatus != ApplicationStatuses.NewOpposition)
             {
-                _log.LogError("Only Files in Publication can be opposed.");
-                throw new NotSupportedException("Only Files in Publication can be opposed.");
+                _log.LogError("Only Files in Publication or Opposed status can be opposed.");
+                throw new NotSupportedException("Only Files in Publication or Opposed status can be opposed.");
             }
 
             string title;
@@ -171,6 +172,13 @@ public class OppositionService
                 }
             }
 
+            // Check if this user already filed an opposition against this file
+            var existingOpp = await _oppositionCollection.Find(o => o.FileNumber == data.FileNumber && o.UserId == data.UserId).FirstOrDefaultAsync();
+            if (existingOpp != null)
+            {
+                throw new InvalidOperationException("You have already filed an opposition against this file.");
+            }
+
             _log.LogDebug("Creating new opposition");
             var oppose = new Opposition
             {
@@ -189,6 +197,7 @@ public class OppositionService
     FileTitle = data.FileTitle,
     FileId = data.FileId,
     UserId = data.UserId,
+    FileOwnerId = (await _fillingCollection.Find(f => f.Id == data.FileId).FirstOrDefaultAsync())?.CreatorAccount,
 };
 await _oppositionCollection.InsertOneAsync(oppose);
 _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
@@ -335,13 +344,24 @@ return oppose.id;
                     Builders<Opposition>.Filter.Eq(o => o.id, opp.id),
                     Builders<Opposition>.Update.Set(o => o.PreviousFileStatus, file.FileStatus));
 
-                // File status → NewOpposition (30), Application status → AwaitingCounter (31)
+                // File status → NewOpposition (30)
+                var fileUpdate = Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.NewOpposition);
+
+                // Only update ApplicationHistory.CurrentStatus if this is the earliest opposition on the file
+                var earliestOpp = await _oppositionCollection
+                    .Find(o => o.FileNumber == opp.FileNumber && o.Paid == true)
+                    .SortBy(o => o.OppositionDate)
+                    .FirstOrDefaultAsync();
+                if (earliestOpp == null || earliestOpp.id == opp.id)
+                {
+                    fileUpdate = Builders<Filling>.Update.Combine(fileUpdate,
+                        Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.AwaitingCounter),
+                        Builders<Filling>.Update.Set("ApplicationHistory.0.PaymentId", opp.PaymentId));
+                }
+
                 await _fillingCollection.UpdateOneAsync(
-                    Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
-                    Builders<Filling>.Update.Combine(
-                        Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.NewOpposition),
-                        Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.AwaitingCounter)));
-                _log.LogInformation($"File {opp.FileNumber} — FileStatus=NewOpposition(30), ApplicationStatus=AwaitingCounter(31)");
+                    Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber), fileUpdate);
+                _log.LogInformation($"File {opp.FileNumber} — FileStatus=NewOpposition(30)");
             }
 
             _log.LogInformation($"Opposition payment confirmed for {opp.FileNumber}");
@@ -424,7 +444,8 @@ return oppose.id;
                 Reason = opp.Reason,
                 SignatoryName = "",
                 OpposerName = opp.Name,
-                Title = opp.FileTitle
+                Title = opp.FileTitle,
+                OppositionId = opp.id
             };
             var email = new EmailDto
             {
@@ -460,12 +481,26 @@ return oppose.id;
         return total;
     }
 
-    public async Task<Object> LoadSummary(int quantity, int skip, ApplicationStatuses? status)
+    public async Task<Object> LoadSummary(int quantity, int skip, ApplicationStatuses? status, string? userId = null)
     {
         var paidFilter = Builders<Opposition>.Filter.Eq(x => x.Paid, true);
-        var filter = status != null
+        var baseFilter = status != null
             ? Builders<Opposition>.Filter.And(paidFilter, Builders<Opposition>.Filter.Eq(x => x.Status, status))
             : paidFilter;
+
+        FilterDefinition<Opposition> filter;
+        if (userId != null)
+        {
+            // Return only oppositions filed by this user
+            var userFilter = Builders<Opposition>.Filter.Eq(x => x.UserId, userId);
+            filter = Builders<Opposition>.Filter.And(baseFilter, userFilter);
+        }
+        else
+        {
+            // No userId — return all (for SuperAdmin/Tech roles)
+            filter = baseFilter;
+        }
+
         var count = _oppositionCollection.CountDocuments(filter);
         var raw = await _oppositionCollection.Find(filter).Skip(skip).Limit(quantity).ToListAsync();
         var sn = skip;
@@ -726,9 +761,17 @@ return oppose.id;
             if (string.IsNullOrWhiteSpace(dto.UserId))
                 return (false, null, "UserId is required");
 
-            var opp = await _oppositionCollection
-                .Find(o => o.FileNumber == dto.FileNumber || o.id == dto.FileNumber)
-                .FirstOrDefaultAsync();
+            Opposition opp = null;
+            if (!string.IsNullOrEmpty(dto.OppositionId))
+            {
+                opp = await _oppositionCollection.Find(o => o.id == dto.OppositionId).FirstOrDefaultAsync();
+            }
+            if (opp == null && !string.IsNullOrEmpty(dto.FileNumber))
+            {
+                opp = await _oppositionCollection
+                    .Find(o => o.FileNumber == dto.FileNumber || o.id == dto.FileNumber)
+                    .FirstOrDefaultAsync();
+            }
             if (opp == null)
                 return (false, null, "No active opposition found for this file");
 
@@ -838,6 +881,13 @@ return oppose.id;
                 return (false, "Opposition not found");
 
             // Push counter statement into opposition record; opposition status → AwaitingStatutoryDeclaration
+            // First ensure CounterStatements array exists (handles null in DB)
+            await _oppositionCollection.UpdateOneAsync(
+                Builders<Opposition>.Filter.And(
+                    Builders<Opposition>.Filter.Eq(o => o.id, cs.OppositionId),
+                    Builders<Opposition>.Filter.Eq(o => o.CounterStatements, null)),
+                Builders<Opposition>.Update.Set(o => o.CounterStatements, new List<CounterStatement>()));
+
             await _oppositionCollection.UpdateOneAsync(
                 Builders<Opposition>.Filter.Eq(o => o.id, cs.OppositionId),
                 Builders<Opposition>.Update.Combine(
@@ -846,10 +896,14 @@ return oppose.id;
                     Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.StatutoryDeclaration),
                     Builders<Opposition>.Update.Push(o => o.CounterStatements, cs)
                 ));
+            _log.LogInformation($"Opposition {opp.id} updated: Status=StatutoryDeclaration(33), IsCountered=true, CounterStatement pushed");
 
-            // Update file's application status to StatutoryDeclaration (33)
-            var csFile = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
-            if (csFile != null)
+            // Only update ApplicationHistory.CurrentStatus if this is the earliest opposition on the file
+            var earliestOppForCs = await _oppositionCollection
+                .Find(o => o.FileNumber == opp.FileNumber && o.Paid == true)
+                .SortBy(o => o.OppositionDate)
+                .FirstOrDefaultAsync();
+            if (earliestOppForCs != null && earliestOppForCs.id == opp.id)
             {
                 await _fillingCollection.UpdateOneAsync(
                     Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
@@ -1043,78 +1097,106 @@ return oppose.id;
     {
         try
         {
-            Opposition opp = null;
+            List<Opposition> oppositions = new();
 
             if (!string.IsNullOrEmpty(oppositionId))
-                opp = await _oppositionCollection.Find(o => o.id == oppositionId).FirstOrDefaultAsync();
+            {
+                // 1. Try exact match
+                var opp = await _oppositionCollection.Find(o => o.id == oppositionId).FirstOrDefaultAsync();
 
-            if (opp == null && !string.IsNullOrEmpty(fileNumber))
-                opp = await _oppositionCollection
+                // 2. If no exact match, try prefix match (case-insensitive)
+                if (opp == null)
+                {
+                    var lowerPrefix = oppositionId.ToLowerInvariant();
+                    var filter = Builders<Opposition>.Filter.Regex(
+                        o => o.id,
+                        new MongoDB.Bson.BsonRegularExpression($"^{System.Text.RegularExpressions.Regex.Escape(lowerPrefix)}", "i"));
+                    opp = await _oppositionCollection
+                        .Find(filter)
+                        .SortByDescending(o => o.OppositionDate)
+                        .FirstOrDefaultAsync();
+                }
+
+                if (opp != null)
+                    oppositions.Add(opp);
+            }
+            else if (!string.IsNullOrEmpty(fileNumber))
+            {
+                // Return ALL oppositions for this file, ordered by date descending
+                oppositions = await _oppositionCollection
                     .Find(o => o.FileNumber == fileNumber)
                     .SortByDescending(o => o.OppositionDate)
-                    .FirstOrDefaultAsync();
+                    .ToListAsync();
+            }
 
-            if (opp == null) return null;
+            if (oppositions.Count == 0) return null;
 
-            var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
-            string fileName = file?.Type switch
+            var firstOpp = oppositions.First();
+            var file = await _fillingCollection.Find(f => f.FileId == firstOpp.FileNumber).FirstOrDefaultAsync();
+
+            var results = oppositions.Select(opp =>
             {
-                FileTypes.Design => file.TitleOfDesign,
-                FileTypes.Patent => file.TitleOfInvention,
-                _                => file?.TitleOfTradeMark
-            };
-
-            var hasCounterStatement = opp.CounterStatements != null && opp.CounterStatements.Count > 0;
-            var counterStatementDate = hasCounterStatement
-                ? opp.CounterStatements.First().SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss")
-                : null;
-
-            return new
-            {
-                id                    = opp.id,
-                fileNumber            = opp.FileNumber,
-                fileName              = fileName,
-                title                 = fileName,
-                name                  = opp.Name,
-                email                 = opp.Email,
-                phone                 = opp.Phone,
-                address               = opp.Address,
-                nationality           = opp.Nationality,
-                reason                = opp.Reason,
-                oppositionText        = opp.Reason,
-                status                = opp.Status,
-                fileStatus            = file?.FileStatus,
-                oppositionStatus      = file?.ApplicationHistory?.FirstOrDefault()?.CurrentStatus ?? opp.Status,
-                oppositionDate        = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
-                paymentId             = opp.PaymentId,
-                date                  = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
-                decision              = opp.Decision,
-                resolutionStatement   = opp.ResolutionStatement,
-                resolvedBy            = opp.ResolvedBy,
-                hasCounterStatement   = hasCounterStatement,
-                counterStatementDate  = counterStatementDate,
-                supportingDocs        = opp.SupportingDocs ?? new List<string>(),
-                counterStatements     = (opp.CounterStatements ?? new List<CounterStatement>()).Select(cs => new
+                string fileName = file?.Type switch
                 {
-                    id            = cs.Id,
-                    filedBy       = cs.UserId,
-                    dateFiled     = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    statement     = cs.Text,
-                    submittedDate = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    text          = cs.Text,
-                    attachments   = cs.Attachments ?? new List<string>()
-                }).ToList(),
-                statutoryDeclarations = (opp.StatutoryDeclarations ?? new List<StatutoryDeclaration>()).Select(sd => new
+                    FileTypes.Design => file.TitleOfDesign,
+                    FileTypes.Patent => file.TitleOfInvention,
+                    _                => file?.TitleOfTradeMark
+                };
+
+                var hasCounterStatement = opp.CounterStatements != null && opp.CounterStatements.Count > 0;
+                var counterStatementDate = hasCounterStatement
+                    ? opp.CounterStatements.First().SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss")
+                    : null;
+
+                return new
                 {
-                    id            = sd.Id,
-                    filedBy       = sd.UserId,
-                    dateFiled     = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    statement     = sd.Text,
-                    submittedDate = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    text          = sd.Text,
-                    attachments   = sd.Attachments ?? new List<string>()
-                }).ToList()
-            };
+                    id                    = opp.id,
+                    fileNumber            = opp.FileNumber,
+                    fileName              = fileName,
+                    title                 = fileName,
+                    name                  = opp.Name,
+                    email                 = opp.Email,
+                    phone                 = opp.Phone,
+                    address               = opp.Address,
+                    nationality           = opp.Nationality,
+                    reason                = opp.Reason,
+                    oppositionText        = opp.Reason,
+                    status                = opp.Status,
+                    fileStatus            = file?.FileStatus,
+                    oppositionStatus      = file?.ApplicationHistory?.FirstOrDefault()?.CurrentStatus ?? opp.Status,
+                    oppositionDate        = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
+                    paymentId             = opp.PaymentId,
+                    date                  = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
+                    decision              = opp.Decision,
+                    resolutionStatement   = opp.ResolutionStatement,
+                    resolvedBy            = opp.ResolvedBy,
+                    hasCounterStatement   = hasCounterStatement,
+                    counterStatementDate  = counterStatementDate,
+                    supportingDocs        = opp.SupportingDocs ?? new List<string>(),
+                    counterStatements     = (opp.CounterStatements ?? new List<CounterStatement>()).Select(cs => new
+                    {
+                        id            = cs.Id,
+                        filedBy       = cs.UserId,
+                        dateFiled     = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
+                        statement     = cs.Text,
+                        submittedDate = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
+                        text          = cs.Text,
+                        attachments   = cs.Attachments ?? new List<string>()
+                    }).ToList(),
+                    statutoryDeclarations = (opp.StatutoryDeclarations ?? new List<StatutoryDeclaration>()).Select(sd => new
+                    {
+                        id            = sd.Id,
+                        filedBy       = sd.UserId,
+                        dateFiled     = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
+                        statement     = sd.Text,
+                        submittedDate = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
+                        text          = sd.Text,
+                        attachments   = sd.Attachments ?? new List<string>()
+                    }).ToList()
+                };
+            }).ToList();
+
+            return results;
         }
         catch (Exception ex)
         {
@@ -1205,5 +1287,68 @@ return oppose.id;
             _log.LogError(ex, "Error resolving opposition");
             throw;
         }
+    }
+
+    // ─── Generate Counter Statement Acknowledgement Letter ──────────────────
+    public async Task<byte[]> GenerateCounterStatementLetter(string counterStatementId)
+    {
+        var cs = await _counterStatementCollection.Find(x => x.Id == counterStatementId).FirstOrDefaultAsync();
+        if (cs == null) throw new KeyNotFoundException("Counter statement not found");
+
+        var opp = await _oppositionCollection.Find(o => o.id == cs.OppositionId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+        if (file == null) throw new KeyNotFoundException("File not found");
+
+        var document = new CounterStatementAcknowledgementModel(file, opp, cs);
+        return document.GeneratePdf();
+    }
+
+    public async Task<byte[]> GenerateCounterStatementLetterByPaymentId(string paymentId)
+    {
+        var cs = await _counterStatementCollection.Find(x => x.PaymentId == paymentId).FirstOrDefaultAsync();
+        if (cs == null) throw new KeyNotFoundException("Counter statement not found");
+
+        var opp = await _oppositionCollection.Find(o => o.id == cs.OppositionId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+        if (file == null) throw new KeyNotFoundException("File not found");
+
+        var document = new CounterStatementAcknowledgementModel(file, opp, cs);
+        return document.GeneratePdf();
+    }
+
+    // ─── Backfill PaymentId into ApplicationHistory for existing oppositions ──
+    public async Task<int> BackfillOppositionPaymentIds()
+    {
+        // Get all paid oppositions that have a PaymentId
+        var paidOppositions = await _oppositionCollection
+            .Find(o => o.Paid == true && o.PaymentId != null)
+            .ToListAsync();
+
+        // Group by file number — take the earliest opposition per file
+        var grouped = paidOppositions
+            .GroupBy(o => o.FileNumber)
+            .Select(g => g.OrderBy(o => o.OppositionDate).First())
+            .ToList();
+
+        int updated = 0;
+        foreach (var opp in grouped)
+        {
+            if (string.IsNullOrEmpty(opp.FileNumber) || string.IsNullOrEmpty(opp.PaymentId))
+                continue;
+
+            var result = await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
+                Builders<Filling>.Update.Set("ApplicationHistory.0.PaymentId", opp.PaymentId));
+
+            if (result.ModifiedCount > 0)
+                updated++;
+        }
+
+        _log.LogInformation($"Backfill complete: updated {updated} file(s) with opposition PaymentId");
+        return updated;
     }
 }

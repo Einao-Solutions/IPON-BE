@@ -35,6 +35,7 @@ public class OppositionMail
     public string Reason { get; set; }
     public string OppositionDate { get; set; }
     public string? SignatoryName { get; set; }
+    public string? OppositionId { get; set; }
 }
 
 public class CounterStatementMail

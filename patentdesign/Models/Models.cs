@@ -1733,6 +1733,7 @@ public record Opposition
     public DateTime? ResolvedDate { get; set; }
     public string? UserId { get; set; }
     public bool? Paid { get; set; } = false;
+    public string? FileOwnerId { get; set; }
     public bool? IsStaffOpposition = false;
     public ApplicationStatuses? PreviousFileStatus { get; set; }
     public string? Decision { get; set; }
