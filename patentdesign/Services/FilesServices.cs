@@ -72,6 +72,7 @@ public class FilesServices
      //private string attachmentBaseUrl = "http://localhost:5044";
 
     public FilesServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices)
+
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -419,6 +420,10 @@ public class FilesServices
         {
             case FileTypes.TradeMark:
                 application.ExpiryDate = firstRenewal ? DateOnly.FromDateTime(paymentDate.AddYears(7)) : DateOnly.FromDateTime(paymentDate.AddYears(14));
+                //Signature for Certificate
+                var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
+                application.SignatoryName = signature.Name;
+                application.SignatureId = signature.Id;
                 break;
             case FileTypes.Patent:
                 application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(1));
