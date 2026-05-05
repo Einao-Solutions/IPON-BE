@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http.HttpResults;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
 using patentdesign.Models;
@@ -42,6 +43,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpPost("StaffOpposition")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> StaffOpposition([FromBody]OppositionRequestDto req)
     {
         try
@@ -75,6 +77,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpGet("GetAllOpposition")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> GetAllOpposition()
     {
         var opps = await oppositionService.GetOppositionRequests();
@@ -82,6 +85,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpGet("count")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> GetOppositionCount()
     {
         var count = await oppositionService.GetOppositionCount();
@@ -89,6 +93,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpGet("loadSummary")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<ActionResult> LoadSummary(
         [FromQuery] int quantity = 50,
         [FromQuery] int skip = 0,
@@ -100,6 +105,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpGet("get")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<ActionResult<OppositionType>> GetOpposition([FromQuery] string id)
     {
         var result = await oppositionService.GetOpposition(id);
@@ -107,6 +113,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpPost("notify")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> Notify([FromQuery] string oppId)
     {
         bool result = await oppositionService.NotifyApplicant(oppId);
@@ -114,6 +121,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
     }
 
     [HttpGet("stats")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> GetStats()
     {
         var result = await oppositionService.GetStats();
@@ -199,6 +207,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
 
     // ─── Get Full Opposition Detail ──────────────────────────────────────────
     [HttpGet("getOppositionDetail")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> GetOppositionDetail([FromQuery] string? oppositionId, [FromQuery] string? fileNumber)
     {
         try
@@ -216,6 +225,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
 
     // ─── Decline Opposition (trademark owner wins) ───────────────────────────
     [HttpPost("decline")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> DeclineOpposition([FromQuery] string oppositionId)
     {
         try
@@ -233,6 +243,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
 
     // ─── Uphold Opposition (opposer wins) ────────────────────────────────────
     [HttpPost("uphold")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> UpholdOpposition([FromQuery] string oppositionId)
     {
         try
@@ -250,6 +261,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
 
     // ─── Resolve Opposition (unified uphold/decline with decision) ───────────
     [HttpPost("resolve")]
+    [Authorize(Roles = "SuperAdmin,Tech,TrademarkOpposition")]
     public async Task<IActionResult> ResolveOpposition([FromBody] ResolveOppositionDto dto)
     {
         try
