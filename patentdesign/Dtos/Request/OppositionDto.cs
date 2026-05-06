@@ -36,6 +36,8 @@ public class OppositionStatsDto
 {
     public long? AwaitingCounter { get; set; }
     public long? NewOpposition { get; set; }
+    public long? AwaitingOfficeProcess { get; set; }
+    public long? Abandoned { get; set; }
 }
 
 public class CounterStatementRequestDto

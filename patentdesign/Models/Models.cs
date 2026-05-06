@@ -874,7 +874,8 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
+    CounterStatement, StatutoryDeclaration
 }
 public enum ApplicationLetters
 {
@@ -910,7 +911,8 @@ public enum ApplicationLetters
     DesignMortgageAcknowledgement, DesignMergerAcknowledgement, DesignCtcAcnowledgement, DesignAmendmentAcknowledgement, DesignAssignmentRefusalletter,
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
-    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter
+    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
+    StatutoryDeclarationAck
 
 
 }
@@ -1004,7 +1006,7 @@ public enum ApplicationStatuses
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
 AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval,
-StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal, AwaitingOfficeProcess
+StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal, AwaitingOfficeProcess, Abandoned
 }
 
 public record AssignmentCertificateType

@@ -596,8 +596,16 @@ return oppose.id;
             Builders<Opposition>.Filter.And(paidFilter, Builders<Opposition>.Filter.Eq(x => x.Status, ApplicationStatuses.AwaitingCounter)));
         long newOpps = _oppositionCollection.CountDocuments(
             Builders<Opposition>.Filter.And(paidFilter, Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.NewOpposition)));
+        long awaitingOfficeProcess = _oppositionCollection.CountDocuments(
+            Builders<Opposition>.Filter.And(paidFilter, Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.AwaitingOfficeProcess)));
+        long abandoned = _oppositionCollection.CountDocuments(
+            Builders<Opposition>.Filter.And(paidFilter,
+                Builders<Opposition>.Filter.Eq(o => o.Status, ApplicationStatuses.Resolved),
+                Builders<Opposition>.Filter.Eq(o => o.Decision, "Abandoned - No Counter Statement")));
         stats.AwaitingCounter = awaitingCounter;
         stats.NewOpposition = newOpps;
+        stats.AwaitingOfficeProcess = awaitingOfficeProcess;
+        stats.Abandoned = abandoned;
         return stats;
     }
     //
@@ -909,6 +917,19 @@ return oppose.id;
                     Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
                     Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.StatutoryDeclaration));
             }
+
+            // Add Counter Statement to applicant's ApplicationHistory
+            var csAppEntry = new ApplicationInfo
+            {
+                id = cs.Id,
+                ApplicationType = FormApplicationTypes.CounterStatement,
+                CurrentStatus = ApplicationStatuses.StatutoryDeclaration,
+                PaymentId = cs.PaymentId,
+                ApplicationDate = DateTime.Now
+            };
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
+                Builders<Filling>.Update.Push(f => f.ApplicationHistory, csAppEntry));
 
             // Notify the opposer that a counter statement has been filed
             try
@@ -1266,7 +1287,25 @@ return oppose.id;
 
             _log.LogInformation($"Opposition {opp.id} updated: Statutory declaration pushed");
 
-            // Send email notification to the OTHER party
+            // Add Statutory Declaration to file's ApplicationHistory only if filed by file owner
+            var fileForSdCheck = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+            if (fileForSdCheck != null && sd.UserId != opp.UserId)
+            {
+                // Filed by applicant (file owner) — add to history
+                var sdAppEntry = new ApplicationInfo
+                {
+                    id = sd.Id,
+                    ApplicationType = FormApplicationTypes.StatutoryDeclaration,
+                    CurrentStatus = ApplicationStatuses.AwaitingOfficeProcess,
+                    PaymentId = sd.PaymentId,
+                    ApplicationDate = DateTime.Now
+                };
+                await _fillingCollection.UpdateOneAsync(
+                    Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
+                    Builders<Filling>.Update.Push(f => f.ApplicationHistory, sdAppEntry));
+            }
+
+            // Send email notification to BOTH parties
             try
             {
                 var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
@@ -1277,48 +1316,55 @@ return oppose.id;
                     _ => file?.TitleOfTradeMark
                 };
 
-                // Determine who filed: if userId matches opposer, notify file owner; else notify opposer
-                string recipientEmail;
-                string recipientName;
-                string filerRole;
+                var fileOwner = file?.applicants?.FirstOrDefault();
+                string filerRole = sd.UserId == opp.UserId ? "Opposer" : "Applicant";
 
-                if (sd.UserId == opp.UserId)
+                // Notify applicant (file owner)
+                var applicantEmail = fileOwner?.Email ?? "";
+                if (!string.IsNullOrEmpty(applicantEmail))
                 {
-                    // Opposer filed SD → notify applicant (file owner)
-                    var fileOwner = file?.applicants?.FirstOrDefault();
-                    recipientEmail = fileOwner?.Email ?? "";
-                    recipientName = fileOwner?.Name ?? "Applicant";
-                    filerRole = "Opposer";
-                }
-                else
-                {
-                    // Applicant filed SD → notify opposer
-                    recipientEmail = opp.Email ?? "";
-                    recipientName = opp.Name ?? "Opposer";
-                    filerRole = "Applicant";
-                }
-
-                if (!string.IsNullOrEmpty(recipientEmail))
-                {
-                    var mail = new StatutoryDeclarationMail
-                    {
-                        To            = recipientEmail,
-                        Subject       = "Statutory Declaration Filed",
-                        RecipientName = recipientName,
-                        FilerRole     = filerRole,
-                        FileNumber    = opp.FileNumber,
-                        FileTitle     = fileTitle,
-                        OppositionId  = opp.id,
-                        DateFiled     = DateTime.Now.ToString("dd MMMM yyyy")
-                    };
                     await _emailServices.SendMail(new EmailDto
                     {
-                        To                       = recipientEmail,
-                        Subject                  = "Statutory Declaration Filed",
-                        EmailType                = EmailType.StatutoryDeclaration,
-                        StatutoryDeclarationMail = mail
+                        To      = applicantEmail,
+                        Subject = "Statutory Declaration Filed",
+                        EmailType = EmailType.StatutoryDeclaration,
+                        StatutoryDeclarationMail = new StatutoryDeclarationMail
+                        {
+                            To            = applicantEmail,
+                            Subject       = "Statutory Declaration Filed",
+                            RecipientName = fileOwner?.Name ?? "Applicant",
+                            FilerRole     = filerRole,
+                            FileNumber    = opp.FileNumber,
+                            FileTitle     = fileTitle,
+                            OppositionId  = opp.id,
+                            DateFiled     = DateTime.Now.ToString("dd MMMM yyyy")
+                        }
                     });
-                    _log.LogInformation($"Statutory declaration notification sent to {recipientEmail}");
+                    _log.LogInformation($"Statutory declaration notification sent to applicant {applicantEmail}");
+                }
+
+                // Notify opposer
+                var opposerEmail = opp.Email ?? "";
+                if (!string.IsNullOrEmpty(opposerEmail))
+                {
+                    await _emailServices.SendMail(new EmailDto
+                    {
+                        To      = opposerEmail,
+                        Subject = "Statutory Declaration Filed",
+                        EmailType = EmailType.StatutoryDeclaration,
+                        StatutoryDeclarationMail = new StatutoryDeclarationMail
+                        {
+                            To            = opposerEmail,
+                            Subject       = "Statutory Declaration Filed",
+                            RecipientName = opp.Name ?? "Opposer",
+                            FilerRole     = filerRole,
+                            FileNumber    = opp.FileNumber,
+                            FileTitle     = fileTitle,
+                            OppositionId  = opp.id,
+                            DateFiled     = DateTime.Now.ToString("dd MMMM yyyy")
+                        }
+                    });
+                    _log.LogInformation($"Statutory declaration notification sent to opposer {opposerEmail}");
                 }
             }
             catch (Exception emailEx)
@@ -1672,6 +1718,37 @@ return oppose.id;
         return document.GeneratePdf();
     }
 
+    // ─── Generate Statutory Declaration Acknowledgement Letter ───────────────
+    public async Task<byte[]> GenerateStatutoryDeclarationLetter(string statutoryDeclarationId)
+    {
+        var sd = await _statutoryDeclarationCollection.Find(x => x.Id == statutoryDeclarationId).FirstOrDefaultAsync();
+        if (sd == null) throw new KeyNotFoundException("Statutory declaration not found");
+
+        var opp = await _oppositionCollection.Find(o => o.id == sd.OppositionId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+        if (file == null) throw new KeyNotFoundException("File not found");
+
+        var document = new StatutoryDeclarationAcknowledgementModel(file, opp, sd);
+        return document.GeneratePdf();
+    }
+
+    public async Task<byte[]> GenerateStatutoryDeclarationLetterByPaymentId(string paymentId)
+    {
+        var sd = await _statutoryDeclarationCollection.Find(x => x.PaymentId == paymentId).FirstOrDefaultAsync();
+        if (sd == null) throw new KeyNotFoundException("Statutory declaration not found");
+
+        var opp = await _oppositionCollection.Find(o => o.id == sd.OppositionId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+        if (file == null) throw new KeyNotFoundException("File not found");
+
+        var document = new StatutoryDeclarationAcknowledgementModel(file, opp, sd);
+        return document.GeneratePdf();
+    }
+
     // ─── Backfill PaymentId into ApplicationHistory for existing oppositions ──
     public async Task<int> BackfillOppositionPaymentIds()
     {
@@ -1784,6 +1861,92 @@ return oppose.id;
         }
 
         _log.LogInformation($"Backfill SD roles complete: {sdsWithoutRole.Count} SD(s) updated with role");
+
+        // Backfill ApplicationHistory entries for paid counter statements and statutory declarations
+        // Remove ALL CS-type entries from ApplicationHistory for affected files, then re-add one per opposition
+        var allPaidCsForCleanup = await _counterStatementCollection.Find(cs => cs.Paid == true).ToListAsync();
+
+        // Group by OppositionId to only keep one CS per opposition
+        var csGroupedByOpposition = allPaidCsForCleanup
+            .Where(cs => !string.IsNullOrEmpty(cs.OppositionId))
+            .GroupBy(cs => cs.OppositionId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(cs => cs.SubmittedDate).First());
+
+        _log.LogInformation($"Total paid CS documents: {allPaidCsForCleanup.Count}, Unique oppositions with CS: {csGroupedByOpposition.Count}");
+
+        // First, remove ALL CS-type ApplicationHistory entries from affected files
+        var affectedFileNumbers = new HashSet<string>();
+        foreach (var kvp in csGroupedByOpposition)
+        {
+            var opp = await _oppositionCollection.Find(o => o.id == kvp.Key).FirstOrDefaultAsync();
+            if (opp == null || string.IsNullOrEmpty(opp.FileNumber)) continue;
+            affectedFileNumbers.Add(opp.FileNumber);
+            _log.LogInformation($"CS for opposition {kvp.Key} -> file {opp.FileNumber}");
+        }
+
+        _log.LogInformation($"Affected files for CS cleanup: {string.Join(", ", affectedFileNumbers)}");
+
+        foreach (var fileNumber in affectedFileNumbers)
+        {
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, fileNumber),
+                Builders<Filling>.Update.PullFilter(f => f.ApplicationHistory,
+                    Builders<ApplicationInfo>.Filter.Eq(a => a.ApplicationType, FormApplicationTypes.CounterStatement)));
+        }
+
+        // Re-add exactly one CS entry per opposition
+        foreach (var kvp in csGroupedByOpposition)
+        {
+            var csClean = kvp.Value;
+            var oppClean2 = await _oppositionCollection.Find(o => o.id == kvp.Key).FirstOrDefaultAsync();
+            if (oppClean2 == null || string.IsNullOrEmpty(oppClean2.FileNumber)) continue;
+
+            var csEntry = new ApplicationInfo
+            {
+                id = csClean.Id,
+                ApplicationType = FormApplicationTypes.CounterStatement,
+                CurrentStatus = ApplicationStatuses.StatutoryDeclaration,
+                PaymentId = csClean.PaymentId,
+                ApplicationDate = csClean.SubmittedDate
+            };
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, oppClean2.FileNumber),
+                Builders<Filling>.Update.Push(f => f.ApplicationHistory, csEntry));
+            updated++;
+        }
+
+        // Remove ALL SD entries from ApplicationHistory, then re-add exactly one per applicant-filed paid SD
+        var paidSdList = await _statutoryDeclarationCollection.Find(sd => sd.Paid == true).ToListAsync();
+        foreach (var sdItem2 in paidSdList)
+        {
+            if (string.IsNullOrEmpty(sdItem2.OppositionId)) continue;
+            var oppForSd2 = await _oppositionCollection.Find(o => o.id == sdItem2.OppositionId).FirstOrDefaultAsync();
+            if (oppForSd2 == null || string.IsNullOrEmpty(oppForSd2.FileNumber)) continue;
+
+            // Pull ALL entries with this SD id first (removes duplicates and opposer-filed entries)
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, oppForSd2.FileNumber),
+                Builders<Filling>.Update.PullFilter(f => f.ApplicationHistory,
+                    Builders<ApplicationInfo>.Filter.Eq(a => a.id, sdItem2.Id)));
+
+            // Only re-add if filed by the applicant (not the opposer)
+            if (sdItem2.UserId == oppForSd2.UserId) continue;
+
+            var sdEntry = new ApplicationInfo
+            {
+                id = sdItem2.Id,
+                ApplicationType = FormApplicationTypes.StatutoryDeclaration,
+                CurrentStatus = ApplicationStatuses.AwaitingOfficeProcess,
+                PaymentId = sdItem2.PaymentId,
+                ApplicationDate = sdItem2.SubmittedDate
+            };
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, oppForSd2.FileNumber),
+                Builders<Filling>.Update.Push(f => f.ApplicationHistory, sdEntry));
+            updated++;
+        }
+
+        _log.LogInformation($"Backfill ApplicationHistory entries complete");
         return updated;
     }
 }

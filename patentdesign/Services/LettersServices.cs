@@ -404,6 +404,15 @@ public class LettersServices
                 return await OppositionResolutionReceipt(oppositionId);
             case ApplicationLetters.OppositionResolutionAck:
                 return await OppositionResolutionAck(oppositionId);
+            case ApplicationLetters.StatutoryDeclarationAck:
+                var sdOppId = oppositionId ?? applicationId;
+                if (string.IsNullOrEmpty(sdOppId) && !string.IsNullOrEmpty(fileId))
+                {
+                    var sdOppForFile = _newOppositionCollection.Find(o => o.FileNumber == fileId).SortByDescending(o => o.id).FirstOrDefault();
+                    if (sdOppForFile != null)
+                        sdOppId = sdOppForFile.id;
+                }
+                return await StatutoryDeclarationAck(sdOppId);
             case ApplicationLetters.StatusRequestReceipt:
                 var statusReq= _statusRequestsCollection.Find(d => d.Id == applicationId).FirstOrDefault();
                 var filling = _fillingCollection.Find(f => f.Id == statusReq.fileId).FirstOrDefault();
@@ -1001,7 +1010,8 @@ public class LettersServices
                     else if (app.CurrentStatus == ApplicationStatuses.NewOpposition
                           || app.CurrentStatus == ApplicationStatuses.AwaitingCounter
                           || app.CurrentStatus == ApplicationStatuses.StatutoryDeclaration
-                          || app.CurrentStatus == ApplicationStatuses.Opposition)
+                          || app.CurrentStatus == ApplicationStatuses.Opposition
+                          || app.CurrentStatus == ApplicationStatuses.AwaitingOfficeProcess)
                     {
                         documents.AddRange(new[]
                         {
@@ -1011,9 +1021,15 @@ public class LettersServices
                         });
                         // Add counter statement letter if a counter statement has been filed
                         if (app.CurrentStatus == ApplicationStatuses.StatutoryDeclaration
-                            || app.CurrentStatus == ApplicationStatuses.Opposition)
+                            || app.CurrentStatus == ApplicationStatuses.Opposition
+                            || app.CurrentStatus == ApplicationStatuses.AwaitingOfficeProcess)
                         {
                             documents.Add(ApplicationLetters.OppositionResponseAck);
+                        }
+                        // Add statutory declaration letter if SD has been filed
+                        if (app.CurrentStatus == ApplicationStatuses.AwaitingOfficeProcess)
+                        {
+                            documents.Add(ApplicationLetters.StatutoryDeclarationAck);
                         }
                     }
                     break;
@@ -1315,6 +1331,14 @@ public class LettersServices
                     }
                     break;
 
+                case FormApplicationTypes.CounterStatement:
+                    documents.Add(ApplicationLetters.OppositionResponseAck);
+                    break;
+
+                case FormApplicationTypes.StatutoryDeclaration:
+                    documents.Add(ApplicationLetters.StatutoryDeclarationAck);
+                    break;
+
                 case FormApplicationTypes.None:
                 default:
                     throw new NotSupportedException($"Application type '{app.ApplicationType}' is not supported.");
@@ -1325,12 +1349,16 @@ public class LettersServices
                 ApplicationId = app.id,
                 PaymentId = paymentId,
                 Documents = documents,
-                OppositionId = (app.CurrentStatus == ApplicationStatuses.NewOpposition
-                    || app.CurrentStatus == ApplicationStatuses.AwaitingCounter
-                    || app.CurrentStatus == ApplicationStatuses.StatutoryDeclaration
-                    || app.CurrentStatus == ApplicationStatuses.Opposition)
-                    ? _newOppositionCollection.Find(o => o.FileNumber == file.FileId).SortByDescending(o => o.id).FirstOrDefault()?.id
-                    : null
+                OppositionId = (app.ApplicationType == FormApplicationTypes.CounterStatement
+                    || app.ApplicationType == FormApplicationTypes.StatutoryDeclaration)
+                    ? app.id
+                    : (app.CurrentStatus == ApplicationStatuses.NewOpposition
+                        || app.CurrentStatus == ApplicationStatuses.AwaitingCounter
+                        || app.CurrentStatus == ApplicationStatuses.StatutoryDeclaration
+                        || app.CurrentStatus == ApplicationStatuses.Opposition
+                        || app.CurrentStatus == ApplicationStatuses.AwaitingOfficeProcess)
+                        ? _newOppositionCollection.Find(o => o.FileNumber == file.FileId).SortByDescending(o => o.id).FirstOrDefault()?.id
+                        : null
             };
         }
         catch (Exception e)
@@ -2515,6 +2543,43 @@ public class LettersServices
             throw new KeyNotFoundException("File not found");
 
         var bytes = new CounterStatementAcknowledgementModel(file, opp, cs).GeneratePdf();
+        return ReturnDocument(bytes);
+    }
+
+    public async Task<Dictionary<string, object>> StatutoryDeclarationAck(string oppositionId)
+    {
+        StatutoryDeclaration sd = null;
+        Opposition opp = null;
+
+        // Try finding as statutory declaration ID first
+        sd = _counterStatementCollection.Database.GetCollection<StatutoryDeclaration>("statutoryDeclarations")
+            .Find(x => x.Id == oppositionId).FirstOrDefault();
+        if (sd != null)
+        {
+            opp = _newOppositionCollection.Find(o => o.id == sd.OppositionId).FirstOrDefault();
+        }
+        else
+        {
+            // Try as opposition ID — get the latest paid SD on it
+            opp = _newOppositionCollection.Find(o => o.id == oppositionId).FirstOrDefault();
+            if (opp != null)
+            {
+                var sds = _counterStatementCollection.Database.GetCollection<StatutoryDeclaration>("statutoryDeclarations")
+                    .Find(x => x.OppositionId == opp.id && x.Paid == true)
+                    .SortByDescending(x => x.SubmittedDate)
+                    .FirstOrDefault();
+                sd = sds;
+            }
+        }
+
+        if (opp == null || sd == null)
+            throw new KeyNotFoundException("Statutory declaration or opposition not found");
+
+        var file = _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefault();
+        if (file == null)
+            throw new KeyNotFoundException("File not found");
+
+        var bytes = new StatutoryDeclarationAcknowledgementModel(file, opp, sd).GeneratePdf();
         return ReturnDocument(bytes);
     }
 

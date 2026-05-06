@@ -378,4 +378,30 @@ public class OppositionController(OppositionService oppositionService) :Controll
             return BadRequest(new { success = false, message = e.Message });
         }
     }
+
+    // ─── Statutory Declaration Acknowledgement Letter ─────────────────────────
+    [HttpGet("statutoryDeclarationLetter")]
+    public async Task<IActionResult> GetStatutoryDeclarationLetter([FromQuery] string? statutoryDeclarationId, [FromQuery] string? paymentId)
+    {
+        try
+        {
+            byte[] pdf;
+            if (!string.IsNullOrEmpty(statutoryDeclarationId))
+                pdf = await oppositionService.GenerateStatutoryDeclarationLetter(statutoryDeclarationId);
+            else if (!string.IsNullOrEmpty(paymentId))
+                pdf = await oppositionService.GenerateStatutoryDeclarationLetterByPaymentId(paymentId);
+            else
+                return BadRequest(new { success = false, message = "Provide statutoryDeclarationId or paymentId" });
+
+            return File(pdf, "application/pdf", "StatutoryDeclarationAcknowledgement.pdf");
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
 }
