@@ -51,11 +51,14 @@ public class CounterStatementRequestDto
 
 public class StatutoryDeclarationRequestDto
 {
+    public string? FileNumber { get; set; }
+    public string? FileId { get; set; }
     public string? OppositionId { get; set; }
-    public string? DeclarationText { get; set; }
-    public List<IFormFile>? Attachments { get; set; }
+    public string? FileTitle { get; set; }
+    public string? Comment { get; set; }
     public string? UserId { get; set; }
-    public string? PaymentId { get; set; }
+    public string? Role { get; set; } // "opposer" or "applicant"
+    public List<IFormFile>? SupportingDocs { get; set; }
 }
 
 public class CsSearchDto
@@ -90,4 +93,14 @@ public class ResolveOppositionDto
     public string? Reason { get; set; }
     public string? UserName { get; set; }
     public string? UserId { get; set; }
+}
+
+public class GenerateOppositionPaymentDto
+{
+    public string? Description { get; set; }
+    public string? Type { get; set; } // "opposition", "response", "resolution", "statutorydeclaration"
+    public string? OppositionID { get; set; }
+    public string? Name { get; set; }
+    public string? Email { get; set; }
+    public string? Number { get; set; }
 }

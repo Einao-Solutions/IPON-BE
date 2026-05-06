@@ -1004,7 +1004,7 @@ public enum ApplicationStatuses
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
 AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval,
-StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal
+StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal, AwaitingOfficeProcess
 }
 
 public record AssignmentCertificateType
@@ -1047,7 +1047,7 @@ public enum PaymentTypes
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement
+CounterStatement, StatutoryDeclaration
 }
 
 
@@ -1376,6 +1376,11 @@ public record PaymentInfo
     public string? CounterStatementCost { get; set; }
     public string? CounterStatementServiceFee { get; set; }
     public string? CounterStatementServiceID { get; set; }
+
+    //Statutory Declaration
+    public string? StatutoryDeclarationCost { get; set; }
+    public string? StatutoryDeclarationServiceFee { get; set; }
+    public string? StatutoryDeclarationServiceID { get; set; }
 
     //appeal
     public string AppealCost { get; set; }
@@ -1767,6 +1772,8 @@ public record StatutoryDeclaration
     public string? PaymentId { get; set; }
     public bool? Paid { get; set; } = false;
     public string? UserId { get; set; }
+    public string? Role { get; set; }
+    public ApplicationStatuses? ApplicationStatus { get; set; } = ApplicationStatuses.AwaitingPayment;
     public DateTime SubmittedDate { get; set; } = DateTime.Now;
 }
 

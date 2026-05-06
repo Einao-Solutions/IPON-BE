@@ -40,6 +40,9 @@ public class EmailServices
             case EmailType.OppositionConfirmation:
                 body = PopulateOppositionConfirmationMail(dto.OppositionConfirmationMail);
                 break;
+            case EmailType.StatutoryDeclaration:
+                body = PopulateStatutoryDeclarationMail(dto.StatutoryDeclarationMail);
+                break;
             case EmailType.ResetPassword:
                 body = ResetPasswordMail(dto.ResetPasswordMail);
                 break;
@@ -246,6 +249,26 @@ public class EmailServices
 
         body = body.Replace("{{ResetLink}}", dto.ResetLink);
         body = body.Replace("{{UserName}}", dto.UserName);
+        return body;
+    }
+
+    private string PopulateStatutoryDeclarationMail(StatutoryDeclarationMail dto)
+    {
+        _log.LogDebug("Populating statutory declaration mail for {Recipient}, file {FileNumber}",
+            dto.RecipientName, dto.FileNumber);
+
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\StatutoryDeclarationNotification.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{RecipientName}", dto.RecipientName);
+        body = body.Replace("{FilerRole}", dto.FilerRole);
+        body = body.Replace("{FileNumber}", dto.FileNumber);
+        body = body.Replace("{FileTitle}", dto.FileTitle);
+        body = body.Replace("{OppositionId}", dto.OppositionId);
+        body = body.Replace("{DateFiled}", dto.DateFiled);
         return body;
     }
 }

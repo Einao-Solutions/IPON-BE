@@ -181,16 +181,73 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
     }
 
-    // ─── Submit Statutory Declaration ────────────────────────────────────────
-    [HttpPost("submitStatutoryDeclaration")]
-    public async Task<IActionResult> SubmitStatutoryDeclaration([FromForm] StatutoryDeclarationRequestDto dto)
+    // ─── Generate Payment (RRR) for Opposition-related flows ───────────────────
+    [HttpPost("generate")]
+    public async Task<IActionResult> GeneratePayment([FromBody] GenerateOppositionPaymentDto dto)
     {
         try
         {
-            var (success, id, message) = await oppositionService.SubmitStatutoryDeclaration(dto);
+            var result = await oppositionService.GenerateOppositionPayment(dto);
+            return Ok(result);
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Statutory Declaration Search ──────────────────────────────────────────
+    [HttpGet("StatutoryDeclarationSearch")]
+    public async Task<IActionResult> StatutoryDeclarationSearch([FromQuery] string? oppositionId, [FromQuery] string? fileNumber)
+    {
+        try
+        {
+            var result = await oppositionService.StatutoryDeclarationSearch(oppositionId, fileNumber);
+            return Ok(new { success = true, data = result });
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Submit Statutory Declaration ────────────────────────────────────────
+    [HttpPost("NewStatutoryDeclaration")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> NewStatutoryDeclaration([FromForm] StatutoryDeclarationRequestDto dto)
+    {
+        try
+        {
+            var (success, invoice, message) = await oppositionService.SubmitStatutoryDeclaration(dto);
             if (!success)
                 return BadRequest(new { success = false, message });
-            return Ok(new { success = true, declarationId = id, message });
+            return Ok(new { success = true, data = invoice });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Update Statutory Declaration Payment ────────────────────────────────
+    [HttpPost("UpdateStatutoryDeclarationPayment")]
+    public async Task<IActionResult> UpdateStatutoryDeclarationPayment(
+        [FromQuery] string paymentId,
+        [FromBody] PaymentUpdateDto dto)
+    {
+        try
+        {
+            if (dto?.Status != "success")
+                return BadRequest(new { success = false, message = "Payment was not successful" });
+
+            var (success, message) = await oppositionService.UpdateStatutoryDeclarationPayment(paymentId);
+            if (!success)
+                return BadRequest(new { success = false, message });
+            return Ok(new { success = true, message });
         }
         catch (Exception e)
         {
@@ -274,6 +331,21 @@ public class OppositionController(OppositionService oppositionService) :Controll
         {
             var count = await oppositionService.BackfillOppositionPaymentIds();
             return Ok(new { success = true, message = $"Updated {count} file(s) with opposition PaymentId." });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Backfill SD statuses for existing paid declarations ─────────────────
+    [HttpPost("backfillSdStatuses")]
+    public async Task<IActionResult> BackfillSdStatuses()
+    {
+        try
+        {
+            var count = await oppositionService.BackfillStatutoryDeclarationStatuses();
+            return Ok(new { success = true, message = $"Updated {count} opposition(s) to AwaitingOfficeProcess." });
         }
         catch (Exception e)
         {
