@@ -13,6 +13,7 @@ public class EmailDto
     public ResetPasswordMail? ResetPasswordMail { get; set; }
     public StatusUpdateMail? StatusUpdateMail { get; set; }
     public CounterStatementMail? CounterStatementMail { get; set; }
+    public StatutoryDeclarationMail? StatutoryDeclarationMail { get; set; }
     public OppositionConfirmationMail? OppositionConfirmationMail { get; set; }
 }
 
@@ -35,6 +36,7 @@ public class OppositionMail
     public string Reason { get; set; }
     public string OppositionDate { get; set; }
     public string? SignatoryName { get; set; }
+    public string? OppositionId { get; set; }
 }
 
 public class CounterStatementMail
@@ -58,6 +60,18 @@ public class OppositionConfirmationMail
     public string FileTitle { get; set; }
     public string DateFiled { get; set; }
     public string PaymentReference { get; set; }
+}
+
+public class StatutoryDeclarationMail
+{
+    public string To { get; set; }
+    public string Subject { get; set; }
+    public string RecipientName { get; set; }
+    public string FilerRole { get; set; }
+    public string FileNumber { get; set; }
+    public string FileTitle { get; set; }
+    public string OppositionId { get; set; }
+    public string DateFiled { get; set; }
 }
 public class ResetPasswordMail
 {

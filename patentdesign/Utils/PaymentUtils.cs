@@ -260,6 +260,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.CounterStatementServiceID;
                 serviceFee = _paymentInfo.CounterStatementServiceFee;
                 break;
+            case PaymentTypes.StatutoryDeclaration:
+                amount = _paymentInfo.StatutoryDeclarationCost ?? _paymentInfo.CounterStatementCost;
+                serviceId = _paymentInfo.StatutoryDeclarationServiceID ?? _paymentInfo.CounterStatementServiceID;
+                serviceFee = _paymentInfo.StatutoryDeclarationServiceFee ?? _paymentInfo.CounterStatementServiceFee;
+                break;
             case PaymentTypes.PublicationStatusUpdate:
                 amount = _paymentInfo.PublicationStatusUpdateCost;
                 serviceId = _paymentInfo.PublicationStatusUpdateServiceID;
