@@ -410,6 +410,7 @@ public class StatisticsService
             var payments = await _paymentCollection.Find(filter).ToListAsync();
 
             var paymentTypes = payments
+                .Where(x => !string.Equals(x.PaymentType, "File Withdrawal", StringComparison.OrdinalIgnoreCase))
                 .GroupBy(x => x.PaymentType ?? string.Empty)
                 .Select(group => new FinancePaymentTypeResultDto
                 {
@@ -420,7 +421,8 @@ public class StatisticsService
                 .OrderByDescending(x => x.TotalGovernmentFee)
                 .ToList();
 
-            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments, GetGovernmentFee);
+            var filteredPayments = payments.Where(x => !string.Equals(x.PaymentType, "File Withdrawal", StringComparison.OrdinalIgnoreCase)).ToList();
+            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, filteredPayments, GetGovernmentFee);
 
             results.Add(new FinancePeriodResultDto
             {
@@ -480,13 +482,22 @@ public class StatisticsService
                 .Select(group => new FinancePaymentTypeResultDto
                 {
                     PaymentType = group.Key,
-                    TotalGovernmentFee = group.Sum(GetTechFee),
+                    TotalGovernmentFee = group.Key.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase)
+                        ? group.Sum(p => GetGovernmentFee(p) + GetTechFee(p))
+                        : group.Sum(GetTechFee),
                     Count = group.Count()
                 })
                 .OrderByDescending(x => x.TotalGovernmentFee)
                 .ToList();
 
-            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments, GetTechFee);
+            var monthlyBreakdown = BuildMonthlyBreakdown(
+                range.StartDate,
+                range.EndDate,
+                payments,
+                p => (p.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
+                    ? GetGovernmentFee(p) + GetTechFee(p)
+                    : GetTechFee(p)
+            );
 
             results.Add(new FinancePeriodResultDto
             {
@@ -984,6 +995,13 @@ public class StatisticsService
 
     private static double GetTechFee(PaymentRecord payment)
     {
+        if (payment?.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
+        {
+            // For File Withdrawal, sum all line items
+            var items = payment.RemitaResponse?.lineItems;
+            return items?.Sum(x => x?.beneficiaryAmount ?? 0d) ?? 0d;
+        }
+        // For all other types, just the second line item
         return payment?.RemitaResponse?.lineItems?.Skip(1).FirstOrDefault()?.beneficiaryAmount ?? 0d;
     }
 
