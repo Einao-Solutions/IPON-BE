@@ -212,6 +212,7 @@ builder.Services.AddSingleton<PublicationServices>();
 
 //------------------- Background Jobs ------------------
 builder.Services.AddHostedService<PublishTrademarkJob>();
+builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();
