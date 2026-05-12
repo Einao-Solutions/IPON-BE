@@ -874,7 +874,8 @@ public enum FormApplicationTypes
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
+    CounterStatement, StatutoryDeclaration
 }
 public enum ApplicationLetters
 {
@@ -910,7 +911,8 @@ public enum ApplicationLetters
     DesignMortgageAcknowledgement, DesignMergerAcknowledgement, DesignCtcAcnowledgement, DesignAmendmentAcknowledgement, DesignAssignmentRefusalletter,
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
-    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter
+    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
+    StatutoryDeclarationAck
 
 
 }
@@ -1004,7 +1006,7 @@ public enum ApplicationStatuses
     AwaitingCertificateConfirmation,
     Withdrawn, AwaitingCertificatePayment, 
 AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval,
-StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal
+StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal, AwaitingOfficeProcess, Abandoned
 }
 
 public record AssignmentCertificateType
@@ -1044,10 +1046,10 @@ public class TradeFilterModel
 public enum PaymentTypes
 {
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
-    Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
+    Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement
+CounterStatement, StatutoryDeclaration
 }
 
 
@@ -1377,6 +1379,11 @@ public record PaymentInfo
     public string? CounterStatementServiceFee { get; set; }
     public string? CounterStatementServiceID { get; set; }
 
+    //Statutory Declaration
+    public string? StatutoryDeclarationCost { get; set; }
+    public string? StatutoryDeclarationServiceFee { get; set; }
+    public string? StatutoryDeclarationServiceID { get; set; }
+
     //appeal
     public string AppealCost { get; set; }
     public string AppealServiceFee { get; set; }
@@ -1455,10 +1462,11 @@ public record PaymentRecord
 {
     [BsonId]
     public string Id { get; set; } =  Guid.NewGuid().ToString();
-    public string PaymentType { get; set; }
+    public string? PaymentType { get; set; }
     public DateTime Date { get; set; }
     public string? ApplicationId { get; set; }
-    public string FileId { get; set; }
+    public string? FileId { get; set; }
+    public string? FileType { get; set; }
     public RemitaResponseClass RemitaResponse { get; set; }
 }
 public record MarkInfo
@@ -1733,6 +1741,7 @@ public record Opposition
     public DateTime? ResolvedDate { get; set; }
     public string? UserId { get; set; }
     public bool? Paid { get; set; } = false;
+    public string? FileOwnerId { get; set; }
     public bool? IsStaffOpposition = false;
     public ApplicationStatuses? PreviousFileStatus { get; set; }
     public string? Decision { get; set; }
@@ -1766,6 +1775,8 @@ public record StatutoryDeclaration
     public string? PaymentId { get; set; }
     public bool? Paid { get; set; } = false;
     public string? UserId { get; set; }
+    public string? Role { get; set; }
+    public ApplicationStatuses? ApplicationStatus { get; set; } = ApplicationStatuses.AwaitingPayment;
     public DateTime SubmittedDate { get; set; } = DateTime.Now;
 }
 

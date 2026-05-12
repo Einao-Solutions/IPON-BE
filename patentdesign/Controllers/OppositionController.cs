@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
 using patentdesign.Models;
@@ -92,10 +92,11 @@ public class OppositionController(OppositionService oppositionService) :Controll
     public async Task<ActionResult> LoadSummary(
         [FromQuery] int quantity = 50,
         [FromQuery] int skip = 0,
-        [FromQuery] int? type = null)
+        [FromQuery] int? type = null,
+        [FromQuery] string? userId = null)
     {
         ApplicationStatuses? tt = type != null ? Enum.GetValues<ApplicationStatuses>()[type ?? 0] : null;
-        var result = await oppositionService.LoadSummary(quantity, skip, tt);
+        var result = await oppositionService.LoadSummary(quantity, skip, tt, userId);
         return Ok(result);
     }
 
@@ -180,16 +181,73 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
     }
 
-    // ─── Submit Statutory Declaration ────────────────────────────────────────
-    [HttpPost("submitStatutoryDeclaration")]
-    public async Task<IActionResult> SubmitStatutoryDeclaration([FromForm] StatutoryDeclarationRequestDto dto)
+    // ─── Generate Payment (RRR) for Opposition-related flows ───────────────────
+    [HttpPost("generate")]
+    public async Task<IActionResult> GeneratePayment([FromBody] GenerateOppositionPaymentDto dto)
     {
         try
         {
-            var (success, id, message) = await oppositionService.SubmitStatutoryDeclaration(dto);
+            var result = await oppositionService.GenerateOppositionPayment(dto);
+            return Ok(result);
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Statutory Declaration Search ──────────────────────────────────────────
+    [HttpGet("StatutoryDeclarationSearch")]
+    public async Task<IActionResult> StatutoryDeclarationSearch([FromQuery] string? oppositionId, [FromQuery] string? fileNumber)
+    {
+        try
+        {
+            var result = await oppositionService.StatutoryDeclarationSearch(oppositionId, fileNumber);
+            return Ok(new { success = true, data = result });
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Submit Statutory Declaration ────────────────────────────────────────
+    [HttpPost("NewStatutoryDeclaration")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> NewStatutoryDeclaration([FromForm] StatutoryDeclarationRequestDto dto)
+    {
+        try
+        {
+            var (success, invoice, message) = await oppositionService.SubmitStatutoryDeclaration(dto);
             if (!success)
                 return BadRequest(new { success = false, message });
-            return Ok(new { success = true, declarationId = id, message });
+            return Ok(new { success = true, data = invoice });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Update Statutory Declaration Payment ────────────────────────────────
+    [HttpPost("UpdateStatutoryDeclarationPayment")]
+    public async Task<IActionResult> UpdateStatutoryDeclarationPayment(
+        [FromQuery] string paymentId,
+        [FromBody] PaymentUpdateDto dto)
+    {
+        try
+        {
+            if (dto?.Status != "success")
+                return BadRequest(new { success = false, message = "Payment was not successful" });
+
+            var (success, message) = await oppositionService.UpdateStatutoryDeclarationPayment(paymentId);
+            if (!success)
+                return BadRequest(new { success = false, message });
+            return Ok(new { success = true, message });
         }
         catch (Exception e)
         {
@@ -206,7 +264,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
             var result = await oppositionService.GetOppositionDetail(oppositionId, fileNumber);
             if (result == null)
                 return NotFound(new { message = "Opposition not found" });
-            return Ok(new { success = true, opposition = result });
+            return Ok(new { success = true, data = result });
         }
         catch (Exception e)
         {
@@ -258,6 +316,88 @@ public class OppositionController(OppositionService oppositionService) :Controll
             if (!success)
                 return BadRequest(new { success = false, message });
             return Ok(new { success = true, message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Backfill PaymentId into ApplicationHistory for existing oppositions ──
+    [HttpPost("backfillPaymentIds")]
+    public async Task<IActionResult> BackfillPaymentIds()
+    {
+        try
+        {
+            var count = await oppositionService.BackfillOppositionPaymentIds();
+            return Ok(new { success = true, message = $"Updated {count} file(s) with opposition PaymentId." });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Backfill SD statuses for existing paid declarations ─────────────────
+    [HttpPost("backfillSdStatuses")]
+    public async Task<IActionResult> BackfillSdStatuses()
+    {
+        try
+        {
+            var count = await oppositionService.BackfillStatutoryDeclarationStatuses();
+            return Ok(new { success = true, message = $"Updated {count} opposition(s) to AwaitingOfficeProcess." });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Counter Statement Acknowledgement Letter ─────────────────────────────
+    [HttpGet("counterStatementLetter")]
+    public async Task<IActionResult> GetCounterStatementLetter([FromQuery] string? counterStatementId, [FromQuery] string? paymentId)
+    {
+        try
+        {
+            byte[] pdf;
+            if (!string.IsNullOrEmpty(counterStatementId))
+                pdf = await oppositionService.GenerateCounterStatementLetter(counterStatementId);
+            else if (!string.IsNullOrEmpty(paymentId))
+                pdf = await oppositionService.GenerateCounterStatementLetterByPaymentId(paymentId);
+            else
+                return BadRequest(new { success = false, message = "Provide counterStatementId or paymentId" });
+
+            return File(pdf, "application/pdf", "CounterStatementAcknowledgement.pdf");
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Statutory Declaration Acknowledgement Letter ─────────────────────────
+    [HttpGet("statutoryDeclarationLetter")]
+    public async Task<IActionResult> GetStatutoryDeclarationLetter([FromQuery] string? statutoryDeclarationId, [FromQuery] string? paymentId)
+    {
+        try
+        {
+            byte[] pdf;
+            if (!string.IsNullOrEmpty(statutoryDeclarationId))
+                pdf = await oppositionService.GenerateStatutoryDeclarationLetter(statutoryDeclarationId);
+            else if (!string.IsNullOrEmpty(paymentId))
+                pdf = await oppositionService.GenerateStatutoryDeclarationLetterByPaymentId(paymentId);
+            else
+                return BadRequest(new { success = false, message = "Provide statutoryDeclarationId or paymentId" });
+
+            return File(pdf, "application/pdf", "StatutoryDeclarationAcknowledgement.pdf");
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
         }
         catch (Exception e)
         {

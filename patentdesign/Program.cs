@@ -65,10 +65,36 @@ var mongoConnectionString =
 
 if (string.IsNullOrWhiteSpace(mongoConnectionString))
 {
-    throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
+    if (builder.Environment.IsDevelopment())
+    {
+        mongoConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionString"];
+        Log.Information("Using local MongoDB connection string for development.");
+    }
+    else
+    {
+        throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
+    }
 }
 
 builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
+
+// ------------------ Redis Cache Config ------------------
+var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")
+    ?? builder.Configuration["Redis:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "patentdesign:";
+    });
+    Log.Information("Redis cache configured with instance name {InstanceName}", "patentdesign:");
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+    Log.Information("Redis connection string not found. Using in-memory cache.");
+}
 
 // ------------------ SMTP Overrides ------------------
 var smtpServer = Environment.GetEnvironmentVariable("SMTP_SERVER");
@@ -129,7 +155,10 @@ FontManager.RegisterFont(fontStream);
 
 // ------------------ Mongo Client ------------------
 var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(mongoConnectionString));
-mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
+if (!builder.Environment.IsDevelopment())
+{
+    mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
+}
 var mongoClient = new MongoClient(mongoSettings);
 
 // ------------------ Config Bindings ------------------
@@ -183,6 +212,7 @@ builder.Services.AddSingleton<PublicationServices>();
 
 //------------------- Background Jobs ------------------
 builder.Services.AddHostedService<PublishTrademarkJob>();
+builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();

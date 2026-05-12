@@ -215,7 +215,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.StatusServiceId;
                 serviceFee = _paymentInfo.StatusServiceFee;
                 break;
-            case PaymentTypes.LateRenewal:
+            case PaymentTypes.LateTrademarkRenewal:
                 amount = _paymentInfo.LateTrademarkRenewalCost;
                 serviceId = _paymentInfo.LateTrademarkRenewalID;
                 serviceFee = _paymentInfo.LateTrademarkRenewalServiceFee;
@@ -259,6 +259,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 amount = _paymentInfo.CounterStatementCost;
                 serviceId = _paymentInfo.CounterStatementServiceID;
                 serviceFee = _paymentInfo.CounterStatementServiceFee;
+                break;
+            case PaymentTypes.StatutoryDeclaration:
+                amount = _paymentInfo.StatutoryDeclarationCost ?? _paymentInfo.CounterStatementCost;
+                serviceId = _paymentInfo.StatutoryDeclarationServiceID ?? _paymentInfo.CounterStatementServiceID;
+                serviceFee = _paymentInfo.StatutoryDeclarationServiceFee ?? _paymentInfo.CounterStatementServiceFee;
                 break;
             case PaymentTypes.PublicationStatusUpdate:
                 amount = _paymentInfo.PublicationStatusUpdateCost;
