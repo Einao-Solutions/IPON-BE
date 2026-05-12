@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
+using Microsoft.VisualBasic.FileIO;
 using MongoDB.Driver;
+using patentdesign;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
@@ -13,7 +15,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Tfunctions.pdfs;
-using patentdesign;
+using static System.Net.WebRequestMethods;
 
 public class OppositionService
 {
@@ -70,13 +72,13 @@ public class OppositionService
         try
         {
             _log.LogInformation($"Searching to Oppose {fileNumber}...");
-            var file = await _fillingCollection.Find(f=>f.FileId == fileNumber).FirstOrDefaultAsync();
+            var file = await _fillingCollection.Find(f => f.FileId == fileNumber).FirstOrDefaultAsync();
             if (file == null)
             {
                 _log.LogError("File not found");
                 throw new KeyNotFoundException("File not found");
             }
-            
+
             if (file.FileStatus != ApplicationStatuses.Publication && file.FileStatus != ApplicationStatuses.NewOpposition)
             {
                 _log.LogError("Only Files in Publication or Opposed status can be opposed.");
@@ -99,7 +101,7 @@ public class OppositionService
                     title = file.TitleOfTradeMark;
                     break;
             }
-            
+
             var applicant = file.applicants.FirstOrDefault();
             var repAttachment = file?.Attachments.FirstOrDefault(a => a.name == "representation" && a.url != null && a.url.Count > 0);
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.Opposition, file?.Type, applicant?.country, null, null,
@@ -120,7 +122,7 @@ public class OppositionService
                 FileNumber = file.FileId,
                 FileTitle = title,
                 Class = file.TrademarkClass,
-                ApplicantName = applicant.Name, 
+                ApplicantName = applicant.Name,
                 RepresentationUrl = repAttachment?.url.FirstOrDefault(),
                 Cost = cost.Item1,
                 PaymentId = rrr,
@@ -148,7 +150,7 @@ public class OppositionService
                 throw new KeyNotFoundException("User not found");
             }
             var oppDocUrls = new List<string>();
-            
+
             if (data?.SupportingDocs?.Count > 0)
             {
                 _log.LogDebug("Uploading supporting docs");
@@ -193,16 +195,16 @@ public class OppositionService
                 Nationality = data.Nationality,
                 Reason = data.Reason,
                 SupportingDocs = oppDocUrls,
-    Status = ApplicationStatuses.AwaitingPayment,
-    FileTitle = data.FileTitle,
-    FileId = data.FileId,
-    UserId = data.UserId,
-    FileOwnerId = (await _fillingCollection.Find(f => f.Id == data.FileId).FirstOrDefaultAsync())?.CreatorAccount,
-};
-await _oppositionCollection.InsertOneAsync(oppose);
-_log.LogInformation($"New Opposition {oppose.FileNumber} saved");
+                Status = ApplicationStatuses.AwaitingPayment,
+                FileTitle = data.FileTitle,
+                FileId = data.FileId,
+                UserId = data.UserId,
+                FileOwnerId = (await _fillingCollection.Find(f => f.Id == data.FileId).FirstOrDefaultAsync())?.CreatorAccount,
+            };
+            await _oppositionCollection.InsertOneAsync(oppose);
+            _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
 
-return oppose.id;
+            return oppose.id;
         }
         catch (Exception e)
         {
@@ -230,7 +232,7 @@ return oppose.id;
             Builders<PublicationInfo>.Filter.Eq(p => p.FileNumber, opp.FileNumber),
             Builders<PublicationInfo>.Update.Combine(
         Builders<PublicationInfo>.Update.Set(p => p.IsOpposed, true),
-            Builders<PublicationInfo>.Update.Push(p=>p.Opposition, opp)
+            Builders<PublicationInfo>.Update.Push(p => p.Opposition, opp)
         ));
         _log.LogInformation($"Publication {opp.FileNumber} has been opposed");
         return true;
@@ -257,13 +259,13 @@ return oppose.id;
             file.FileStatus = ApplicationStatuses.Opposition;
             file.ApplicationHistory[0].CurrentStatus = ApplicationStatuses.Opposition;
             file.ApplicationHistory[0].StatusHistory.Add(new ApplicationHistory
-            { 
-               afterStatus = ApplicationStatuses.Opposition,
-               beforeStatus = ApplicationStatuses.Publication,
-               Date = DateTime.Now,
-               Message = dto.Reason,
-               User = userName,
-               UserId = dto.StaffId,
+            {
+                afterStatus = ApplicationStatuses.Opposition,
+                beforeStatus = ApplicationStatuses.Publication,
+                Date = DateTime.Now,
+                Message = dto.Reason,
+                User = userName,
+                UserId = dto.StaffId,
             });
             _log.LogDebug("Creating new opposition");
             var oppose = new Opposition
@@ -312,7 +314,7 @@ return oppose.id;
         }
         catch (Exception e)
         {
-            _log.LogError(e,"Failed to Oppose by staff");
+            _log.LogError(e, "Failed to Oppose by staff");
             throw;
         }
     }
@@ -379,17 +381,17 @@ return oppose.id;
             {
                 await _emailServices.SendMail(new EmailDto
                 {
-                    To        = opp.Email,
-                    Subject   = "Opposition Filed Successfully",
+                    To = opp.Email,
+                    Subject = "Opposition Filed Successfully",
                     EmailType = EmailType.OppositionConfirmation,
                     OppositionConfirmationMail = new OppositionConfirmationMail
                     {
-                        To               = opp.Email,
-                        OpposerName      = opp.Name,
-                        OppositionId     = opp.id,
-                        FileNumber       = opp.FileNumber,
-                        FileTitle        = opp.FileTitle,
-                        DateFiled        = opp.OppositionDate?.ToString("dd MMMM yyyy") ?? DateTime.Now.ToString("dd MMMM yyyy"),
+                        To = opp.Email,
+                        OpposerName = opp.Name,
+                        OppositionId = opp.id,
+                        FileNumber = opp.FileNumber,
+                        FileTitle = opp.FileTitle,
+                        DateFiled = opp.OppositionDate?.ToString("dd MMMM yyyy") ?? DateTime.Now.ToString("dd MMMM yyyy"),
                         PaymentReference = opp.PaymentId
                     }
                 });
@@ -429,7 +431,7 @@ return oppose.id;
         {
             var opp = await _oppositionCollection.Find(x => x.id == oppositionId).FirstOrDefaultAsync();
             if (opp == null) throw new Exception("Opposition not found");
-            var date =  opp.OppositionDate.ToString();
+            var date = opp.OppositionDate.ToString();
             var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
             if (file == null) throw new Exception("File not found");
             var app = file.applicants.FirstOrDefault();
@@ -466,7 +468,7 @@ return oppose.id;
                     Builders<Opposition>.Update.Set(x => x.ApplicantNotified, true),
                     Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.Now)
                 ));
-            
+
             return true;
         }
         catch (Exception e)
@@ -506,14 +508,14 @@ return oppose.id;
         var sn = skip;
         var result = raw.Select(x => new
         {
-            sn            = ++sn,
-            date          = (x.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
-            title         = x.FileTitle,
-            fileId        = x.FileNumber,
-            name          = x.Name,
-            status        = x.Status,
-            paymentId     = x.PaymentId,
-            id            = x.id
+            sn = ++sn,
+            date = (x.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
+            title = x.FileTitle,
+            fileId = x.FileNumber,
+            name = x.Name,
+            status = x.Status,
+            paymentId = x.PaymentId,
+            id = x.id
         }).ToList();
         return new { data = result, count };
     }
@@ -672,7 +674,7 @@ return oppose.id;
     //     var dataMod = await response.Content.ReadAsStringAsync();
     //     var obj = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod);
     //     return obj;
-     //}
+    //}
 
     // ─── Counter Statement Search ───────────────────────────────────────────
     public async Task<CsSearchDto> CsSearchFile(string fileNumber)
@@ -718,7 +720,7 @@ return oppose.id;
             {
                 FileTypes.Design => file.TitleOfDesign,
                 FileTypes.Patent => file.TitleOfInvention,
-                _                => file.TitleOfTradeMark
+                _ => file.TitleOfTradeMark
             };
 
             var applicant = file.applicants?.FirstOrDefault();
@@ -727,14 +729,14 @@ return oppose.id;
 
             return new CsSearchDto
             {
-                Success           = true,
-                FileNumber        = file.FileId,
-                FileName          = title,
-                FileOwner         = applicant?.Name,
-                TrademarkClass    = file.TrademarkClass,
+                Success = true,
+                FileNumber = file.FileId,
+                FileName = title,
+                FileOwner = applicant?.Name,
+                TrademarkClass = file.TrademarkClass,
                 RepresentationUrl = repAttachment?.url?.FirstOrDefault(),
-                OppositionId      = opp.id,
-                Message           = null
+                OppositionId = opp.id,
+                Message = null
             };
         }
         catch (Exception ex)
@@ -753,9 +755,9 @@ return oppose.id;
         return new
         {
             governmentFee = govFee,
-            serviceFee    = svcFee,
-            total         = govFee + svcFee,
-            currency      = "NGN"
+            serviceFee = svcFee,
+            total = govFee + svcFee,
+            currency = "NGN"
         };
     }
 
@@ -793,7 +795,7 @@ return oppose.id;
             {
                 FileTypes.Design => file.TitleOfDesign,
                 FileTypes.Patent => file.TitleOfInvention,
-                _                => file.TitleOfTradeMark
+                _ => file.TitleOfTradeMark
             };
 
             var repAttachment = file.Attachments?.FirstOrDefault(a =>
@@ -832,12 +834,12 @@ return oppose.id;
             // Save record (pending payment)
             var cs = new CounterStatement
             {
-                Id            = Guid.NewGuid().ToString(),
-                OppositionId  = opp.id,
-                Text          = dto.CounterStatement,
-                Attachments   = attachmentUrls,
-                PaymentId     = rrr,
-                UserId        = dto.UserId,
+                Id = Guid.NewGuid().ToString(),
+                OppositionId = opp.id,
+                Text = dto.CounterStatement,
+                Attachments = attachmentUrls,
+                PaymentId = rrr,
+                UserId = dto.UserId,
                 SubmittedDate = DateTime.Now
             };
             await _counterStatementCollection.InsertOneAsync(cs);
@@ -845,15 +847,15 @@ return oppose.id;
 
             var invoice = new OppositionSearchDto
             {
-                FileNumber        = file.FileId,
-                FileTitle         = title,
-                Class             = file.TrademarkClass,
-                ApplicantName     = applicant?.Name,
+                FileNumber = file.FileId,
+                FileTitle = title,
+                Class = file.TrademarkClass,
+                ApplicantName = applicant?.Name,
                 RepresentationUrl = repAttachment?.url?.FirstOrDefault(),
-                Cost              = cost.Item1,
-                PaymentId         = rrr,
-                ServiceFee        = cost.Item3,
-                FileId            = file.Id
+                Cost = cost.Item1,
+                PaymentId = rrr,
+                ServiceFee = cost.Item3,
+                FileId = file.Id
             };
 
             return (true, invoice, "Counter Statement submitted successfully");
@@ -939,26 +941,26 @@ return oppose.id;
                 {
                     FileTypes.Design => file.TitleOfDesign,
                     FileTypes.Patent => file.TitleOfInvention,
-                    _                => file?.TitleOfTradeMark
+                    _ => file?.TitleOfTradeMark
                 };
                 var fileOwnerName = file?.applicants?.FirstOrDefault()?.Name ?? "File Owner";
 
                 var mail = new CounterStatementMail
                 {
-                    To                   = opp.Email,
-                    Subject              = "Counter Statement Filed Against Your Opposition",
-                    OpposerName          = opp.Name,
-                    FileOwnerName        = fileOwnerName,
-                    FileNumber           = opp.FileNumber,
-                    Title                = fileTitle,
+                    To = opp.Email,
+                    Subject = "Counter Statement Filed Against Your Opposition",
+                    OpposerName = opp.Name,
+                    FileOwnerName = fileOwnerName,
+                    FileNumber = opp.FileNumber,
+                    Title = fileTitle,
                     CounterStatementDate = DateTime.Now.ToString("dd MMMM yyyy"),
-                    SignatoryName        = ""
+                    SignatoryName = ""
                 };
                 await _emailServices.SendMail(new EmailDto
                 {
-                    To                   = opp.Email,
-                    Subject              = "Counter Statement Filed Against Your Opposition",
-                    EmailType            = EmailType.CounterStatement,
+                    To = opp.Email,
+                    Subject = "Counter Statement Filed Against Your Opposition",
+                    EmailType = EmailType.CounterStatement,
                     CounterStatementMail = mail
                 });
                 _log.LogInformation($"Counter statement notification sent to opposer {opp.Email}");
@@ -1199,14 +1201,14 @@ return oppose.id;
             // Save record (awaiting payment)
             var sd = new StatutoryDeclaration
             {
-                Id            = Guid.NewGuid().ToString(),
-                OppositionId  = opp.id,
-                Text          = dto.Comment,
-                Attachments   = attachmentUrls,
-                PaymentId     = rrr,
-                UserId        = dto.UserId,
-                Role          = dto.Role?.ToLower(),
-                Paid          = false,
+                Id = Guid.NewGuid().ToString(),
+                OppositionId = opp.id,
+                Text = dto.Comment,
+                Attachments = attachmentUrls,
+                PaymentId = rrr,
+                UserId = dto.UserId,
+                Role = dto.Role?.ToLower(),
+                Paid = false,
                 SubmittedDate = DateTime.Now
             };
             await _statutoryDeclarationCollection.InsertOneAsync(sd);
@@ -1214,13 +1216,13 @@ return oppose.id;
 
             var invoice = new
             {
-                paymentId         = rrr,
-                fileNumber        = file.FileId,
-                fileTitle         = title,
-                applicantName     = applicant?.Name,
-                opposerName       = opp.Name,
-                cost              = cost.Item1,
-                serviceFee        = cost.Item3
+                paymentId = rrr,
+                fileNumber = file.FileId,
+                fileTitle = title,
+                applicantName = applicant?.Name,
+                opposerName = opp.Name,
+                cost = cost.Item1,
+                serviceFee = cost.Item3
             };
 
             return (true, invoice, "Statutory Declaration submitted successfully");
@@ -1325,19 +1327,19 @@ return oppose.id;
                 {
                     await _emailServices.SendMail(new EmailDto
                     {
-                        To      = applicantEmail,
+                        To = applicantEmail,
                         Subject = "Statutory Declaration Filed",
                         EmailType = EmailType.StatutoryDeclaration,
                         StatutoryDeclarationMail = new StatutoryDeclarationMail
                         {
-                            To            = applicantEmail,
-                            Subject       = "Statutory Declaration Filed",
+                            To = applicantEmail,
+                            Subject = "Statutory Declaration Filed",
                             RecipientName = fileOwner?.Name ?? "Applicant",
-                            FilerRole     = filerRole,
-                            FileNumber    = opp.FileNumber,
-                            FileTitle     = fileTitle,
-                            OppositionId  = opp.id,
-                            DateFiled     = DateTime.Now.ToString("dd MMMM yyyy")
+                            FilerRole = filerRole,
+                            FileNumber = opp.FileNumber,
+                            FileTitle = fileTitle,
+                            OppositionId = opp.id,
+                            DateFiled = DateTime.Now.ToString("dd MMMM yyyy")
                         }
                     });
                     _log.LogInformation($"Statutory declaration notification sent to applicant {applicantEmail}");
@@ -1349,19 +1351,19 @@ return oppose.id;
                 {
                     await _emailServices.SendMail(new EmailDto
                     {
-                        To      = opposerEmail,
+                        To = opposerEmail,
                         Subject = "Statutory Declaration Filed",
                         EmailType = EmailType.StatutoryDeclaration,
                         StatutoryDeclarationMail = new StatutoryDeclarationMail
                         {
-                            To            = opposerEmail,
-                            Subject       = "Statutory Declaration Filed",
+                            To = opposerEmail,
+                            Subject = "Statutory Declaration Filed",
                             RecipientName = opp.Name ?? "Opposer",
-                            FilerRole     = filerRole,
-                            FileNumber    = opp.FileNumber,
-                            FileTitle     = fileTitle,
-                            OppositionId  = opp.id,
-                            DateFiled     = DateTime.Now.ToString("dd MMMM yyyy")
+                            FilerRole = filerRole,
+                            FileNumber = opp.FileNumber,
+                            FileTitle = fileTitle,
+                            OppositionId = opp.id,
+                            DateFiled = DateTime.Now.ToString("dd MMMM yyyy")
                         }
                     });
                     _log.LogInformation($"Statutory declaration notification sent to opposer {opposerEmail}");
@@ -1532,7 +1534,7 @@ return oppose.id;
                 {
                     FileTypes.Design => file.TitleOfDesign,
                     FileTypes.Patent => file.TitleOfInvention,
-                    _                => file?.TitleOfTradeMark
+                    _ => file?.TitleOfTradeMark
                 };
 
                 var hasCounterStatement = oppCounterStatements.Count > 0;
@@ -1542,54 +1544,54 @@ return oppose.id;
 
                 return new
                 {
-                    id                    = opp.id,
-                    fileNumber            = opp.FileNumber,
-                    fileName              = fileName,
-                    title                 = fileName,
-                    applicantName         = file?.applicants?.FirstOrDefault()?.Name,
-                    fileOwner             = file?.applicants?.FirstOrDefault()?.Name,
-                    trademarkClass        = file?.TrademarkClass,
-                    name                  = opp.Name,
-                    email                 = opp.Email,
-                    phone                 = opp.Phone,
-                    address               = opp.Address,
-                    nationality           = opp.Nationality,
-                    reason                = opp.Reason,
-                    oppositionText        = opp.Reason,
-                    status                = opp.Status,
-                    fileStatus            = file?.FileStatus,
-                    oppositionStatus      = opp.Status,
-                    oppositionDate        = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
-                    paymentId             = opp.PaymentId,
-                    date                  = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
-                    decision              = opp.Decision,
-                    resolutionStatement   = opp.ResolutionStatement,
-                    resolvedBy            = opp.ResolvedBy,
-                    hasCounterStatement   = hasCounterStatement,
-                    counterStatementDate  = counterStatementDate,
-                    supportingDocs        = opp.SupportingDocs ?? new List<string>(),
-                    counterStatements     = oppCounterStatements.Select(cs => new
+                    id = opp.id,
+                    fileNumber = opp.FileNumber,
+                    fileName = fileName,
+                    title = fileName,
+                    applicantName = file?.applicants?.FirstOrDefault()?.Name,
+                    fileOwner = file?.applicants?.FirstOrDefault()?.Name,
+                    trademarkClass = file?.TrademarkClass,
+                    name = opp.Name,
+                    email = opp.Email,
+                    phone = opp.Phone,
+                    address = opp.Address,
+                    nationality = opp.Nationality,
+                    reason = opp.Reason,
+                    oppositionText = opp.Reason,
+                    status = opp.Status,
+                    fileStatus = file?.FileStatus,
+                    oppositionStatus = opp.Status,
+                    oppositionDate = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
+                    paymentId = opp.PaymentId,
+                    date = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
+                    decision = opp.Decision,
+                    resolutionStatement = opp.ResolutionStatement,
+                    resolvedBy = opp.ResolvedBy,
+                    hasCounterStatement = hasCounterStatement,
+                    counterStatementDate = counterStatementDate,
+                    supportingDocs = opp.SupportingDocs ?? new List<string>(),
+                    counterStatements = oppCounterStatements.Select(cs => new
                     {
-                        id            = cs.Id,
-                        oppositionId  = cs.OppositionId,
-                        filedBy       = cs.UserId,
-                        dateFiled     = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                        statement     = cs.Text,
+                        id = cs.Id,
+                        oppositionId = cs.OppositionId,
+                        filedBy = cs.UserId,
+                        dateFiled = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
+                        statement = cs.Text,
                         submittedDate = cs.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                        text          = cs.Text,
-                        attachments   = cs.Attachments ?? new List<string>()
+                        text = cs.Text,
+                        attachments = cs.Attachments ?? new List<string>()
                     }).ToList(),
                     statutoryDeclarations = oppStatutoryDeclarations.Select(sd => new
                     {
-                        id            = sd.Id,
-                        oppositionId  = sd.OppositionId,
-                        filedBy       = sd.UserId,
-                        role          = sd.Role,
-                        dateFiled     = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                        statement     = sd.Text,
+                        id = sd.Id,
+                        oppositionId = sd.OppositionId,
+                        filedBy = sd.UserId,
+                        role = sd.Role,
+                        dateFiled = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
+                        statement = sd.Text,
                         submittedDate = sd.SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss"),
-                        text          = sd.Text,
-                        attachments   = sd.Attachments ?? new List<string>()
+                        text = sd.Text,
+                        attachments = sd.Attachments ?? new List<string>()
                     }).ToList()
                 };
             }).ToList();
@@ -1948,5 +1950,118 @@ return oppose.id;
 
         _log.LogInformation($"Backfill ApplicationHistory entries complete");
         return updated;
+    }
+
+    public async Task<AmendmentCost> TrademarkAmendmentCost(string userId, string fileId)
+    {
+        _log.LogInformation("Fetching Amendment Cost...");
+        try
+        {
+            var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+            if (user is null || file is null)
+            {
+                _log.LogError($"User {userId} not found");
+                throw new KeyNotFoundException();
+            }
+            if (file.FileStatus != ApplicationStatuses.Opposition)
+            {
+                _log.LogError($"File {fileId} is not in Opposition status");
+                throw new InvalidOperationException("File must be in Opposition status to amend");
+            }
+            var data = _remitaPaymentUtils.GetCost(PaymentTypes.TrademarkAmendment, file.Type, "", null, null, null);
+            var applicant = file.applicants.FirstOrDefault();
+            var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                data.Item1, data.Item3, data.Item2, "Amendment of Opposed File",
+                applicant.Name, applicant.Email, applicant.Phone);
+
+            var amendmentCost = new AmendmentCost
+            {
+                Amount = data.Item1,
+                PaymentId = paymentId,
+                FileId = fileId,
+                FileTitle = file.TitleOfTradeMark,
+                ApplicantName = applicant.Name,
+
+            };
+            return amendmentCost;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error fetching amendment cost");
+            throw;
+        }
+    }
+    public async Task<string> TrademarkAmendment(OppositionAmendmentDto dto)
+    {
+        _log.LogInformation("Processing trademark amendment...");
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
+            var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+
+            if (file == null || user == null)
+            {
+                _log.LogError($"File {dto.FileNumber} not found");
+                throw new KeyNotFoundException("File not found");
+            }
+            if (file.FileStatus != ApplicationStatuses.Opposition)
+            {
+                _log.LogError($"File {dto.FileNumber} is not in Opposition status");
+                throw new InvalidOperationException("File must be in Opposition status to amend");
+            }
+            var application = new ApplicationInfo
+            {
+                ApplicationDate = DateTime.Now,
+                PaymentId = dto.PaymentId,
+                ApplicationType = FormApplicationTypes.Amendment,
+                CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                id = Guid.NewGuid().ToString(),
+                StatusHistory = new List<ApplicationHistory>
+                {
+                    new ApplicationHistory
+                    {
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.AwaitingPayment,
+                        Date = DateTime.Now,
+                        Message = "Amendment of opposedfile",
+                        User = user.Name ?? $"{user.FirstName} {user.LastName}",
+                        UserId = user.Id
+                    }
+                }
+            };
+            var update = new ClericalUpdate
+            {
+                Id = application.id,
+                FilingDate = DateTime.Now,
+                UpdateType = "Opposition Amendment",
+                PaymentRRR = dto.PaymentId,
+            };
+
+            if (!string.IsNullOrWhiteSpace(dto.NewAdditionalDescription))
+            {
+                update.OldAdditionalDescription = file.AdditionalDescription;
+                update.NewAdditionalDescription = dto.NewAdditionalDescription;
+            }
+            if (!string.IsNullOrWhiteSpace(dto.NewDisclaimer))
+            {
+                update.OldDisclaimer = file.TrademarkDisclaimer;
+                update.NewDisclaimer = dto.NewDisclaimer;
+            }
+
+            //var updateDef = Builders<Filling>.Update.Combine(
+            //    !string.IsNullOrEmpty(dto.NewAdditionalDescription) ? Builders<Filling>.Update.Set(f => f.AdditionalDescription, dto.NewAdditionalDescription) : null,
+            //    !string.IsNullOrEmpty(dto.NewDisclaimer) ? Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, dto.NewDisclaimer) : null
+            //);
+            //await _fillingCollection.UpdateOneAsync(
+            //    Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+            //    updateDef);
+            return application.id;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error processing trademark amendment");
+            throw;
+        }
     }
 }

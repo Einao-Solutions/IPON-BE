@@ -355,6 +355,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.TrademarkRestorationServiceId;
                 serviceFee = _paymentInfo.TrademarkRestorationServiceFee;
                 break;
+            case PaymentTypes.TrademarkAmendment:
+                amount = _paymentInfo.TrademarkAmendmentCost;
+                serviceId = _paymentInfo.TrademarkAmendmentServiceID;
+                serviceFee = _paymentInfo.TrademarkAmendmentServiceFee;
+                break;
         }
 
         return (amount, serviceId, serviceFee);
