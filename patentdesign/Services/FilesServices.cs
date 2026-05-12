@@ -243,7 +243,10 @@ public class FilesServices
             case FormApplicationTypes.NewApplication:
                 await ProcessNewApplication(file, application, paymentDate, userName, userId);
                 break;
-
+            case FormApplicationTypes.Amendment:
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingSearch,
+                    paymentDate, userName, userId, "Payment Successful, awaiting search");
+                break;
             case FormApplicationTypes.LicenseRenewal:
                 await ProcessLicenseRenewal(file, application, paymentDate, userName, userId);
                 break;

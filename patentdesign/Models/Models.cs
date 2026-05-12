@@ -375,7 +375,8 @@ public record ClericalUpdate
     public List<string>? NewDesignCreatorNationalities { get; set; }
     public List<string>? OldDesignAttachmentUrls { get; set; }
     public List<string>? NewDesignAttachmentUrls { get; set; }
-
+    public string? NewRepresentation { get; set; }
+    public string? OldRepresentation { get; set; }
 }
 
 public record Appeal

@@ -127,3 +127,4 @@ public class OppositionAmendmentDto
     public List<IFormFile>? SupportingDocs { get; set; }
     public string? UserId { get; set; }
 }
+

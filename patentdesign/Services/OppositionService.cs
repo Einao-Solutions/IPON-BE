@@ -33,10 +33,11 @@ public class OppositionService
     private FilesServices _fileServices;
     private MongoClient _mongoClient;
     private EmailServices _emailServices;
+    private PaymentService _paymentServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
-    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices fileServices, EmailServices emailServices, ILogger<OppositionService> log)
+    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices fileServices, EmailServices emailServices, ILogger<OppositionService> log, PaymentService paymentServices)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
 
@@ -66,6 +67,7 @@ public class OppositionService
         _log = log;
         _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
         _userCollection = pdDb.GetCollection<AppUser>("appUsers");
+        _paymentServices = paymentServices;
     }
     public async Task<OppositionSearchDto> OppositionSearch(string fileNumber)
     {
@@ -2048,19 +2050,175 @@ public class OppositionService
                 update.OldDisclaimer = file.TrademarkDisclaimer;
                 update.NewDisclaimer = dto.NewDisclaimer;
             }
+            if (!string.IsNullOrWhiteSpace(dto.NewDisclaimer))
+            {
+                update.OldDisclaimer = file.TrademarkDisclaimer;
+                update.NewDisclaimer = dto.NewDisclaimer;
+            }
 
-            //var updateDef = Builders<Filling>.Update.Combine(
-            //    !string.IsNullOrEmpty(dto.NewAdditionalDescription) ? Builders<Filling>.Update.Set(f => f.AdditionalDescription, dto.NewAdditionalDescription) : null,
-            //    !string.IsNullOrEmpty(dto.NewDisclaimer) ? Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, dto.NewDisclaimer) : null
-            //);
-            //await _fillingCollection.UpdateOneAsync(
-            //    Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
-            //    updateDef);
+            if (dto.NewRepresentation is not null)
+            {
+                using var ms = new MemoryStream();
+                await dto.NewRepresentation.CopyToAsync(ms);
+
+                var urls = await _fileServices.UploadAttachment(new List<TT>
+                {
+                    new TT
+                    {
+                        contentType = dto.NewRepresentation.ContentType,
+                        data        = ms.ToArray(),
+                        fileName    = Path.GetFileName(dto.NewRepresentation.FileName),
+                        Name        = "representation"
+                    }
+                });
+
+                if (urls is { Count: > 0 })
+                {
+                    update.NewRepresentation = urls[0];
+                }
+            }
             return application.id;
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "Error processing trademark amendment");
+            throw;
+        }
+    }
+
+    // ─── Approve Trademark Amendment (Opposition) ────────────────────────────
+    public async Task<(bool success, string message)> ApproveTrademarkAmendment(TreatRecordalDto dto)
+    {
+        _log.LogInformation($"Approving trademark amendment for File {dto.fileId}, App {dto.appId}...");
+        try
+        {
+            if (dto == null)
+                return (false, "Request payload is required");
+
+            if (string.IsNullOrWhiteSpace(dto.fileId) || string.IsNullOrWhiteSpace(dto.appId))
+                return (false, "fileId and appId are required");
+
+            var file = await _fillingCollection
+                .Find(f => f.FileId == dto.fileId)
+                .FirstOrDefaultAsync();
+            if (file == null)
+                return (false, "File not found");
+
+            file.ClericalUpdates ??= new List<ClericalUpdate>();
+            file.ApplicationHistory ??= new List<ApplicationInfo>();
+            file.Attachments ??= new List<AttachmentType>();
+
+            var clerical = file.ClericalUpdates.FirstOrDefault(c => c.Id == dto.appId);
+            if (clerical == null)
+                return (false, "Amendment record not found");
+
+            var app = file.ApplicationHistory.FirstOrDefault(a => a.id == dto.appId);
+            if (app == null)
+                return (false, "Application history entry not found");
+
+            if (clerical.IsApproved == true)
+                return (true, "Amendment already approved");
+
+            // Resolve approving user (optional)
+            AppUser user = null;
+            if (!string.IsNullOrWhiteSpace(dto.userId))
+                user = await _userCollection.Find(u => u.Id == dto.userId).FirstOrDefaultAsync();
+
+            var updates = new List<UpdateDefinition<Filling>>();
+
+            // Apply Additional Description change
+            if (!string.IsNullOrWhiteSpace(clerical.NewAdditionalDescription))
+            {
+                updates.Add(Builders<Filling>.Update.Set(f => f.AdditionalDescription, clerical.NewAdditionalDescription));
+            }
+
+            // Apply Disclaimer change
+            if (!string.IsNullOrWhiteSpace(clerical.NewDisclaimer))
+            {
+                updates.Add(Builders<Filling>.Update.Set(f => f.TrademarkDisclaimer, clerical.NewDisclaimer));
+            }
+
+            // Apply Representation change (replace or add 'representation' attachment)
+            if (!string.IsNullOrWhiteSpace(clerical.NewRepresentation))
+            {
+                var repIdx = file.Attachments.FindIndex(a => a.name == "representation");
+                if (repIdx >= 0)
+                    file.Attachments[repIdx].url = new List<string> { clerical.NewRepresentation };
+                else
+                    file.Attachments.Add(new AttachmentType
+                    {
+                        name = "representation",
+                        url = new List<string> { clerical.NewRepresentation }
+                    });
+
+                updates.Add(Builders<Filling>.Update.Set(f => f.Attachments, file.Attachments));
+            }
+
+            if (updates.Count == 0)
+                return (false, "No amendment changes found to apply");
+
+            // Mark clerical as approved
+            clerical.IsApproved = true;
+            clerical.DateTreated = DateTime.Now;
+            clerical.Reason = dto.reason;
+
+            // Update application history entry
+            var userName = user?.Name ?? (user != null ? $"{user.FirstName} {user.LastName}" : "System");
+            var previousStatus = app.CurrentStatus;
+            app.CurrentStatus = ApplicationStatuses.Approved;
+            app.StatusHistory ??= new List<ApplicationHistory>();
+            app.StatusHistory.Add(new ApplicationHistory
+            {
+                beforeStatus = previousStatus,
+                afterStatus = ApplicationStatuses.Approved,
+                Date = DateTime.Now,
+                Message = string.IsNullOrWhiteSpace(dto.reason) ? "Opposition amendment approved" : dto.reason,
+                User = userName,
+                UserId = dto.userId
+            });
+
+            updates.Add(Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates));
+            updates.Add(Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory));
+
+            var result = await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, dto.fileId),
+                Builders<Filling>.Update.Combine(updates));
+
+            if (result.ModifiedCount == 0)
+                return (false, "No changes were applied to the file");
+
+            _log.LogInformation($"Trademark amendment {dto.appId} approved for file {dto.fileId}");
+
+            // record performance
+            if (user != null)
+            {
+                try
+                {
+                    _fileServices.SavePerformance(new PerformanceDto
+                    {
+                        AfterStatus = ApplicationStatuses.Approved,
+                        BeforeStatus = previousStatus,
+                        ApplicationId = dto.appId,
+                        AppUserId = user.Id,
+                        ApplicationType = FormApplicationTypes.Amendment,
+                        Date = DateTime.Now,
+                        FileNumber = dto.fileId,
+                        FileType = file.Type,
+                        OfficeUnit = Roles.TrademarkOpposition,
+                        Reason = dto.reason
+                    });
+                }
+                catch (Exception perfEx)
+                {
+                    _log.LogWarning(perfEx, "Failed to record performance — proceeding anyway");
+                }
+            }
+
+            return (true, "Trademark amendment approved successfully");
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error approving trademark amendment");
             throw;
         }
     }
