@@ -319,7 +319,7 @@ public class LettersServices
                 DateTime date;
                 DateTime.TryParse(payment.paymentDate, out date);
                 Console.WriteLine(date);
-                return await RenewalCertificate(file, applicationId, date);
+                return await RenewalCertificate(file, applicationId);
             case ApplicationLetters.PatentRenewalCertificate:
                 var patFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 var applicationhis = patFile.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
@@ -339,7 +339,7 @@ public class LettersServices
                 DateTime patdate;
                 DateTime.TryParse(paymentdet.paymentDate, out date);
                 Console.WriteLine(date);
-                return await RenewalCertificate(patFile, applicationId, date);
+                return await RenewalCertificate(patFile, applicationId);
             case ApplicationLetters.RecordalReceipt:
                 var recordalFileData = _fillingCollection.Find(x => x.Id == fileId).FirstOrDefault();
                 return await DataUpdateReceipt(fileId, applicationId, recordalFileData);
@@ -2034,7 +2034,7 @@ public class LettersServices
         return ReturnDocument(data);
     }
 
-    public async Task<Dictionary<string,object>> RenewalCertificate(Filling fileData, string applicationId, DateTime date)
+    public async Task<Dictionary<string,object>> RenewalCertificate(Filling fileData, string applicationId)
     {
         if (fileData == null)
             throw new ArgumentNullException(nameof(fileData), "File data cannot be null");
@@ -2057,7 +2057,10 @@ public class LettersServices
             FileId = fileData.FileId,
             Date = paymentResponse?.paymentDate ?? "-"
         };
+        var date = app.StatusHistory.FirstOrDefault(h => h.afterStatus == ApplicationStatuses.AutoApproved)?.Date ?? DateTime.Now;
+        var signId = fileData.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? fileData.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
 
+        var signature = GetSignature(signId);
         byte[] data;
         if (fileData.Type == FileTypes.TradeMark)
         {
@@ -2075,7 +2078,7 @@ public class LettersServices
             {
                 image = [];
             }
-            data = new TrademarkRenewalCertificate(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}",applicationId, image, date).GeneratePdf();
+            data = new TrademarkRenewalCertificate(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}",applicationId, image, date, signature).GeneratePdf();
         }
         else if (fileData.Type == FileTypes.Patent)
         {

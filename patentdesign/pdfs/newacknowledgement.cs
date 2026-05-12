@@ -132,39 +132,16 @@ namespace patentdesign
                     ("State:", F(model.Correspondence?.state))
                 });
 
-                var attachmentDefinitions = new (string Label, string Key, string Acronym)[]
-                {
-                    ("Priority Document", "pdoc", "PD"),
-                    ("Power of Attorney", "form2", "POA"),
-                    ("Novelty Statement", "nov", "NOV"),
-                    ("Claims & Specifications", "cs", "CS"),
-                    ("Other Attachments", "any", "OTH")
-                };
-
-                var matchedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var attachmentRows = new List<(string Label, string Value)>();
-
-                foreach (var def in attachmentDefinitions)
-                {
-                    bool found = HasAttachment(def.Key);
-                    attachmentRows.Add(($"{def.Label}:", found ? "Attached" : "Not Attached"));
-                    if (found)
-                    {
-                        var matched = GetMatchedAttachmentNames(def.Key);
-                        foreach (var m in matched) matchedNames.Add(m);
-                    }
-                }
-
-                // Add any remaining attachments not matched by predefined keys
                 if (model.Attachments != null)
                 {
                     int extra = 1;
                     foreach (var att in model.Attachments)
                     {
-                        if (att.name != null && !matchedNames.Contains(att.name) 
-                            && !string.Equals(att.name, "representation", StringComparison.OrdinalIgnoreCase)
-                            && !string.Equals(att.name, "representations", StringComparison.OrdinalIgnoreCase)
-                            && !string.Equals(att.name, "designs", StringComparison.OrdinalIgnoreCase))
+                        if (att.name != null &&
+                            !string.Equals(att.name, "representation", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(att.name, "representations", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(att.name, "designs", StringComparison.OrdinalIgnoreCase))
                         {
                             var label = !string.IsNullOrWhiteSpace(att.name) ? att.name : $"Attachment {extra}";
                             attachmentRows.Add(($"{label}:", "Attached"));
@@ -172,8 +149,10 @@ namespace patentdesign
                         }
                     }
                 }
-
-                TwoColumnSection(col, "ATTACHMENTS", attachmentRows.ToArray());
+                if (attachmentRows.Count > 0)
+                {
+                    TwoColumnSection(col, "ATTACHMENTS", attachmentRows.ToArray());
+                }
 
                 col.Item().AlignCenter().PaddingTop(30).Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
                     .FontFamily(Fonts.TimesNewRoman).Bold().FontColor(Colors.Green.Darken2);
