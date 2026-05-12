@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
@@ -13,13 +15,45 @@ namespace patentdesign.Services;
 
 public class StatisticsService
 {
+    private const string CacheVersionKey = "stats:version";
     private readonly IMongoCollection<StaffPerformance> _workflowCollection;
     private readonly IMongoCollection<AppUser> _userCollection;
     private readonly IMongoCollection<PaymentRecord> _paymentCollection;
     private readonly IMongoCollection<Filling> _fillingCollection;
+    private readonly IDistributedCache _cache;
     private readonly ILogger<StatisticsService> _log;
 
-    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<StatisticsService> log)
+    private static readonly DistributedCacheEntryOptions UnitsCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(12)
+    };
+
+    private static readonly DistributedCacheEntryOptions StaffCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(2)
+    };
+
+    private static readonly DistributedCacheEntryOptions StaffPerformanceCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15)
+    };
+
+    private static readonly DistributedCacheEntryOptions UnitPerformanceCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15)
+    };
+
+    private static readonly DistributedCacheEntryOptions FinanceCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
+    };
+
+    private static readonly DistributedCacheEntryOptions OperationalCacheOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
+    };
+
+    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IDistributedCache cache, ILogger<StatisticsService> log)
     {
         var useSandbox = patentDesignDbSettings.Value.UseSandbox;
         var digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
@@ -32,13 +66,28 @@ public class StatisticsService
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
         _fillingCollection = db.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
+        _cache = cache;
         _log = log;
+
+        EnsurePaymentIndexes();
     }
 
     #region Public API
 
     public IReadOnlyList<UnitInfoDto> GetUnits(string registryType)
     {
+        var cacheKey = $"stats:{GetCacheVersion()}:units:{registryType}";
+        var cached = TryGetCache(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _log.LogInformation("Units cache hit for RegistryType {RegistryType}", registryType);
+            var cachedResult = JsonSerializer.Deserialize<List<UnitInfoDto>>(cached);
+            if (cachedResult != null)
+            {
+                return cachedResult;
+            }
+        }
+
         _log.LogInformation("Fetching units for RegistryType {RegistryType}", registryType);
         var unitMappings = GetUnitMappings(registryType);
         var result = unitMappings.Select(unit => new UnitInfoDto
@@ -47,12 +96,26 @@ public class StatisticsService
             UnitName = unit.UnitName,
             RegistryType = registryType
         }).ToList();
+        TrySetCache(cacheKey, JsonSerializer.Serialize(result), UnitsCacheOptions);
+        _log.LogInformation("Units cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched {UnitCount} units for RegistryType {RegistryType}", result.Count, registryType);
         return result;
     }
 
     public async Task<IReadOnlyList<StaffInfoDto>> GetStaffAsync(string registryType, int unitId)
     {
+        var cacheKey = $"stats:{GetCacheVersion()}:staff:{registryType}:{unitId}";
+        var cached = await TryGetCacheAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _log.LogInformation("Staff cache hit for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
+            var cachedResult = JsonSerializer.Deserialize<List<StaffInfoDto>>(cached);
+            if (cachedResult != null)
+            {
+                return cachedResult;
+            }
+        }
+
         _log.LogInformation("Fetching staff for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
         var unitMapping = GetUnitMapping(registryType, unitId);
         var fileType = ParseRegistryType(registryType);
@@ -95,12 +158,26 @@ public class StatisticsService
             };
         }).ToList();
 
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), StaffCacheOptions);
+        _log.LogInformation("Staff cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched {StaffCount} staff entries for RegistryType {RegistryType}, UnitId {UnitId}", result.Count, registryType, unitId);
         return result;
     }
 
     public async Task<StaffPerformanceDataDto> GetStaffPerformanceAsync(string registryType, int unitId, string periodType, string periodValue, int year)
     {
+        var cacheKey = $"stats:{GetCacheVersion()}:staff-performance:{registryType}:{unitId}:{periodType}:{periodValue}:{year}";
+        var cached = await TryGetCacheAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _log.LogInformation("Staff performance cache hit for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
+            var cachedResult = JsonSerializer.Deserialize<StaffPerformanceDataDto>(cached);
+            if (cachedResult != null)
+            {
+                return cachedResult;
+            }
+        }
+
         _log.LogInformation("Fetching staff performance for RegistryType {RegistryType}, UnitId {UnitId}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, unitId, periodType, periodValue, year);
         var fileType = ParseRegistryType(registryType);
         var unitMapping = GetUnitMapping(registryType, unitId);
@@ -199,12 +276,26 @@ public class StatisticsService
             StaffPerformance = staffPerformance
         };
 
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), StaffPerformanceCacheOptions);
+        _log.LogInformation("Staff performance cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched staff performance for RegistryType {RegistryType}, UnitId {UnitId}", registryType, unitId);
         return result;
     }
 
     public async Task<UnitPerformanceDataDto> GetUnitPerformanceAsync(string registryType, string periodType, string periodValue, int year)
     {
+        var cacheKey = $"stats:{GetCacheVersion()}:unit-performance:{registryType}:{periodType}:{periodValue}:{year}";
+        var cached = await TryGetCacheAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _log.LogInformation("Unit performance cache hit for RegistryType {RegistryType}", registryType);
+            var cachedResult = JsonSerializer.Deserialize<UnitPerformanceDataDto>(cached);
+            if (cachedResult != null)
+            {
+                return cachedResult;
+            }
+        }
+
         _log.LogInformation("Fetching unit performance for RegistryType {RegistryType}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, periodType, periodValue, year);
         var fileType = ParseRegistryType(registryType);
         var unitMappings = GetUnitMappings(registryType);
@@ -265,6 +356,8 @@ public class StatisticsService
             Units = unitResults.OrderBy(x => x.UnitId).ToList()
         };
 
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), UnitPerformanceCacheOptions);
+        _log.LogInformation("Unit performance cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched unit performance for RegistryType {RegistryType}", registryType);
         return result;
     }
@@ -275,6 +368,19 @@ public class StatisticsService
 
     public async Task<FinanceComparisonDataDto> GetFinanceComparisonAsync(FinanceComparisonRequestDto request)
     {
+        var periodKey = request?.Periods == null ? string.Empty : JsonSerializer.Serialize(request.Periods);
+        var cacheKey = $"stats:{GetCacheVersion()}:finance:{request?.RegistryType}:{periodKey}";
+        var cached = await TryGetCacheAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _log.LogInformation("Finance comparison cache hit for RegistryType {RegistryType}", request?.RegistryType);
+            var cachedResult = JsonSerializer.Deserialize<FinanceComparisonDataDto>(cached);
+            if (cachedResult != null)
+            {
+                return cachedResult;
+            }
+        }
+
         _log.LogInformation("Fetching finance comparison for RegistryType {RegistryType}", request?.RegistryType);
         if (request?.Periods == null || request.Periods.Count == 0)
         {
@@ -287,10 +393,7 @@ public class StatisticsService
         }
 
         var fileType = ParseRegistryType(request.RegistryType);
-        var fileIds = await _fillingCollection
-            .Find(Builders<Filling>.Filter.Eq(x => x.Type, fileType))
-            .Project(x => x.FileId)
-            .ToListAsync();
+        var fileTypeFilter = Builders<PaymentRecord>.Filter.Eq(x => x.FileType, fileType.ToString());
 
         var results = new List<FinancePeriodResultDto>();
 
@@ -301,14 +404,13 @@ public class StatisticsService
             var filter = Builders<PaymentRecord>.Filter.And(
                 Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
                 Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate),
-                Builders<PaymentRecord>.Filter.In(x => x.FileId, fileIds)
+                fileTypeFilter
             );
 
-            var payments = fileIds.Count == 0
-                ? []
-                : await _paymentCollection.Find(filter).ToListAsync();
+            var payments = await _paymentCollection.Find(filter).ToListAsync();
 
             var paymentTypes = payments
+                .Where(x => !string.Equals(x.PaymentType, "File Withdrawal", StringComparison.OrdinalIgnoreCase))
                 .GroupBy(x => x.PaymentType ?? string.Empty)
                 .Select(group => new FinancePaymentTypeResultDto
                 {
@@ -319,7 +421,8 @@ public class StatisticsService
                 .OrderByDescending(x => x.TotalGovernmentFee)
                 .ToList();
 
-            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments, GetGovernmentFee);
+            var filteredPayments = payments.Where(x => !string.Equals(x.PaymentType, "File Withdrawal", StringComparison.OrdinalIgnoreCase)).ToList();
+            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, filteredPayments, GetGovernmentFee);
 
             results.Add(new FinancePeriodResultDto
             {
@@ -338,6 +441,8 @@ public class StatisticsService
             Periods = results
         };
 
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), FinanceCacheOptions);
+        _log.LogInformation("Finance comparison cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched finance comparison for RegistryType {RegistryType}", request.RegistryType);
         return result;
     }
@@ -356,10 +461,7 @@ public class StatisticsService
         }
 
         var fileType = ParseRegistryType(request.RegistryType);
-        var fileIds = await _fillingCollection
-            .Find(Builders<Filling>.Filter.Eq(x => x.Type, fileType))
-            .Project(x => x.FileId)
-            .ToListAsync();
+        var fileTypeFilter = Builders<PaymentRecord>.Filter.Eq(x => x.FileType, fileType.ToString());
 
         var results = new List<FinancePeriodResultDto>();
 
@@ -370,25 +472,32 @@ public class StatisticsService
             var filter = Builders<PaymentRecord>.Filter.And(
                 Builders<PaymentRecord>.Filter.Gte(x => x.Date, range.StartDate),
                 Builders<PaymentRecord>.Filter.Lte(x => x.Date, range.EndDate),
-                Builders<PaymentRecord>.Filter.In(x => x.FileId, fileIds)
+                fileTypeFilter
             );
 
-            var payments = fileIds.Count == 0
-                ? []
-                : await _paymentCollection.Find(filter).ToListAsync();
+            var payments = await _paymentCollection.Find(filter).ToListAsync();
 
             var paymentTypes = payments
                 .GroupBy(x => x.PaymentType ?? string.Empty)
                 .Select(group => new FinancePaymentTypeResultDto
                 {
                     PaymentType = group.Key,
-                    TotalGovernmentFee = group.Sum(GetTechFee),
+                    TotalGovernmentFee = group.Key.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase)
+                        ? group.Sum(p => GetGovernmentFee(p) + GetTechFee(p))
+                        : group.Sum(GetTechFee),
                     Count = group.Count()
                 })
                 .OrderByDescending(x => x.TotalGovernmentFee)
                 .ToList();
 
-            var monthlyBreakdown = BuildMonthlyBreakdown(range.StartDate, range.EndDate, payments, GetTechFee);
+            var monthlyBreakdown = BuildMonthlyBreakdown(
+                range.StartDate,
+                range.EndDate,
+                payments,
+                p => (p.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
+                    ? GetGovernmentFee(p) + GetTechFee(p)
+                    : GetTechFee(p)
+            );
 
             results.Add(new FinancePeriodResultDto
             {
@@ -413,6 +522,19 @@ public class StatisticsService
 
     public async Task<OperationalComparisonDataDto> GetOperationalComparisonAsync(OperationalComparisonRequestDto request)
     {
+        var periodKey = request?.Periods == null ? string.Empty : JsonSerializer.Serialize(request.Periods);
+        var cacheKey = $"stats:{GetCacheVersion()}:operational:{request?.RegistryType}:{periodKey}";
+        var cached = await TryGetCacheAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _log.LogInformation("Operational comparison cache hit for RegistryType {RegistryType}", request?.RegistryType);
+            var cachedResult = JsonSerializer.Deserialize<OperationalComparisonDataDto>(cached);
+            if (cachedResult != null)
+            {
+                return cachedResult;
+            }
+        }
+
         _log.LogInformation("Fetching operational comparison for RegistryType {RegistryType}", request?.RegistryType);
         if (request?.Periods == null || request.Periods.Count == 0)
         {
@@ -478,8 +600,94 @@ public class StatisticsService
             Periods = results
         };
 
+        await TrySetCacheAsync(cacheKey, JsonSerializer.Serialize(result), OperationalCacheOptions);
+        _log.LogInformation("Operational comparison cached with key {CacheKey}", cacheKey);
         _log.LogInformation("Fetched operational comparison for RegistryType {RegistryType}", request.RegistryType);
         return result;
+    }
+
+    public async Task<string> InvalidateStatisticsCacheAsync()
+    {
+        var newVersion = Guid.NewGuid().ToString("N");
+        await TrySetCacheAsync(CacheVersionKey, newVersion, null);
+        _log.LogInformation("Statistics cache invalidated with version {CacheVersion}", newVersion);
+        return newVersion;
+    }
+
+    private string GetCacheVersion()
+    {
+        var version = TryGetCache(CacheVersionKey);
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            version = "v1";
+            TrySetCache(CacheVersionKey, version, null);
+        }
+
+        return version;
+    }
+
+    private string? TryGetCache(string key)
+    {
+        try
+        {
+            return _cache.GetString(key);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable for key {CacheKey}. Falling back to live data.", key);
+            return null;
+        }
+    }
+
+    private async Task<string?> TryGetCacheAsync(string key)
+    {
+        try
+        {
+            return await _cache.GetStringAsync(key);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable for key {CacheKey}. Falling back to live data.", key);
+            return null;
+        }
+    }
+
+    private void TrySetCache(string key, string value, DistributedCacheEntryOptions? options)
+    {
+        try
+        {
+            if (options == null)
+            {
+                _cache.SetString(key, value);
+            }
+            else
+            {
+                _cache.SetString(key, value, options);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable while setting key {CacheKey}. Continuing without cache.", key);
+        }
+    }
+
+    private async Task TrySetCacheAsync(string key, string value, DistributedCacheEntryOptions? options)
+    {
+        try
+        {
+            if (options == null)
+            {
+                await _cache.SetStringAsync(key, value);
+            }
+            else
+            {
+                await _cache.SetStringAsync(key, value, options);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Cache unavailable while setting key {CacheKey}. Continuing without cache.", key);
+        }
     }
 
     #endregion
@@ -768,8 +976,32 @@ public class StatisticsService
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
     }
 
+    private void EnsurePaymentIndexes()
+    {
+        try
+        {
+            var indexKeys = Builders<PaymentRecord>.IndexKeys
+                .Ascending(x => x.FileType)
+                .Ascending(x => x.Date);
+            var indexModel = new CreateIndexModel<PaymentRecord>(indexKeys);
+            _paymentCollection.Indexes.CreateOne(indexModel);
+            _log.LogInformation("Ensured payments index on FileType and Date");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure payments index on FileType and Date");
+        }
+    }
+
     private static double GetTechFee(PaymentRecord payment)
     {
+        if (payment?.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
+        {
+            // For File Withdrawal, sum all line items
+            var items = payment.RemitaResponse?.lineItems;
+            return items?.Sum(x => x?.beneficiaryAmount ?? 0d) ?? 0d;
+        }
+        // For all other types, just the second line item
         return payment?.RemitaResponse?.lineItems?.Skip(1).FirstOrDefault()?.beneficiaryAmount ?? 0d;
     }
 

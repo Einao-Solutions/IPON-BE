@@ -132,62 +132,26 @@ namespace patentdesign
                     ("State:", F(model.Correspondence?.state))
                 });
 
-
-                // Abbreviation mapping for design attachments
-                var attachmentAbbr = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    {"pdoc", "PD"},
-                    {"priorityDocument", "PD"},
-                    {"form2", "POA"},
-                    {"poa", "POA"},
-                    {"nov", "NOV"},
-                    {"novelty", "NOV"},
-                    {"noveltyStatement", "NOV"},
-                    {"statementOfNovelty", "NOV"},
-                    {"cs", "CS"},
-                    {"any", "OTH"},
-                    {"others", "OTH"},
-                    {"designs", "DES"},
-                    {"design1", "DES"},
-                    {"design2", "DES"},
-                    {"design3", "DES"},
-                    {"design4", "DES"},
-                    {"designDrawings", "DES"},
-                };
-
-                var attachmentList = new List<string>();
+                var attachmentRows = new List<(string Label, string Value)>();
                 if (model.Attachments != null)
                 {
+                    int extra = 1;
                     foreach (var att in model.Attachments)
                     {
-                        string displayName;
-                        if (string.IsNullOrWhiteSpace(att.name))
+                        if (att.name != null &&
+                            !string.Equals(att.name, "representation", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(att.name, "representations", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(att.name, "designs", StringComparison.OrdinalIgnoreCase))
                         {
-                            displayName = "Unknown";
+                            var label = !string.IsNullOrWhiteSpace(att.name) ? att.name : $"Attachment {extra}";
+                            attachmentRows.Add(($"{label}:", "Attached"));
+                            extra++;
                         }
-                        else if (attachmentAbbr.TryGetValue(att.name, out var abbr))
-                        {
-                            displayName = abbr;
-                        }
-                        else
-                        {
-                            displayName = att.name;
-                        }
-                        attachmentList.Add(displayName);
                     }
                 }
-
-                if (attachmentList.Count > 0)
+                if (attachmentRows.Count > 0)
                 {
-                    col.Item().Element(Header).Text("ATTACHMENTS").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-                    var pairs = new List<(string, string)>();
-                    int idx = 1;
-                    foreach (var abbr in attachmentList)
-                    {
-                        pairs.Add(($"Attachment {idx}:", abbr));
-                        idx++;
-                    }
-                    TwoColumnSection(col, string.Empty, pairs);
+                    TwoColumnSection(col, "ATTACHMENTS", attachmentRows.ToArray());
                 }
 
                 col.Item().AlignCenter().PaddingTop(30).Text("YOUR APPLICATION HAS BEEN RECEIVED AND IS RECEIVING DUE ATTENTION")
