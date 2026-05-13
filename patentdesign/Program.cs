@@ -20,10 +20,11 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // ------------------ Load .env ONLY in Development ------------------
-var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
-if (File.Exists(envPath))
+if (builder.Environment.IsDevelopment())
 {
-    DotNetEnv.Env.Load(envPath);
+    var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+    if (File.Exists(envPath))
+        DotNetEnv.Env.Load(envPath);
 }
 // ------------------ Serilog ------------------
 var logPath = builder.Configuration["PatentDesignDatabase:LogPath"] ?? @"C:\IpoApiLog";
@@ -59,24 +60,26 @@ builder.Configuration["Jwt:Issuer"] = jwtIssuer;
 builder.Configuration["Jwt:Audience"] = jwtAudience;
 
 // ------------------ MongoDB Config ------------------
-var mongoConnectionString =
-    Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
-    ?? builder.Configuration["PatentDesignDatabase:ConnectionStringUp"];
+string? mongoConnectionString;
 
-if (string.IsNullOrWhiteSpace(mongoConnectionString))
+if (builder.Environment.IsDevelopment())
 {
-    if (builder.Environment.IsDevelopment())
+    mongoConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionString"];
+    Log.Information("Using local MongoDB connection string for development.");
+}
+else
+{
+    mongoConnectionString =
+        Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
+        ?? builder.Configuration["PatentDesignDatabase:ConnectionStringUp"];
+
+    // Guard against the unresolved ${...} placeholder
+    if (string.IsNullOrWhiteSpace(mongoConnectionString) ||
+        mongoConnectionString.StartsWith("${"))
     {
-        mongoConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionString"];
-        Log.Information("Using local MongoDB connection string for development.");
-    }
-    else
-    {
-        throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
+        throw new Exception("❌ MongoDB connection string is missing! Check environment variables.");
     }
 }
-
-builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
 
 // ------------------ Redis Cache Config ------------------
 var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")

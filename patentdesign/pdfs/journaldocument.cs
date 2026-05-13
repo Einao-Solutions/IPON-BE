@@ -104,76 +104,74 @@ namespace Tfunctions.pdfs
         // ── Cover Page ────────────────────────────────────────────────────────
         void ComposeCoverPage(IContainer container)
         {
+            // A4 height ≈ 842pt. Green takes ~70%; the white section fills the
+            // remainder so the divider band doesn't push content onto a new page.
+            const float pageHeight = 842f;
+            const float greenHeight = pageHeight * 0.70f;
+
             container.Column(page =>
             {
-                // Top accent bar
-                page.Item().Height(8).Background(GreenDark);
-
-                // Main content area
-                page.Item().Extend().Background(White).Column(content =>
-                {
-                    content.Item().ExtendVertical().AlignMiddle().PaddingHorizontal(60).Column(center =>
+                // ── Top ~70%: Green background ────────────────────────────────
+                page.Item().Height(greenHeight).Background(GreenDark)
+                    .PaddingVertical(70).PaddingHorizontal(60)
+                    .Column(top =>
                     {
-                        // Logo
-                        center.Item().AlignCenter()
-                            .Width(90).Height(90)
-                            .Image("assets/Commeciallawdepartmentlogo.png")
+                        top.Item().AlignCenter()
+                            .Width(100).Height(100)
+                            .Image("assets/logo.png")
                             .FitArea();
 
-                        // Organisation name
-                        center.Item().PaddingTop(24).AlignCenter()
-                            .Text("Intellectual Property Office Nigeria")
-                            .FontSize(22).Bold().FontColor(GreenDark).FontFamily("Georgia");
+                        top.Item().PaddingTop(24).AlignCenter()
+                            .Text("TRADEMARKS")
+                            .FontSize(46)
+                            .ExtraBlack()                  
+                            .FontColor(White)
+                            .FontFamily("Arial Black"); 
+                        top.Item().AlignCenter()
+                            .Text("JOURNAL")
+                            .FontSize(46)
+                            .ExtraBlack()                  
+                            .FontColor(White)
+                            .FontFamily("Arial Black");
+                        top.Item().ExtendVertical().AlignMiddle().Column(center =>
+                        {
+                            center.Item().PaddingBottom(24).PaddingHorizontal(120)
+                                .LineHorizontal(2).LineColor(White);
 
-                        // Registry subtitle
-                        center.Item().PaddingTop(6).AlignCenter()
-                            .Text("Trademarks Registry")
-                            .FontSize(12).FontColor(GreenMuted).FontFamily("Arial");
-
-                        // Ministry
-                        center.Item().PaddingTop(4).AlignCenter()
-                            .Text("Federal Ministry of Industry, Trade & Investment")
-                            .FontSize(10).FontColor(GreenMuted).FontFamily("Arial");
-                        center.Item().PaddingTop(4).AlignCenter()
-                            .Text("Abuja, Nigeria")
-                            .FontSize(10).FontColor(GreenMuted).FontFamily("Arial");
-                        // Decorative divider
-                        center.Item().PaddingTop(30).PaddingBottom(30)
-                            .PaddingHorizontal(120)
-                            .LineHorizontal(2).LineColor(GreenDark);
-
-                        // Journal title
-                        center.Item().AlignCenter()
-                            .Text($"{TypeLabel}s Journal")
-                            .FontSize(26).Bold().FontColor(GreenDark).FontFamily("Georgia");
-
-                        // Date range
-                        //center.Item().PaddingTop(16).AlignCenter()
-                        //    .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
-                        //    .FontSize(14).FontColor(TextDark).FontFamily("Arial");
-
-                        // Logo
-                        center.Item().AlignCenter().PaddingTop(60)
-                            .Width(180).Height(180)
-                            .Image("assets/ministry.png")
-                            .FitArea();
+                            center.Item().AlignCenter()
+                                .Text($"Vol. 1 No. 1")
+                                .FontSize(28).Bold().FontColor(White).FontFamily("Georgia");
+                        });
                     });
-                });
 
-                //// Bottom bar with generation date
-                //page.Item()
-                //    .Background(GreenDark)
-                //    .Padding(12).PaddingHorizontal(30)
-                //    .Row(footer =>
-                //    {
-                //        footer.RelativeItem().AlignMiddle()
-                //            .Text("iponigeria.com  ·  Commercial Law Department")
-                //            .FontSize(9).FontColor(White).FontFamily("Arial");
+                // ── Accent divider with end date (natural height) ─────────────
+                page.Item().Background(GreenBorder).PaddingVertical(12).AlignCenter()
+                    .Text($"{end:d MMMM, yyyy}")
+                    .FontSize(18).Bold().FontColor(GreenDark).FontFamily("Arial");
 
-                //        footer.AutoItem().AlignMiddle()
-                //            .Text($"Generated: {DateTime.Now:d MMMM yyyy}")
-                //            .FontSize(9).FontColor(GreenBorder).FontFamily("Arial");
-                //    });
+                // ── Remaining ~30%: White background (use Extend, not Height) ─
+                page.Item().Extend().Background(GreenFaint).PaddingHorizontal(60)
+                    .Column(bottom =>
+                    {
+                        bottom.Item().ExtendVertical().AlignMiddle().Column(center =>
+                        {
+                            center.Item().AlignCenter()
+                               .Text("Published by:")
+                               .FontSize(13).FontColor(Colors.Red.Darken4).FontFamily("Arial").SemiBold();
+
+                            center.Item().AlignCenter()
+                                .Text("The Trademarks Registry")
+                                .FontSize(13).FontColor(GreenDark).FontFamily("Arial").SemiBold();
+
+                            center.Item().PaddingTop(6).AlignCenter()
+                                .Text("Federal Ministry of Industry, Trade & Investment")
+                                .FontSize(11).FontColor(TextDark).FontFamily("Arial").SemiBold();
+
+                            center.Item().PaddingTop(2).AlignCenter()
+                                .Text("Abuja, Nigeria")
+                                .FontSize(11).FontColor(TextDark).FontFamily("Arial").SemiBold();
+                        });
+                    });
             });
         }
 
