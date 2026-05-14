@@ -1749,7 +1749,54 @@ return oppose.id;
         return document.GeneratePdf();
     }
 
-    // ─── Backfill PaymentId into ApplicationHistory for existing oppositions ──
+    // ─── Generate Opposition Acknowledgement Letter ────────────────────────
+    public async Task<byte[]> GenerateOppositionAcknowledgementLetter(string oppositionId)
+    {
+        var opp = await _oppositionCollection.Find(o => o.id == oppositionId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+
+        var document = new Tfunctions.pdfs.OppositionAcknowledgement(new OppositionAckType
+        {
+            name = opp.Name,
+            email = opp.Email,
+            number = opp.Phone,
+            address = opp.Address,
+            paymentId = opp.PaymentId,
+            description = opp.FileTitle ?? opp.FileNumber,
+            date = opp.OppositionDate ?? DateTime.UtcNow,
+            oppositionId = !string.IsNullOrEmpty(opp.id) ? $"OPP-{opp.id.Substring(0, 8).ToUpper()}" : "-",
+            reason = opp.Reason,
+            file = file
+        }, "uri");
+        return document.GeneratePdf();
+    }
+
+    public async Task<byte[]> GenerateOppositionAcknowledgementLetterByPaymentId(string paymentId)
+    {
+        var opp = await _oppositionCollection.Find(o => o.PaymentId == paymentId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+
+        var document = new Tfunctions.pdfs.OppositionAcknowledgement(new OppositionAckType
+        {
+            name = opp.Name,
+            email = opp.Email,
+            number = opp.Phone,
+            address = opp.Address,
+            paymentId = opp.PaymentId,
+            description = opp.FileTitle ?? opp.FileNumber,
+            date = opp.OppositionDate ?? DateTime.UtcNow,
+            oppositionId = !string.IsNullOrEmpty(opp.id) ? $"OPP-{opp.id.Substring(0, 8).ToUpper()}" : "-",
+            reason = opp.Reason,
+            file = file
+        }, "uri");
+        return document.GeneratePdf();
+    }
+
+    // ─── Backfill PaymentId
     public async Task<int> BackfillOppositionPaymentIds()
     {
         // Get all paid oppositions that have a PaymentId

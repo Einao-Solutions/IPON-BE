@@ -353,6 +353,32 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
     }
 
+    // ─── Opposition Acknowledgement Letter ─────────────────────────────────────
+    [HttpGet("oppositionAcknowledgementLetter")]
+    public async Task<IActionResult> GetOppositionAcknowledgementLetter([FromQuery] string? oppositionId, [FromQuery] string? paymentId)
+    {
+        try
+        {
+            byte[] pdf;
+            if (!string.IsNullOrEmpty(oppositionId))
+                pdf = await oppositionService.GenerateOppositionAcknowledgementLetter(oppositionId);
+            else if (!string.IsNullOrEmpty(paymentId))
+                pdf = await oppositionService.GenerateOppositionAcknowledgementLetterByPaymentId(paymentId);
+            else
+                return BadRequest(new { success = false, message = "Provide oppositionId or paymentId" });
+
+            return File(pdf, "application/pdf", "OppositionAcknowledgement.pdf");
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
     // ─── Counter Statement Acknowledgement Letter ─────────────────────────────
     [HttpGet("counterStatementLetter")]
     public async Task<IActionResult> GetCounterStatementLetter([FromQuery] string? counterStatementId, [FromQuery] string? paymentId)
