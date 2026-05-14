@@ -26,29 +26,15 @@ public class PaymentService
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
 
-    public PaymentService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
+    public PaymentService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
         _remitaPaymentUtils = remitaPaymentUtils;
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _paymentCollection = pdDb.GetCollection<PaymentServiceModel>("paymentSetup");
-        _payments = pdDb.GetCollection<PaymentRecord>("payments");
-        _otherPaymentCollection = pdDb.GetCollection<OtherPaymentModel>("otherPayments");
-        _attachmentCollection =
-            pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
-        _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
+        var s = patentDesignDbSettings.Value;
+        _paymentCollection = db.GetCollection<PaymentServiceModel>("paymentSetup");
+        _payments = db.GetCollection<PaymentRecord>("payments");
+        _otherPaymentCollection = db.GetCollection<OtherPaymentModel>("otherPayments");
+        _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
     }
 
     public async Task<List<PaymentServiceModel>> GetAllPayment()

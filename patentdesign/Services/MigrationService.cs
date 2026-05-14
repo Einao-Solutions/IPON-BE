@@ -26,35 +26,21 @@ public class MigrationService
     private PaymentService _paymentService;
     private PaymentUtils _paymentUtils;
 
-    public MigrationService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, FilesServices fileServices, PaymentService paymentService, PaymentUtils paymentUtils)
+    public MigrationService(IMongoDatabase db, FilesServices fileServices, PaymentService paymentService, PaymentUtils paymentUtils)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _markInfoCollection = pdDb.GetCollection<MarkInfo>("cldxMarkinfo");
-        _pwalletCollection = pdDb.GetCollection<Pwallet>("cldxPwallet");
-        _fillingCollection = pdDb.GetCollection<Filling>("files");
-        _claimRequestsCollection = pdDb.GetCollection<ClaimRequests>("claimRequests");
-       _cldxAddressesCollection = pdDb.GetCollection<CldxAddresses>("cldxApplicantAddresses");
-       _cldxApplicantsCollection =  pdDb.GetCollection<CldxApplicants>("cldxApplicants");
-       _ipoNgMarkInformationsCollection = pdDb.GetCollection<IpoNgMarkInformations>("ipongMarkInformations");
-       _ipoNgApplicationCollection = pdDb.GetCollection<IpoNgApplication>("ipongApplications");
-       _xpayApplicantCollection = pdDb.GetCollection<XpayApplicant>("xpayApplicants");
-       _xpayTwalletCollection = pdDb.GetCollection<XpayTwallet>("xpayTwallet");
-       _fileServices = fileServices;
-       _paymentService = paymentService;
-       _paymentUtils = paymentUtils;
+        _markInfoCollection = db.GetCollection<MarkInfo>("cldxMarkinfo");
+        _pwalletCollection = db.GetCollection<Pwallet>("cldxPwallet");
+        _fillingCollection = db.GetCollection<Filling>("files");
+        _claimRequestsCollection = db.GetCollection<ClaimRequests>("claimRequests");
+        _cldxAddressesCollection = db.GetCollection<CldxAddresses>("cldxApplicantAddresses");
+        _cldxApplicantsCollection = db.GetCollection<CldxApplicants>("cldxApplicants");
+        _ipoNgMarkInformationsCollection = db.GetCollection<IpoNgMarkInformations>("ipongMarkInformations");
+        _ipoNgApplicationCollection = db.GetCollection<IpoNgApplication>("ipongApplications");
+        _xpayApplicantCollection = db.GetCollection<XpayApplicant>("xpayApplicants");
+        _xpayTwalletCollection = db.GetCollection<XpayTwallet>("xpayTwallet");
+        _fileServices = fileServices;
+        _paymentService = paymentService;
+        _paymentUtils = paymentUtils;
     }
     public async Task<List<MarkInfoDto>> GetFileByRegNumber(string regNumber)
     {

@@ -71,37 +71,25 @@ public class FilesServices
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
      //private string attachmentBaseUrl = "http://localhost:5044";
 
-    public FilesServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices)
+    public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices)
     {
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-        _countersCollection = pdDb.GetCollection<Counters>(patentDesignDbSettings.Value.CountersCollectionName);
-        _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
-        _performanceCollection = pdDb.GetCollection<StaffPerformance>("staffPerformance");
-        _statusCollection = pdDb.GetCollection<StatusRequests>("statusrequests");
-        _oppositionCollection = pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
-        _ticketsCollection = pdDb.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
-        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
-        _attachmentCollection =
-            pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
+        var s = patentDesignDbSettings.Value;
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _countersCollection = db.GetCollection<Counters>(s.CountersCollectionName);
+        _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
+        _performanceCollection = db.GetCollection<StaffPerformance>("staffPerformance");
+        _statusCollection = db.GetCollection<StatusRequests>("statusrequests");
+        _oppositionCollection = db.GetCollection<OppositionType>(s.OppositionCollectionName);
+        _ticketsCollection = db.GetCollection<TicketInfo>(s.TicketCollectionName);
+        _userCollection = db.GetCollection<AppUser>("appUsers");
+        _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
         _remitaPaymentUtils = remitaPaymentUtils;
         _paymentService = paymentService;
         _log = log;
-        _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
-        _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
+        _fileUpdateHistoryCollection = db.GetCollection<FileUpdateHistory>("FileUpdateHistory");
+        _publicationCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
         _publicationServices = publicationServices;
-        _signatures = pdDb.GetCollection<SignatureInfo>("signatures");
+        _signatures = db.GetCollection<SignatureInfo>("signatures");
     }
 
     public async Task<Filling?> GetFileAsync(string id)
@@ -455,6 +443,10 @@ public class FilesServices
         {
             case FileTypes.TradeMark:
                 application.ExpiryDate = firstRenewal ? DateOnly.FromDateTime(paymentDate.AddYears(7)) : DateOnly.FromDateTime(paymentDate.AddYears(14));
+                //Signature for Certificate
+                var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
+                application.SignatoryName = signature.Name;
+                application.SignatureId = signature.Id;
                 break;
             case FileTypes.Patent:
                 application.ExpiryDate = DateOnly.FromDateTime(paymentDate.AddYears(1));

@@ -23,28 +23,13 @@ public class UsersService
     private static IMongoCollection<Filling> _fillingCollection;
     private readonly ILogger<UsersService> _log;
 
-    public UsersService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<UsersService> log)
+    public UsersService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<UsersService> log)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-       // string digitalOcean = useSandbox != "Y" ? @"mongodb+srv://doadmin:72mY9T1sI360HU8d@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin" : patentDesignDbSettings.Value.ConnectionString;
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
-        _attachmentCollection =
-            pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
-        _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-        _performanceCollection = pdDb.GetCollection<PerformanceMarker>("performance");
+        var s = patentDesignDbSettings.Value;
+        _userCollection = db.GetCollection<AppUser>("appUsers");
+        _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _performanceCollection = db.GetCollection<PerformanceMarker>("performance");
         _log = log;
     }
     

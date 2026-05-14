@@ -25,6 +25,7 @@ public class OppositionDeadlineService : BackgroundService
     private const int DeadlineDays = 30;
 
     public OppositionDeadlineService(
+        IMongoDatabase db,
         IOptions<PatentDesignDBSettings> dbSettings,
         ILogger<OppositionDeadlineService> logger,
         EmailServices emailServices)
@@ -32,20 +33,10 @@ public class OppositionDeadlineService : BackgroundService
         _log = logger;
         _emailServices = emailServices;
 
-        var useSandbox = dbSettings.Value.UseSandbox;
-        string connectionString = useSandbox != "Y"
-            ? dbSettings.Value.ConnectionStringUp
-            : dbSettings.Value.ConnectionString;
-
-        var settings = MongoClientSettings.FromUrl(new MongoUrl(connectionString));
-        settings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
-
-        var client = new MongoClient(settings);
-        var db = client.GetDatabase(dbSettings.Value.DatabaseName);
-
-        _oppositionCollection = db.GetCollection<Opposition>(dbSettings.Value.OppositionCollectionName);
-        _fillingCollection = db.GetCollection<Filling>(dbSettings.Value.FilesCollectionName);
-        _counterStatementCollection = db.GetCollection<CounterStatement>(dbSettings.Value.CounterStatementsCollectionName);
+        var s = dbSettings.Value;
+        _oppositionCollection = db.GetCollection<Opposition>(s.OppositionCollectionName);
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _counterStatementCollection = db.GetCollection<CounterStatement>(s.CounterStatementsCollectionName);
         _statutoryDeclarationCollection = db.GetCollection<StatutoryDeclaration>("statutoryDeclarations");
     }
 

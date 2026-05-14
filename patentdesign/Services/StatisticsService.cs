@@ -53,19 +53,13 @@ public class StatisticsService
         AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
     };
 
-    public StatisticsService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IDistributedCache cache, ILogger<StatisticsService> log)
+    public StatisticsService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, IDistributedCache cache, ILogger<StatisticsService> log)
     {
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-        var digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        var settings = MongoClientSettings.FromUrl(new MongoUrl(digitalOcean));
-        settings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
-        var mongoClient = new MongoClient(settings);
-        var db = mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
+        var s = patentDesignDbSettings.Value;
         _workflowCollection = db.GetCollection<StaffPerformance>("staffPerformance");
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
-        _fillingCollection = db.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
         _cache = cache;
         _log = log;
 
