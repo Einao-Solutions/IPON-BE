@@ -62,3 +62,10 @@ public class SignatoryDto
     public IFormFile? Signature { get; set; }
     public List<FormApplicationTypes> ApplicationTypes { get; set; }
 }
+
+public class Signatory
+{
+    public string? Id { get; set; }
+    public string? Name { get; set; }
+    public byte[] Signature { get; set; }
+}
