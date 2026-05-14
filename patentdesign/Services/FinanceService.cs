@@ -21,21 +21,10 @@ public class FinanceService
     private PaymentUtils _remitaPaymentUtils;
     private MongoClient _mongoClient;
 
-    public FinanceService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
+    public FinanceService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
     {
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
+        var s = patentDesignDbSettings.Value;
+        _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
         _remitaPaymentUtils = remitaPaymentUtils;
     }
     

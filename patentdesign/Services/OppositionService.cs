@@ -37,36 +37,29 @@ public class OppositionService
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
+    private IMongoDatabase db;
+    private IMongoDatabase pdDb;
     public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices fileServices, EmailServices emailServices, ILogger<OppositionService> log, PaymentService paymentServices)
     {
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
         _remitaPaymentUtils = remitaPaymentUtils;
         _fileServices = fileServices;
         _emailServices = emailServices;
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-        _attachmentCollection =
-            pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
-        _oppositionCollection =
-            pdDb.GetCollection<Opposition>(patentDesignDbSettings.Value.OppositionCollectionName);
-        _counterStatementCollection =
-            pdDb.GetCollection<CounterStatement>(patentDesignDbSettings.Value.CounterStatementsCollectionName);
-        _statutoryDeclarationCollection =
-            pdDb.GetCollection<StatutoryDeclaration>(patentDesignDbSettings.Value.StatutoryDeclarationsCollectionName);
-        _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
+        var s = patentDesignDbSettings.Value;
+
+        // Initialize MongoClient and databases
+        _mongoClient = new MongoClient(s.ConnectionString);
+        db = _mongoClient.GetDatabase(s.DatabaseName);
+        pdDb = _mongoClient.GetDatabase(s.DatabaseName);
+
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _oppositionCollection = db.GetCollection<Opposition>(s.OppositionCollectionName);
+        _counterStatementCollection = db.GetCollection<CounterStatement>(s.CounterStatementsCollectionName);
+        _statutoryDeclarationCollection = db.GetCollection<StatutoryDeclaration>(s.StatutoryDeclarationsCollectionName);
+        _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
         _log = log;
-        _publicationCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
-        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
+        _publicationCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
+        _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentServices = paymentServices;
     }
     public async Task<OppositionSearchDto> OppositionSearch(string fileNumber)
@@ -1302,7 +1295,7 @@ public class OppositionService
                     ApplicationType = FormApplicationTypes.StatutoryDeclaration,
                     CurrentStatus = ApplicationStatuses.AwaitingOfficeProcess,
                     PaymentId = sd.PaymentId,
-                    ApplicationDate = DateTime.Now
+                    ApplicationDate = sd.SubmittedDate
                 };
                 await _fillingCollection.UpdateOneAsync(
                     Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),

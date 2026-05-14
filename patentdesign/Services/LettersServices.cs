@@ -22,34 +22,19 @@ using ZstdSharp.Unsafe;
 namespace patentdesign.Services;
 public class LettersServices
 {
-    public LettersServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils )
+    public LettersServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-        _usersCollection = pdDb.GetCollection<UserCreateType>(patentDesignDbSettings.Value.UsersCollectionName);
-        _statusRequestsCollection = pdDb.GetCollection<StatusRequests>("statusrequests");
-        _migratedFinanceCollection = pdDb.GetCollection<DBRemitaPayment>("migratedFinance");
-        _financeCollection = pdDb.GetCollection<FinanceHistory>("finance");
-        _signatures = pdDb.GetCollection<SignatureInfo>("signatures");
+        var s = patentDesignDbSettings.Value;
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _usersCollection = db.GetCollection<UserCreateType>(s.UsersCollectionName);
+        _statusRequestsCollection = db.GetCollection<StatusRequests>("statusrequests");
+        _migratedFinanceCollection = db.GetCollection<DBRemitaPayment>("migratedFinance");
+        _financeCollection = db.GetCollection<FinanceHistory>("finance");
+        _signatures = db.GetCollection<SignatureInfo>("signatures");
         _remitaPaymentUtils = remitaPaymentUtils;
-        _oppositionCollection =
-            pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
-        _newOppositionCollection =
-            pdDb.GetCollection<Opposition>(patentDesignDbSettings.Value.OppositionCollectionName);
-        _counterStatementCollection =
-            pdDb.GetCollection<CounterStatement>(patentDesignDbSettings.Value.CounterStatementsCollectionName);
+        _oppositionCollection = db.GetCollection<OppositionType>(s.OppositionCollectionName);
+        _newOppositionCollection = db.GetCollection<Opposition>(s.OppositionCollectionName);
+        _counterStatementCollection = db.GetCollection<CounterStatement>(s.CounterStatementsCollectionName);
     }
     private static IMongoCollection<Filling> _fillingCollection;
     private static IMongoCollection<DBRemitaPayment> _migratedFinanceCollection;
