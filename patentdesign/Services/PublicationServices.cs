@@ -19,25 +19,14 @@ namespace patentdesign.Services
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
         private readonly ILogger<AuthServices> _log;
-        public PublicationServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
+        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
         {
             _config = config;
             _log = log;
 
-            var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-            string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-            MongoClientSettings settings = MongoClientSettings.FromUrl(
-                new MongoUrl(digitalOcean)
-            );
-            settings.SslSettings =
-                new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-            _mongoClient = new MongoClient(settings);
-            var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-            _users = pdDb.GetCollection<AppUser>("appUsers");
-            _pubCollection = pdDb.GetCollection<PublicationInfo>("trademarkJournal");
-            _files = pdDb.GetCollection<Filling>("files");
+            _users = db.GetCollection<AppUser>("appUsers");
+            _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
+            _files = db.GetCollection<Filling>("files");
             _emailServices = emailServices;
         }
 

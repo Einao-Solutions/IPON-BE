@@ -27,24 +27,14 @@ namespace patentdesign.Services
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
         private readonly ILogger<AuthServices> _log;
-        public AuthServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
+        public AuthServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
         {
             _config = config;
             _log = log;
 
-            var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-            string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-            MongoClientSettings settings = MongoClientSettings.FromUrl(
-                new MongoUrl(digitalOcean)
-            );
-            settings.SslSettings =
-                new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-            _mongoClient = new MongoClient(settings);
-            var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-            _users = pdDb.GetCollection<AppUser>("appUsers");
-            _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
+            var s = patentDesignDbSettings.Value;
+            _users = db.GetCollection<AppUser>("appUsers");
+            _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
             _emailServices = emailServices;
         }
 
