@@ -13,24 +13,9 @@ public class TicketServices
     private PaymentUtils _remitaPaymentUtils;
     private MongoClient _mongoClient;
     private static IMongoCollection<TicketInfo> _ticketsCollection;
-    public TicketServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
+    public TicketServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        //string digitalOcean = useSandbox != "Y" ? @"mongodb+srv://doadmin:72mY9T1sI360HU8d@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin" : patentDesignDbSettings.Value.ConnectionString;
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-        new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-        new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-              _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb=_mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _ticketsCollection = pdDb.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
+        _ticketsCollection = db.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
     }
     public async Task CreateTicketAsync(TicketInfo ticket)
     {

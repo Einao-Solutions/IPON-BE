@@ -22,28 +22,14 @@ public class AssignmentService
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     private static IMongoCollection<FinanceHistory> _financeCollection;
 
-    public AssignmentService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
+    public AssignmentService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
         _remitaPaymentUtils = remitaPaymentUtils;
-
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _performanceCollection = pdDb.GetCollection<PerformanceMarker>("performance");
-        _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-        _attachmentCollection =
-            pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
-        _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
+        var s = patentDesignDbSettings.Value;
+        _performanceCollection = db.GetCollection<PerformanceMarker>("performance");
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
     }
 
     public async Task<dynamic?> SearchForFile(string fileId, string? userId = null)

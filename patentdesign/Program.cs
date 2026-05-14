@@ -80,7 +80,8 @@ else
         throw new Exception("❌ MongoDB connection string is missing! Check environment variables.");
     }
 }
-
+builder.Configuration["PatentDesignDatabase:ConnectionString"] = mongoConnectionString;
+builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
 // ------------------ Redis Cache Config ------------------
 var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")
     ?? builder.Configuration["Redis:ConnectionString"];
@@ -156,13 +157,23 @@ var fontPath = Path.Combine(AppContext.BaseDirectory, "assets", "Certificate.otf
 using var fontStream = File.OpenRead(fontPath);
 FontManager.RegisterFont(fontStream);
 
-// ------------------ Mongo Client ------------------
-var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(mongoConnectionString));
+// ------------------ Mongo Client (single, shared) ------------------
+var mongoUrl = new MongoUrl(mongoConnectionString);
+var mongoSettings = MongoClientSettings.FromUrl(mongoUrl);
 if (!builder.Environment.IsDevelopment())
 {
     mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
 }
+
 var mongoClient = new MongoClient(mongoSettings);
+var mongoDatabaseName = mongoUrl.DatabaseName
+    ?? builder.Configuration["PatentDesignDatabase:DatabaseName"]
+    ?? throw new InvalidOperationException("Mongo database name is not configured.");
+var mongoDatabase = mongoClient.GetDatabase(mongoDatabaseName);
+
+// Register once; every service injects IMongoDatabase instead of building its own client.
+builder.Services.AddSingleton<IMongoClient>(mongoClient);
+builder.Services.AddSingleton<IMongoDatabase>(mongoDatabase);
 
 // ------------------ Config Bindings ------------------
 builder.Services.Configure<PatentDesignDBSettings>(builder.Configuration.GetSection("PatentDesignDatabase"));

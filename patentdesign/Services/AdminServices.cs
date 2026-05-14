@@ -37,36 +37,24 @@ namespace patentdesign.Services
         //private string attachmentBaseUrl = "http://localhost:5044";
 
 
-        public AdminServices(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<AdminServices> log, PaymentService paymentService, EmailServices emailServices)
+        public AdminServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<AdminServices> log, PaymentService paymentService, EmailServices emailServices)
         {
-            var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-            string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-            MongoClientSettings settings = MongoClientSettings.FromUrl(
-                new MongoUrl(digitalOcean)
-            );
-            settings.SslSettings =
-                new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-            _mongoClient = new MongoClient(settings);
-            // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-            var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-            _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-            _countersCollection = pdDb.GetCollection<Counters>(patentDesignDbSettings.Value.CountersCollectionName);
-            _financeCollection = pdDb.GetCollection<FinanceHistory>(patentDesignDbSettings.Value.FinanceCollectionName);
-            _performanceCollection = pdDb.GetCollection<PerformanceMarker>("performance");
-            _statusCollection = pdDb.GetCollection<StatusRequests>("statusrequests");
-            _oppositionCollection = pdDb.GetCollection<OppositionType>(patentDesignDbSettings.Value.OppositionCollectionName);
-            _ticketsCollection = pdDb.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
-            _userCollection = pdDb.GetCollection<AppUser>("appUsers");
-            _signatures = pdDb.GetCollection<SignatureInfo>("signatures");
-            _attachmentCollection =
-                pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
+            var s = patentDesignDbSettings.Value;
+            _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+            _countersCollection = db.GetCollection<Counters>(s.CountersCollectionName);
+            _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
+            _performanceCollection = db.GetCollection<PerformanceMarker>("performance");
+            _statusCollection = db.GetCollection<StatusRequests>("statusrequests");
+            _oppositionCollection = db.GetCollection<OppositionType>(s.OppositionCollectionName);
+            _ticketsCollection = db.GetCollection<TicketInfo>(s.TicketCollectionName);
+            _userCollection = db.GetCollection<AppUser>("appUsers");
+            _signatures = db.GetCollection<SignatureInfo>("signatures");
+            _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
             _remitaPaymentUtils = remitaPaymentUtils;
-            _statusLogs = pdDb.GetCollection<StatusChangeLog>("StatusChangeLogs");
+            _statusLogs = db.GetCollection<StatusChangeLog>("StatusChangeLogs");
             _paymentService = paymentService;
             _log = log;
-            _fileUpdateHistoryCollection = pdDb.GetCollection<FileUpdateHistory>("FileUpdateHistory");
+            _fileUpdateHistoryCollection = db.GetCollection<FileUpdateHistory>("FileUpdateHistory");
             _emailServices = emailServices;
         }
         public async Task<StatusChangeLog> ChangeFileStatus(StatusChangeDto dto)
