@@ -106,3 +106,25 @@ public class GenerateOppositionPaymentDto
     public string? Email { get; set; }
     public string? Number { get; set; }
 }
+
+public class AmendmentCost
+{
+    public string? Amount { get; set; }
+    public string? PaymentId { get; set; }
+    public string? UserId { get; set; }
+    public string? FileId { get; set; }
+    public string? FileTitle { get; set; }
+     public string? ApplicantName { get; set; }
+}
+public class OppositionAmendmentDto 
+{     
+    public string? FileNumber { get; set; }
+    public string? PaymentId { get; set; }
+    public string? NewAdditionalDescription { get; set; }
+    public string? NewDisclaimer { get; set; }
+    public IFormFile? NewRepresentation { get; set; }
+    public string? AmendmentDetails { get; set; }
+    public List<IFormFile>? SupportingDocs { get; set; }
+    public string? UserId { get; set; }
+}
+
