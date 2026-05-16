@@ -2,10 +2,12 @@ name: CI
 
 on:
   pull_request:
-    branches: [dev, production]
+    branches:
+      - dev
+      - production
 
 jobs:
-  build-and-test:
+  restore:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,12 +16,28 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: ${{ runner.os }}-nuget-
+      - run: dotnet restore patentdesign/patentdesign.csproj
 
-      - run: dotnet restore
-      - run: dotnet build --configuration Release --no-restore
-      - run: dotnet test --configuration Release --no-build --verbosity normal
+  build:
+    needs: restore
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - run: dotnet build patentdesign/patentdesign.csproj --configuration Release
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - run: dotnet test patentdesign/patentdesign.csproj --configuration Release
