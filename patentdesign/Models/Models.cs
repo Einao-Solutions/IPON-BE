@@ -375,7 +375,8 @@ public record ClericalUpdate
     public List<string>? NewDesignCreatorNationalities { get; set; }
     public List<string>? OldDesignAttachmentUrls { get; set; }
     public List<string>? NewDesignAttachmentUrls { get; set; }
-
+    public string? NewRepresentation { get; set; }
+    public string? OldRepresentation { get; set; }
 }
 
 public record Appeal
@@ -1049,7 +1050,7 @@ public enum PaymentTypes
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement, StatutoryDeclaration
+CounterStatement, StatutoryDeclaration, TrademarkAmendment
 }
 
 
@@ -1456,6 +1457,11 @@ public record PaymentInfo
     public string? TrademarkRestorationCost { get; set; }
     public string? TrademarkRestorationServiceFee { get; set; }
     public string? TrademarkRestorationServiceId { get; set; }
+
+    //TM Amendment
+    public string? TrademarkAmendmentCost { get; set; }
+    public string? TrademarkAmendmentServiceFee { get; set; }
+    public string? TrademarkAmendmentServiceID { get; set; }
 }
 
 public record PaymentRecord
