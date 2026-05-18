@@ -34,6 +34,9 @@
         EinaoFinance,
         Pebec,
         HeadOfUnit,
+        TrademarkStaff,
+        PatentStaff,
+        DesignStaff,
     }
     public enum NigerianStates
     {
