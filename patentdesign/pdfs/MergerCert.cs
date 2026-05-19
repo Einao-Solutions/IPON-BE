@@ -1,4 +1,5 @@
 using CloudinaryDotNet.Actions;
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
@@ -7,7 +8,7 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs;
 
-public class MergerCert(Filling model, string url, byte[]? imageData, string applicationId, byte[] signature) : IDocument
+public class MergerCert(Filling model, string url, byte[]? imageData, string applicationId, Signatory signature) : IDocument
 {
     private Filling model { get; set; } = model;
     private string url { get; set; } = url;
@@ -182,9 +183,16 @@ public class MergerCert(Filling model, string url, byte[]? imageData, string app
             column.Item().Height(40);
             column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
             column.Item().Height(5);
-            column.Item().Height(30).Image(appHistory.Signature ?? signature).FitArea();
+            if (signature != null)
+            {
+                column.Item().Height(35).Image(signature.Signature).FitArea();
+            }
+            else
+            {
+                column.Item().Height(35).Image("assets/reg.png").FitArea();
+            }
             column.Item().Height(5);
-            column.Item().Text(appHistory.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
+            column.Item().Text(signature?.Name ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
             column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
             column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
             column.Item().Text("Federal Ministry of Industry, Trade and Investment.").SemiBold()
