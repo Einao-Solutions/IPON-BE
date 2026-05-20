@@ -9,6 +9,7 @@ using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;
 using QuestPDF.Fluent;
+using System.Net.Mail;
 using System.Reflection.Emit;
 using System.Security.Authentication;
 using System.Security.Cryptography;
@@ -1947,21 +1948,23 @@ public class OppositionService
         return updated;
     }
 
-    public async Task<AmendmentCost> TrademarkAmendmentCost(string userId, string fileId)
+    public async Task<AmendmentCost> TrademarkAmendmentCost(OppositionAmendmentReq req)
     {
         _log.LogInformation("Fetching Amendment Cost...");
         try
         {
-            var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+            var user = await _userCollection.Find(u => u.Id == req.UserId).FirstOrDefaultAsync();
+            var file = await _fillingCollection.Find(f => f.FileId == req.FileNumber).FirstOrDefaultAsync();
             if (user is null || file is null)
             {
-                _log.LogError($"User {userId} not found");
+                _log.LogError($"User {req.UserId} not found");
                 throw new KeyNotFoundException();
             }
+            var logo = file.Attachments.FirstOrDefault(a => a.name == "representation");
+
             if (file.FileStatus != ApplicationStatuses.Opposition)
             {
-                _log.LogError($"File {fileId} is not in Opposition status");
+                _log.LogError($"File {req.FileNumber} is not in Opposition status");
                 throw new InvalidOperationException("File must be in Opposition status to amend");
             }
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.TrademarkAmendment, file.Type, "", null, null, null);
@@ -1974,10 +1977,14 @@ public class OppositionService
             {
                 Amount = data.Item1,
                 PaymentId = paymentId,
-                FileId = fileId,
+                FileId = req.FileNumber,
                 FileTitle = file.TitleOfTradeMark,
-                ApplicantName = applicant.Name,
-
+                Applicant = applicant,
+                Class = file.TrademarkClass,
+                AdditionalSpecs = file.AdditionalDescription,
+                Disclaimer = file.TrademarkDisclaimer,
+                RepresentationUrl = logo.url.FirstOrDefault(),
+                FileStatus = file.FileStatus
             };
             return amendmentCost;
         }
@@ -2070,6 +2077,16 @@ public class OppositionService
                     update.NewRepresentation = urls[0];
                 }
             }
+
+            var finalUpdate = Builders<Filling>.Update.Combine(
+                  Builders<Filling>.Update.Push(f => f.ApplicationHistory, application),
+                  Builders<Filling>.Update.Push(f => f.ClericalUpdates, update)
+            );
+
+            await _fillingCollection.UpdateOneAsync(
+                Builders<Filling>.Filter.Eq(f => f.FileId, file.FileId),
+                finalUpdate
+            );
             return application.id;
         }
         catch (Exception ex)

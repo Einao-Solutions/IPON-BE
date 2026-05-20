@@ -1,3 +1,5 @@
+using patentdesign.Models;
+
 namespace patentdesign.Dtos.Request;
 
 public class OppositionRequestDto
@@ -114,7 +116,12 @@ public class AmendmentCost
     public string? UserId { get; set; }
     public string? FileId { get; set; }
     public string? FileTitle { get; set; }
-     public string? ApplicantName { get; set; }
+    public ApplicantInfo? Applicant { get; set; }
+    public string? RepresentationUrl { get; set; }
+    public string? AdditionalSpecs { get; set; }
+    public string? Disclaimer { get; set; }
+    public ApplicationStatuses FileStatus { get; set; }
+    public int? Class { get; set; }
 }
 public class OppositionAmendmentDto 
 {     
@@ -125,6 +132,12 @@ public class OppositionAmendmentDto
     public IFormFile? NewRepresentation { get; set; }
     public string? AmendmentDetails { get; set; }
     public List<IFormFile>? SupportingDocs { get; set; }
+    public string? UserId { get; set; }
+}
+
+public class OppositionAmendmentReq
+{
+    public string? FileNumber { get; set; }
     public string? UserId { get; set; }
 }
 
