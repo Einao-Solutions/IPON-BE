@@ -7936,6 +7936,16 @@ public class FilesServices
                     update.NewRepresentation = clerical?.NewRepresentationUrl;
                 }
                 break;
+            case "Opposition Amendment":
+                update.OldValue = clerical?.OldRepresentationUrl;
+                update.NewValue = clerical?.NewRepresentationUrl;
+
+                update.OldValue2 = clerical?.OldDisclaimer;
+                update.NewValue2 = clerical?.NewDisclaimer;
+
+                update.OldValue3 = clerical?.OldAdditionalDescription;
+                update.NewValue3 = clerical?.NewAdditionalDescription;
+                break;
         }
 
         return update;

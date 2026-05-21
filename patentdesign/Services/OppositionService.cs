@@ -2058,6 +2058,7 @@ public class OppositionService
 
             if (dto.NewRepresentation is not null)
             {
+                update.OldRepresentationUrl = file.Attachments?.FirstOrDefault(a => a.name == "representation")?.url.FirstOrDefault();
                 using var ms = new MemoryStream();
                 await dto.NewRepresentation.CopyToAsync(ms);
 

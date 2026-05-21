@@ -425,4 +425,24 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
         return Ok(result);
     }
+    [HttpPost("TreatAmendment")]
+    public async Task<IActionResult> ApproveTrademarkAmendment([FromBody] TreatRecordalDto dto)
+    {
+        try
+        {
+            var (success, message) = await oppositionService.ApproveTrademarkAmendment(dto);
+            if (!success)
+                return BadRequest(new { success, message });
+
+            return Ok(new { success, message });
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
 }
