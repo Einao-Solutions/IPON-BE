@@ -25,6 +25,7 @@ public class OppositionService
     private static IMongoCollection<Opposition> _oppositionCollection;
     private static IMongoCollection<CounterStatement> _counterStatementCollection;
     private static IMongoCollection<StatutoryDeclaration> _statutoryDeclarationCollection;
+    private static IMongoCollection<OppositionWithdrawal> _oppositionWithdrawalCollection;
     private static IMongoCollection<FinanceHistory> _financeCollection;
     private static IMongoCollection<PublicationInfo> _publicationCollection;
     private static IMongoCollection<AppUser> _userCollection;
@@ -57,6 +58,7 @@ public class OppositionService
         _oppositionCollection = db.GetCollection<Opposition>(s.OppositionCollectionName);
         _counterStatementCollection = db.GetCollection<CounterStatement>(s.CounterStatementsCollectionName);
         _statutoryDeclarationCollection = db.GetCollection<StatutoryDeclaration>(s.StatutoryDeclarationsCollectionName);
+        _oppositionWithdrawalCollection = db.GetCollection<OppositionWithdrawal>(s.OppositionWithdrawalsCollectionName ?? "oppositionWithdrawals");
         _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
         _log = log;
         _publicationCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
@@ -195,6 +197,7 @@ public class OppositionService
                 FileTitle = data.FileTitle,
                 FileId = data.FileId,
                 UserId = data.UserId,
+                CreatorId = data.UserId,
                 FileOwnerId = (await _fillingCollection.Find(f => f.Id == data.FileId).FirstOrDefaultAsync())?.CreatorAccount,
             };
             await _oppositionCollection.InsertOneAsync(oppose);
@@ -487,10 +490,13 @@ public class OppositionService
             : paidFilter;
 
         FilterDefinition<Opposition> filter;
-        if (userId != null)
+        if (!string.IsNullOrWhiteSpace(userId))
         {
-            // Return only oppositions filed by this user
-            var userFilter = Builders<Opposition>.Filter.Eq(x => x.UserId, userId);
+            // Match on either UserId OR CreatorId so legacy docs (which only have one) are included
+            var userFilter = Builders<Opposition>.Filter.Or(
+                Builders<Opposition>.Filter.Eq(x => x.UserId, userId),
+                Builders<Opposition>.Filter.Eq(x => x.CreatorId, userId)
+            );
             filter = Builders<Opposition>.Filter.And(baseFilter, userFilter);
         }
         else
@@ -584,6 +590,232 @@ public class OppositionService
     public async Task<Opposition?> GetOpposition(string id)
     {
         return await _oppositionCollection.Find(x => x.id == id).FirstOrDefaultAsync();
+    }
+
+    public async Task BackfillOppositionCreatorIds()
+    {
+        try
+        {
+            // Step 1: CreatorId missing → copy from UserId
+            var missingCreator = Builders<Opposition>.Filter.And(
+                Builders<Opposition>.Filter.Or(
+                    Builders<Opposition>.Filter.Exists(o => o.CreatorId, false),
+                    Builders<Opposition>.Filter.Eq(o => o.CreatorId, (string?)null),
+                    Builders<Opposition>.Filter.Eq(o => o.CreatorId, string.Empty)),
+                Builders<Opposition>.Filter.Ne(o => o.UserId, (string?)null),
+                Builders<Opposition>.Filter.Ne(o => o.UserId, string.Empty));
+            var r1 = await _oppositionCollection.UpdateManyAsync(missingCreator,
+                Builders<Opposition>.Update.Pipeline(new[] { new MongoDB.Bson.BsonDocument("$set", new MongoDB.Bson.BsonDocument("CreatorId", "$UserId")) }));
+            _log.LogInformation($"Opposition backfill step 1: CreatorId set from UserId on {r1.ModifiedCount} doc(s)");
+
+            // Step 2: UserId missing → copy from CreatorId
+            var missingUser = Builders<Opposition>.Filter.And(
+                Builders<Opposition>.Filter.Or(
+                    Builders<Opposition>.Filter.Exists(o => o.UserId, false),
+                    Builders<Opposition>.Filter.Eq(o => o.UserId, (string?)null),
+                    Builders<Opposition>.Filter.Eq(o => o.UserId, string.Empty)),
+                Builders<Opposition>.Filter.Ne(o => o.CreatorId, (string?)null),
+                Builders<Opposition>.Filter.Ne(o => o.CreatorId, string.Empty));
+            var r2 = await _oppositionCollection.UpdateManyAsync(missingUser,
+                Builders<Opposition>.Update.Pipeline(new[] { new MongoDB.Bson.BsonDocument("$set", new MongoDB.Bson.BsonDocument("UserId", "$CreatorId")) }));
+            _log.LogInformation($"Opposition backfill step 2: UserId set from CreatorId on {r2.ModifiedCount} doc(s)");
+
+            // Step 3: Both still missing → look up owner by Email in appUsers
+            var orphanFilter = Builders<Opposition>.Filter.And(
+                Builders<Opposition>.Filter.Or(
+                    Builders<Opposition>.Filter.Exists(o => o.UserId, false),
+                    Builders<Opposition>.Filter.Eq(o => o.UserId, (string?)null),
+                    Builders<Opposition>.Filter.Eq(o => o.UserId, string.Empty)),
+                Builders<Opposition>.Filter.Or(
+                    Builders<Opposition>.Filter.Exists(o => o.CreatorId, false),
+                    Builders<Opposition>.Filter.Eq(o => o.CreatorId, (string?)null),
+                    Builders<Opposition>.Filter.Eq(o => o.CreatorId, string.Empty)),
+                Builders<Opposition>.Filter.Ne(o => o.Email, (string?)null),
+                Builders<Opposition>.Filter.Ne(o => o.Email, string.Empty));
+            var orphans = await _oppositionCollection.Find(orphanFilter).ToListAsync();
+            _log.LogInformation($"Opposition backfill step 3: {orphans.Count} orphan doc(s) — resolving by Email");
+            int resolved = 0;
+            foreach (var o in orphans)
+            {
+                if (string.IsNullOrWhiteSpace(o.Email)) continue;
+                var emailRegex = new MongoDB.Bson.BsonRegularExpression(
+                    $"^{System.Text.RegularExpressions.Regex.Escape(o.Email.Trim())}$", "i");
+                var user = await _userCollection
+                    .Find(Builders<AppUser>.Filter.Regex(u => u.Email, emailRegex))
+                    .FirstOrDefaultAsync();
+                if (user == null || string.IsNullOrWhiteSpace(user.Id)) continue;
+                await _oppositionCollection.UpdateOneAsync(
+                    Builders<Opposition>.Filter.Eq(x => x.id, o.id),
+                    Builders<Opposition>.Update.Set(x => x.UserId, user.Id).Set(x => x.CreatorId, user.Id));
+                resolved++;
+            }
+            _log.LogInformation($"Opposition backfill step 3: resolved {resolved}/{orphans.Count} doc(s) by Email");
+            if (orphans.Count > resolved)
+                _log.LogWarning($"Opposition backfill: {orphans.Count - resolved} doc(s) still have no owner — Email did not match any AppUser");
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Opposition backfill failed");
+        }
+    }
+
+    // ─── Submit Opposition Withdrawal ────────────────────────────────────────
+    public async Task<(bool success, object? invoice, string message)> SubmitOppositionWithdrawal(OppositionWithdrawalRequestDto dto)
+    {
+        try
+        {
+            _log.LogInformation($"Submitting Opposition Withdrawal for opposition {dto.OppositionId}...");
+
+            if (string.IsNullOrWhiteSpace(dto.UserId))
+                return (false, null, "UserId is required");
+            if (string.IsNullOrWhiteSpace(dto.OppositionId))
+                return (false, null, "OppositionId is required");
+
+            var opp = await _oppositionCollection.Find(o => o.id == dto.OppositionId).FirstOrDefaultAsync();
+            if (opp == null)
+                return (false, null, "Opposition not found");
+
+            // Idempotency: reject if an unpaid or paid withdrawal already exists
+            var existing = await _oppositionWithdrawalCollection
+                .Find(w => w.OppositionId == dto.OppositionId && w.UserId == dto.UserId)
+                .FirstOrDefaultAsync();
+            if (existing != null)
+            {
+                if (existing.Paid)
+                    return (false, null, "Withdrawal already confirmed for this opposition");
+                // Remove stale unpaid record so user can retry
+                await _oppositionWithdrawalCollection.DeleteOneAsync(w => w.Id == existing.Id);
+            }
+
+            var file = await _fillingCollection.Find(f => f.FileId == (opp.FileNumber ?? dto.FileNumber)).FirstOrDefaultAsync();
+            if (file == null)
+                return (false, null, "File not found");
+
+            var applicant = file.applicants?.FirstOrDefault();
+            string title = file.Type switch
+            {
+                FileTypes.Design => file.TitleOfDesign,
+                FileTypes.Patent => file.TitleOfInvention,
+                _ => file.TitleOfTradeMark
+            };
+
+            // Upload supporting docs
+            var attachmentUrls = new List<string>();
+            if (dto.SupportingDocs != null)
+            {
+                foreach (var (doc, i) in dto.SupportingDocs.Select((d, idx) => (d, idx)))
+                {
+                    using var ms = new MemoryStream();
+                    await doc.CopyToAsync(ms);
+                    var urls = await _fileServices.UploadAttachment(new List<TT>
+                    {
+                        new TT
+                        {
+                            contentType = doc.ContentType,
+                            data        = ms.ToArray(),
+                            fileName    = Path.GetFileName(doc.FileName),
+                            Name        = $"Opposition Withdrawal Document {i + 1}"
+                        }
+                    });
+                    attachmentUrls.Add(urls[0]);
+                }
+            }
+
+            // Generate RRR — service fee only (₦3,500), government fee = 0
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.OppositionWithdrawal, file.Type, applicant?.country);
+            _log.LogInformation($"[WithdrawalRRR] cost.Item1(total)={cost.Item1} cost.Item2(serviceId)={cost.Item2} cost.Item3(serviceFee)={cost.Item3}");
+            _log.LogInformation($"[WithdrawalRRR] payerName={applicant?.Name ?? opp.Name} payerEmail={applicant?.Email ?? opp.Email} payerPhone={applicant?.Phone ?? opp.Phone}");
+
+            var payerName  = applicant?.Name  ?? opp.Name  ?? "Unknown";
+            var payerEmail = applicant?.Email ?? opp.Email ?? "noreply@iponigeria.com";
+            var payerPhone = applicant?.Phone ?? opp.Phone ?? "08000000000";
+
+            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(
+                cost.Item1, cost.Item3, cost.Item2,
+                "Opposition Withdrawal", payerName, payerEmail, payerPhone);
+            // Capture console output for diagnostics (PaymentUtils logs to Console not Serilog)
+            var recentConsole = "";
+            try { recentConsole = System.IO.File.ReadAllLines(@"C:\IpoApiLog\console.txt").LastOrDefault() ?? ""; } catch { }
+            _log.LogInformation($"[WithdrawalRRR] Remita returned RRR={rrr ?? "NULL"}");
+            if (rrr == null)
+                return (false, null, "Unable to generate payment reference");
+
+            // Save withdrawal record
+            var withdrawal = new OppositionWithdrawal
+            {
+                Id = Guid.NewGuid().ToString(),
+                OppositionId = opp.id,
+                FileNumber = opp.FileNumber ?? dto.FileNumber,
+                FileId = dto.FileId,
+                FileTitle = title,
+                Reason = dto.Reason,
+                UserId = dto.UserId,
+                SupportingDocs = attachmentUrls,
+                PaymentId = rrr,
+                Paid = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _oppositionWithdrawalCollection.InsertOneAsync(withdrawal);
+            _log.LogInformation($"Opposition Withdrawal {withdrawal.Id} saved with RRR {rrr}");
+
+            var invoice = new
+            {
+                paymentId     = rrr,
+                fileNumber    = opp.FileNumber ?? dto.FileNumber,
+                fileTitle     = title,
+                applicantName = applicant?.Name,
+                opposerName   = opp.Name,
+                oppositionId  = opp.id,
+                serviceFee    = cost.Item3,
+                cost          = cost.Item1
+            };
+
+            return (true, invoice, "Opposition Withdrawal submitted successfully");
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error submitting opposition withdrawal");
+            throw;
+        }
+    }
+
+    // ─── Update Opposition Withdrawal Payment ────────────────────────────────
+    public async Task<(bool success, string message)> UpdateOppositionWithdrawalPayment(string paymentId)
+    {
+        try
+        {
+            _log.LogInformation($"Updating opposition withdrawal payment {paymentId}...");
+
+            var withdrawal = await _oppositionWithdrawalCollection.Find(w => w.PaymentId == paymentId).FirstOrDefaultAsync();
+            if (withdrawal == null) return (false, "Withdrawal not found for this payment ID");
+
+            if (withdrawal.Paid) return (true, "Withdrawal payment already confirmed");
+
+            await _oppositionWithdrawalCollection.UpdateOneAsync(
+                Builders<OppositionWithdrawal>.Filter.Eq(w => w.PaymentId, paymentId),
+                Builders<OppositionWithdrawal>.Update.Combine(
+                    Builders<OppositionWithdrawal>.Update.Set(w => w.Paid, true),
+                    Builders<OppositionWithdrawal>.Update.Set(w => w.PaymentStatus, "success"),
+                    Builders<OppositionWithdrawal>.Update.Set(w => w.UpdatedAt, DateTime.UtcNow)));
+
+            // Set original opposition status to WithdrawalRequested (38) — the ONLY change to the opposition doc
+            var opp = await _oppositionCollection.Find(o => o.id == withdrawal.OppositionId).FirstOrDefaultAsync();
+            if (opp != null)
+            {
+                await _oppositionCollection.UpdateOneAsync(
+                    Builders<Opposition>.Filter.Eq(o => o.id, opp.id),
+                    Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.WithdrawalRequested));
+                _log.LogInformation($"Opposition {opp.id} status set to WithdrawalRequested");
+            }
+
+            _log.LogInformation($"Opposition Withdrawal payment confirmed for paymentId {paymentId}");
+            return (true, "Withdrawal payment confirmed");
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error updating opposition withdrawal payment");
+            throw;
+        }
     }
 
     public async Task<OppositionStatsDto> GetStats()
@@ -1544,6 +1776,8 @@ public class OppositionService
                     fileNumber = opp.FileNumber,
                     fileName = fileName,
                     title = fileName,
+                    creatorId = opp.CreatorId ?? opp.UserId,
+                    userId = opp.UserId,
                     applicantName = file?.applicants?.FirstOrDefault()?.Name,
                     fileOwner = file?.applicants?.FirstOrDefault()?.Name,
                     trademarkClass = file?.TrademarkClass,
@@ -1747,7 +1981,54 @@ public class OppositionService
         return document.GeneratePdf();
     }
 
-    // ─── Backfill PaymentId into ApplicationHistory for existing oppositions ──
+    // ─── Generate Opposition Acknowledgement Letter ────────────────────────
+    public async Task<byte[]> GenerateOppositionAcknowledgementLetter(string oppositionId)
+    {
+        var opp = await _oppositionCollection.Find(o => o.id == oppositionId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+
+        var document = new Tfunctions.pdfs.OppositionAcknowledgement(new OppositionAckType
+        {
+            name = opp.Name,
+            email = opp.Email,
+            number = opp.Phone,
+            address = opp.Address,
+            paymentId = opp.PaymentId,
+            description = opp.FileTitle ?? opp.FileNumber,
+            date = opp.OppositionDate ?? DateTime.UtcNow,
+            oppositionId = !string.IsNullOrEmpty(opp.id) ? $"OPP-{opp.id.Substring(0, 8).ToUpper()}" : "-",
+            reason = opp.Reason,
+            file = file
+        }, "uri");
+        return document.GeneratePdf();
+    }
+
+    public async Task<byte[]> GenerateOppositionAcknowledgementLetterByPaymentId(string paymentId)
+    {
+        var opp = await _oppositionCollection.Find(o => o.PaymentId == paymentId).FirstOrDefaultAsync();
+        if (opp == null) throw new KeyNotFoundException("Opposition not found");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+
+        var document = new Tfunctions.pdfs.OppositionAcknowledgement(new OppositionAckType
+        {
+            name = opp.Name,
+            email = opp.Email,
+            number = opp.Phone,
+            address = opp.Address,
+            paymentId = opp.PaymentId,
+            description = opp.FileTitle ?? opp.FileNumber,
+            date = opp.OppositionDate ?? DateTime.UtcNow,
+            oppositionId = !string.IsNullOrEmpty(opp.id) ? $"OPP-{opp.id.Substring(0, 8).ToUpper()}" : "-",
+            reason = opp.Reason,
+            file = file
+        }, "uri");
+        return document.GeneratePdf();
+    }
+
+    // ─── Backfill PaymentId
     public async Task<int> BackfillOppositionPaymentIds()
     {
         // Get all paid oppositions that have a PaymentId

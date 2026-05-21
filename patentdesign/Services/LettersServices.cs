@@ -1003,6 +1003,7 @@ public class LettersServices
                             ApplicationLetters.NewApplicationAcknowledgement,
                             ApplicationLetters.NewApplicationReceipt,
                             ApplicationLetters.NewApplicationAcceptance,
+                            ApplicationLetters.NewOppositionAck,
                         });
                         // Add counter statement letter if a counter statement has been filed
                         if (app.CurrentStatus == ApplicationStatuses.StatutoryDeclaration
@@ -2459,32 +2460,40 @@ public class LettersServices
 
     public async Task<Dictionary<string, object>> OppositionReceipt(string oppositionId)
     {
-        var opposition = _oppositionCollection.Find(x => x.Id == oppositionId).FirstOrDefault();
-        var response=await GetPaymentData(null, opposition.creationPaymentID);
+        var opposition = await _newOppositionCollection.Find(x => x.id == oppositionId).FirstOrDefaultAsync();
+        if (opposition == null)
+            throw new KeyNotFoundException($"Opposition not found: {oppositionId}");
         var bytes = new OppositionReceipt(new OppositionReceiptType()
         {
-            amount = response.amount.ToString(),
-            paymentId = response.rrr,
-            name = opposition.name,
-            description = opposition.title,
-            date = DateTime.Parse(response.paymentDate)
+            amount = "-",
+            paymentId = opposition.PaymentId ?? "-",
+            name = opposition.Name ?? "-",
+            description = opposition.FileTitle ?? opposition.FileNumber ?? "-",
+            date = opposition.OppositionDate ?? DateTime.UtcNow
         }, "uri").GeneratePdf();
         return ReturnDocument(bytes);
     }
 
     public async Task<Dictionary<string, object>> OppositionAcknowledgement(string oppositionId)
     {
-        var opposition = _oppositionCollection.Find(x => x.Id == oppositionId).FirstOrDefault();
-        var response=await GetPaymentData(null, opposition.creationPaymentID);
+        var opposition = await _newOppositionCollection.Find(x => x.id == oppositionId).FirstOrDefaultAsync();
+        if (opposition == null)
+            throw new KeyNotFoundException($"Opposition not found: {oppositionId}");
+
+        var file = await _fillingCollection.Find(f => f.FileId == opposition.FileNumber).FirstOrDefaultAsync();
+
         var bytes = new OppositionAcknowledgement(new OppositionAckType()
         {
-            address = opposition.address,
-            email = opposition.email,
-            number = opposition.number,
-            paymentId = response.rrr,
-            name = opposition.name,
-            description = opposition.title,
-            date = DateTime.Parse(response.paymentDate)
+            address = opposition.Address,
+            email = opposition.Email,
+            number = opposition.Phone,
+            paymentId = opposition.PaymentId,
+            name = opposition.Name,
+            description = opposition.FileTitle ?? opposition.FileNumber,
+            date = opposition.OppositionDate ?? DateTime.UtcNow,
+            oppositionId = !string.IsNullOrEmpty(opposition.id) ? $"OPP-{opposition.id.Substring(0, 8).ToUpper()}" : "-",
+            reason = opposition.Reason,
+            file = file
         }, "uri").GeneratePdf();
         return ReturnDocument(bytes);
     }

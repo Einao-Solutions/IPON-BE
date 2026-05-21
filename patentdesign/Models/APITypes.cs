@@ -80,7 +80,9 @@ namespace patentdesign.Enums;
         public string? address { get; set; }
         public string? number { get; set; }
         public string? email { get; set; }
-        
+        public string? oppositionId { get; set; }
+        public string? reason { get; set; }
+        public Filling? file { get; set; }
     }
 
     public record OppResReq

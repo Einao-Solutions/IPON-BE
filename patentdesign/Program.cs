@@ -231,6 +231,17 @@ builder.Services.AddHostedService<OppositionDeadlineService>();
 // ------------------ Build App ------------------
 var app = builder.Build();
 
+// ------------------ One-off DB backfill ------------------
+try
+{
+    var oppSvc = app.Services.GetRequiredService<OppositionService>();
+    await oppSvc.BackfillOppositionCreatorIds();
+}
+catch (Exception ex)
+{
+    Log.Warning(ex, "Opposition backfill failed on startup \u2014 continuing");
+}
+
 // ------------------ Pipeline ------------------
 if (app.Environment.IsDevelopment())
 {

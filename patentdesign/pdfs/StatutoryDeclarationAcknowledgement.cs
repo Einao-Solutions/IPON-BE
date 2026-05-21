@@ -86,6 +86,11 @@ namespace patentdesign
                             c.Item().Text("Payment RRR:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                             c.Item().Text(_statutoryDeclaration.PaymentId ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
+                        table.Cell().ColumnSpan(2).Element(Block).Column(c =>
+                        {
+                            c.Item().Text("Opposition ID:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                            c.Item().Text(!string.IsNullOrEmpty(_opposition?.id) ? $"OPP-{_opposition.id.Substring(0, 8).ToUpper()}" : "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                        });
                     });
 
                     // Opposer Information Section

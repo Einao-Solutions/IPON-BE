@@ -53,6 +53,17 @@ public class CounterStatementRequestDto
     public string? UserId { get; set; }
 }
 
+public class OppositionWithdrawalRequestDto
+{
+    public string? FileNumber { get; set; }
+    public string? FileId { get; set; }
+    public string? OppositionId { get; set; }
+    public string? FileTitle { get; set; }
+    public string? Reason { get; set; }
+    public string? UserId { get; set; }
+    public List<IFormFile>? SupportingDocs { get; set; }
+}
+
 public class StatutoryDeclarationRequestDto
 {
     public string? FileNumber { get; set; }

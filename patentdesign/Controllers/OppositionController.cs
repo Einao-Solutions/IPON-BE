@@ -353,6 +353,32 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
     }
 
+    // ─── Opposition Acknowledgement Letter ─────────────────────────────────────
+    [HttpGet("oppositionAcknowledgementLetter")]
+    public async Task<IActionResult> GetOppositionAcknowledgementLetter([FromQuery] string? oppositionId, [FromQuery] string? paymentId)
+    {
+        try
+        {
+            byte[] pdf;
+            if (!string.IsNullOrEmpty(oppositionId))
+                pdf = await oppositionService.GenerateOppositionAcknowledgementLetter(oppositionId);
+            else if (!string.IsNullOrEmpty(paymentId))
+                pdf = await oppositionService.GenerateOppositionAcknowledgementLetterByPaymentId(paymentId);
+            else
+                return BadRequest(new { success = false, message = "Provide oppositionId or paymentId" });
+
+            return File(pdf, "application/pdf", "OppositionAcknowledgement.pdf");
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
     // ─── Counter Statement Acknowledgement Letter ─────────────────────────────
     [HttpGet("counterStatementLetter")]
     public async Task<IActionResult> GetCounterStatementLetter([FromQuery] string? counterStatementId, [FromQuery] string? paymentId)
@@ -398,6 +424,45 @@ public class OppositionController(OppositionService oppositionService) :Controll
         catch (KeyNotFoundException e)
         {
             return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── New Opposition Withdrawal ────────────────────────────────────────────
+    [HttpPost("NewOppositionWithdrawal")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> NewOppositionWithdrawal([FromForm] OppositionWithdrawalRequestDto dto)
+    {
+        try
+        {
+            var (success, invoice, message) = await oppositionService.SubmitOppositionWithdrawal(dto);
+            if (!success)
+                return BadRequest(new { success = false, message });
+            return Ok(new { success = true, data = invoice });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Update Opposition Withdrawal Payment ─────────────────────────────────
+    [HttpPost("UpdateOppositionWithdrawalPayment")]
+    public async Task<IActionResult> UpdateOppositionWithdrawalPayment(
+        [FromQuery] string paymentId,
+        [FromBody] PaymentUpdateDto dto)
+    {
+        try
+        {
+            if (dto?.Status != "success")
+                return BadRequest(new { success = false, message = "Payment was not successful" });
+            var (success, message) = await oppositionService.UpdateOppositionWithdrawalPayment(paymentId);
+            if (!success)
+                return BadRequest(new { success = false, message });
+            return Ok(new { success = true, message = "Withdrawal payment confirmed" });
         }
         catch (Exception e)
         {
