@@ -1972,7 +1972,7 @@ public class OppositionService
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "Amendment of Opposed File",
                 applicant.Name, applicant.Email, applicant.Phone);
-
+            
             var amendmentCost = new AmendmentCost
             {
                 Amount = data.Item1,
