@@ -133,7 +133,9 @@ namespace patentdesign.Services
         }
         public async Task<byte[]> GetTrademarkJournal(DateTime startDate, DateTime endDate, FileTypes type)
         {
-            _log.LogInformation("Generating batch publication PDF for type {FileType} from {StartDate} to {EndDate}", type, startDate, endDate);
+            _log.LogInformation("Generating batch publication PDF for type {FileType} from {StartDate} to {EndDate}",
+                type, startDate, endDate);
+
             var filter = Builders<PublicationInfo>.Filter.And(
                 Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
                 Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate));
@@ -156,45 +158,59 @@ namespace patentdesign.Services
                     Representation = x.Representation
                 }).ToListAsync();
 
-            using var httpClient = new HttpClient();
+            _log.LogInformation("Fetched {Count} publications, starting image downloads", publicationsData.Count);
 
-            foreach (var dt in publicationsData)
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var gate = new SemaphoreSlim(8); // cap concurrent downloads
+
+            async Task<byte[]?> DownloadAsync(string url)
             {
-                // Pre-download representation image for the headline thumbnail
+                await gate.WaitAsync();
+                try { return await httpClient.GetByteArrayAsync(url); }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Image download failed: {Url}", url);
+                    return null;
+                }
+                finally { gate.Release(); }
+            }
+
+            var tasks = publicationsData.Select(async dt =>
+            {
+                // representation thumbnail
                 var representation = dt.Attachments?.FirstOrDefault(x => x.name == "representation");
                 if (representation?.url?.Count > 0)
                 {
-                    try
+                    var bytes = await DownloadAsync(representation.url[0]);
+                    if (bytes != null)
                     {
-                        var bytes = await httpClient.GetByteArrayAsync(representation.url[0]);
                         dt.Representation = bytes;
                         dt.ImagesUrl ??= [];
                         dt.ImagesUrl.Insert(0, bytes);
                     }
-                    catch (Exception ex)
-                    {
-                        _log.LogWarning(ex, "Failed to download representation image for {FileNumber}", dt.FileNumber);
-                    }
                 }
 
-                // Download design images (existing logic)
+                // design images
                 if (type == FileTypes.Design)
                 {
-                    List<byte[]> image_ = dt.ImagesUrl ?? [];
                     var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
-                    if (attachment?.url != null)
+                    if (attachment?.url is { Count: > 0 } urls)
                     {
-                        foreach (var url in attachment.url)
-                        {
-                            image_.Add(await httpClient.GetByteArrayAsync(url));
-                        }
+                        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
+                        dt.ImagesUrl ??= [];
+                        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
                     }
-                    dt.ImagesUrl = image_;
                 }
-            }
-            _log.LogInformation("Fetched {Count} publications for PDF generation", publicationsData.Count);
+            });
 
-            var pdfData = new JournalDocumentNewspaper(publicationsData, type, startDate, endDate).GeneratePdf();
+            await Task.WhenAll(tasks);
+
+            _log.LogInformation("Image downloads complete; generating PDF");
+
+            // Move CPU-bound PDF rendering off the request thread
+            var pdfData = await Task.Run(() =>
+                new JournalDocumentNewspaper(publicationsData, type, startDate, endDate).GeneratePdf());
+
             return pdfData;
         }
         public async Task<PaginatedPublicationResponse> GetTrademarkPublication(string? text, int? index = 0, int? quantity = 10)

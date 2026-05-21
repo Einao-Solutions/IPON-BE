@@ -2044,7 +2044,8 @@ public class LettersServices
             Date = paymentResponse?.paymentDate ?? "-"
         };
         var date = app.StatusHistory.FirstOrDefault(h => h.afterStatus == ApplicationStatuses.AutoApproved)?.Date ?? DateTime.Now;
-        var signId = fileData.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? fileData.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+        var historyEntry = fileData.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
 
         var signature = GetSignature(signId);
         byte[] data;
@@ -2624,11 +2625,12 @@ public class LettersServices
         byte[] images = [];
         
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
-        
-        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
-        
+
+        var historyEntry = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
+
         var signature = GetSignature(signId);
-        
+
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2655,9 +2657,11 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
-        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+        var historyEntry = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
 
         var signature = GetSignature(signId);
+       
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2684,7 +2688,8 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
-        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+        var historyEntry = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
 
         var signature = GetSignature(signId);
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
@@ -2713,9 +2718,11 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
-        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+        var historyEntry = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
 
         var signature = GetSignature(signId);
+      
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2742,9 +2749,11 @@ public class LettersServices
             throw new ArgumentNullException(nameof(file.Attachments), "Attachments cannot be null");
         byte[] images = [];
         var representation = file.Attachments.FirstOrDefault(e => e.name == "representation");
-        var signId = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatureId ?? file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId).SignatoryName;
+        var historyEntry = file.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
 
         var signature = GetSignature(signId);
+       
         if ((file.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
             representation != null && representation.url?[0] != "NULL")
         {
@@ -2762,10 +2771,24 @@ public class LettersServices
         return ReturnDocument(data);
     }
 
-    public byte[] GetSignature(string id)
+    public Signatory GetSignature(string id)
     {
-        var sign = _signatures.Find(s=>s.Id == id).FirstOrDefault() ?? _signatures.Find(s => s.Name == id).FirstOrDefault();
-        return sign.SignatureData;
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+
+        var sign = _signatures.Find(s => s.Id == id).FirstOrDefault()
+                   ?? _signatures.Find(s => s.Name == id).FirstOrDefault();
+
+        if (sign is null || sign.SignatureData is null || sign.SignatureData.Length == 0)
+            return null;
+        var signor = new Signatory
+        {
+            Id = sign.Id,
+            Name = sign.Name,
+            Signature = sign.SignatureData
+        };
+
+        return signor;
     }
     public Dictionary<string, object> ReturnDocument(byte[] data)
     {

@@ -5,6 +5,7 @@
 // date
 // examiner name
 
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
@@ -13,7 +14,7 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs;
 
-public class TrademarkRenewalCertificate(Filling model, string url,string applicationId, byte[]? image, DateTime date, byte[] signature) : IDocument
+public class TrademarkRenewalCertificate(Filling model, string url,string applicationId, byte[]? image, DateTime date, Signatory signature) : IDocument
 {
     private Filling Model { get; set; } = model;
     private string ApplicationId { get; set; } = applicationId;
@@ -62,18 +63,18 @@ public class TrademarkRenewalCertificate(Filling model, string url,string applic
             {
                 column.Item().Height(60).AlignCenter().Image("assets/logo.png").FitArea();
                 column.Item().AlignCenter().Text("NIGERIA");
-                column.Item().Height(10);
+                //column.Item().Height(5);
                 column.Item().AlignCenter().Text("Certificate of Renewal").FontFamily("Certificate").FontSize(30)
                     .Bold().FontColor(Colors.Green.Darken3);
-                column.Item().Height(10);
+                //column.Item().Height(5);
                 column.Item().AlignCenter().Text($"TRADE MARKS ACT").FontFamily(Fonts.TimesNewRoman)
                     .FontSize(14).Bold();
-                column.Item().Height(5);
+                //column.Item().Height(5);
                 column.Item().AlignCenter()
                     .Text($"(CAP 436 Laws Of The Federation of Nigeria 1990; Section 22 (3) Regulation 65)")
                     .FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-                column.Item().Height(25);
-                //Table
+                column.Item().Height(10);
+
                 // Applicant Information Section
                 column.Item().Table(table =>
                 {
@@ -194,15 +195,16 @@ public class TrademarkRenewalCertificate(Filling model, string url,string applic
                 var app = Model.ApplicationHistory.FirstOrDefault(e => e.id == ApplicationId);
             
                 column.Item().Text($"Sealed at my direction, \n{date.ToString("dd MMMM, yyyy")}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                if(signature != null && signature.Length > 0)
+                column.Item().Height(5);
+                if (signature != null)
                 {
-                    column.Item().Height(35).Image("assets/reg.png").FitArea();
+                    column.Item().Height(35).Image(signature.Signature).FitArea();
                 }
                 else
                 {
-                    column.Item().Height(35).Image(signature).FitArea();
+                    column.Item().Height(35).Image("assets/reg.png").FitArea();
                 }
-                column.Item().Height(20);
+                column.Item().Height(5);
                 column.Item().Text(app.SignatoryName ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
