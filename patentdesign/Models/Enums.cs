@@ -37,6 +37,8 @@
         TrademarkStaff,
         PatentStaff,
         DesignStaff,
+        TrademarkSupport,
+        PatentDesignSupport
     }
     public enum NigerianStates
     {

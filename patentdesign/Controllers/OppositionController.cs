@@ -404,4 +404,45 @@ public class OppositionController(OppositionService oppositionService) :Controll
             return BadRequest(new { success = false, message = e.Message });
         }
     }
+
+    [HttpPost("OppositionAmendmentCost")]
+    public async Task<IActionResult> GetOppositionAmendmentCost(OppositionAmendmentReq req)
+    {
+        var result = await oppositionService.TrademarkAmendmentCost(req);
+        if (result == null)
+        {
+            return BadRequest(new { message = "Failed to get cost" });
+        }
+        return Ok(result);
+    }
+    [HttpPost("OppositionAmendment")]
+    public async Task<IActionResult> SaveAmendment(OppositionAmendmentDto req)
+    {
+        var result = await oppositionService.TrademarkAmendment(req);
+        if (result == null)
+        {
+            return BadRequest( new { message = "Failed to save amendment application"});
+        }
+        return Ok(result);
+    }
+    [HttpPost("TreatAmendment")]
+    public async Task<IActionResult> ApproveTrademarkAmendment([FromBody] TreatRecordalDto dto)
+    {
+        try
+        {
+            var (success, message) = await oppositionService.ApproveTrademarkAmendment(dto);
+            if (!success)
+                return BadRequest(new { success, message });
+
+            return Ok(new { success, message });
+        }
+        catch (KeyNotFoundException e)
+        {
+            return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
 }
