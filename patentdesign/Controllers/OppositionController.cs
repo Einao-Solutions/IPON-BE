@@ -430,4 +430,43 @@ public class OppositionController(OppositionService oppositionService) :Controll
             return BadRequest(new { success = false, message = e.Message });
         }
     }
+
+    // ─── New Opposition Withdrawal ────────────────────────────────────────────
+    [HttpPost("NewOppositionWithdrawal")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> NewOppositionWithdrawal([FromForm] OppositionWithdrawalRequestDto dto)
+    {
+        try
+        {
+            var (success, invoice, message) = await oppositionService.SubmitOppositionWithdrawal(dto);
+            if (!success)
+                return BadRequest(new { success = false, message });
+            return Ok(new { success = true, data = invoice });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Update Opposition Withdrawal Payment ─────────────────────────────────
+    [HttpPost("UpdateOppositionWithdrawalPayment")]
+    public async Task<IActionResult> UpdateOppositionWithdrawalPayment(
+        [FromQuery] string paymentId,
+        [FromBody] PaymentUpdateDto dto)
+    {
+        try
+        {
+            if (dto?.Status != "success")
+                return BadRequest(new { success = false, message = "Payment was not successful" });
+            var (success, message) = await oppositionService.UpdateOppositionWithdrawalPayment(paymentId);
+            if (!success)
+                return BadRequest(new { success = false, message });
+            return Ok(new { success = true, message = "Withdrawal payment confirmed" });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
 }

@@ -2459,15 +2459,16 @@ public class LettersServices
 
     public async Task<Dictionary<string, object>> OppositionReceipt(string oppositionId)
     {
-        var opposition = _oppositionCollection.Find(x => x.Id == oppositionId).FirstOrDefault();
-        var response=await GetPaymentData(null, opposition.creationPaymentID);
+        var opposition = await _newOppositionCollection.Find(x => x.id == oppositionId).FirstOrDefaultAsync();
+        if (opposition == null)
+            throw new KeyNotFoundException($"Opposition not found: {oppositionId}");
         var bytes = new OppositionReceipt(new OppositionReceiptType()
         {
-            amount = response.amount.ToString(),
-            paymentId = response.rrr,
-            name = opposition.name,
-            description = opposition.title,
-            date = DateTime.Parse(response.paymentDate)
+            amount = "-",
+            paymentId = opposition.PaymentId ?? "-",
+            name = opposition.Name ?? "-",
+            description = opposition.FileTitle ?? opposition.FileNumber ?? "-",
+            date = opposition.OppositionDate ?? DateTime.UtcNow
         }, "uri").GeneratePdf();
         return ReturnDocument(bytes);
     }

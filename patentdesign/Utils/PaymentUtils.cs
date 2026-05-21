@@ -265,6 +265,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.StatutoryDeclarationServiceID ?? _paymentInfo.CounterStatementServiceID;
                 serviceFee = _paymentInfo.StatutoryDeclarationServiceFee ?? _paymentInfo.CounterStatementServiceFee;
                 break;
+            case PaymentTypes.OppositionWithdrawal:
+                amount = _paymentInfo.OppositionWithdrawalCost ?? "7000";
+                serviceId = _paymentInfo.OppositionWithdrawalServiceID ?? _paymentInfo.StatutoryDeclarationServiceID;
+                serviceFee = _paymentInfo.OppositionWithdrawalServiceFee ?? "3500";
+                break;
             case PaymentTypes.PublicationStatusUpdate:
                 amount = _paymentInfo.PublicationStatusUpdateCost;
                 serviceId = _paymentInfo.PublicationStatusUpdateServiceID;
@@ -431,18 +436,22 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
              request.Content = jsonContent;
              var response = await _client.SendAsync(request);
              var dataMod = await response.Content.ReadAsStringAsync();
-             Console.WriteLine(dataMod);
+             Console.WriteLine($"[Remita RAW] status={response.StatusCode} body={dataMod}");
              try
              {
                  int startIndex = dataMod.IndexOf("{");
-                 int stopIndex = dataMod.IndexOf("}") + 1;
+                 int stopIndex = dataMod.LastIndexOf("}") + 1;
                  var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(
                      dataMod.Substring(startIndex: startIndex, length: stopIndex - startIndex));
-                 Console.WriteLine(dict);
+                 Console.WriteLine($"[Remita DICT] {JsonSerializer.Serialize(dict)}");
                  string rrr = dict["RRR"].ToString();
                  return rrr;
              }
              catch (Exception e)
+             {
+                 Console.WriteLine($"[Remita PARSE ERROR] {e.Message} | raw={dataMod}");
+                 return null;
+             }
              {
                  return null;
              }

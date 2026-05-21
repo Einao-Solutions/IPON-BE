@@ -97,6 +97,7 @@ public record PatentDesignDBSettings
     public string OppositionCollectionName { get; set; } = null!;
     public string CounterStatementsCollectionName { get; set; } = null!;
     public string StatutoryDeclarationsCollectionName { get; set; } = null!;
+    public string? OppositionWithdrawalsCollectionName { get; set; } = "oppositionWithdrawals";
     public string UseSandbox { get; set; } = null!;
     public string LogPath { get; set; } = null!;
 
@@ -986,28 +987,46 @@ public enum PatentBaseTypes
 
 public enum ApplicationStatuses
 {
-    Active, 
-    Inactive, 
-    AwaitingPayment, 
-    AwaitingSearch, 
-    AwaitingExaminer,
-    RejectedByExaminer,
-    Re_conduct,
-    FormalityFail,
-    KivSearch,
-    KivExaminer,
-    Approved,
-    Rejected,
-    None,
-    AutoApproved,
-    Publication,
-    Opposition,
-    AwaitingResponse, AwaitingOppositionStaff, AwaitingResolution,
-    Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
-    AwaitingCertificateConfirmation,
-    Withdrawn, AwaitingCertificatePayment, 
-AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval,
-StatutoryDeclaration, AwaitingRenewalConfirmation, PendingRenewal, AwaitingOfficeProcess, Abandoned
+    Active = 0,
+    Inactive = 1,
+    AwaitingPayment = 2,
+    AwaitingSearch = 3,
+    AwaitingExaminer = 4,
+    RejectedByExaminer = 5,
+    Re_conduct = 6,
+    FormalityFail = 7,
+    KivSearch = 8,
+    KivExaminer = 9,
+    Approved = 10,
+    Rejected = 11,
+    None = 12,
+    AutoApproved = 13,
+    Publication = 14,
+    Opposition = 15,
+    AwaitingResponse = 16,
+    AwaitingOppositionStaff = 17,
+    AwaitingResolution = 18,
+    Resolved = 19,
+    AwaitingCertification = 20,
+    AwaitingConfirmation = 21,
+    AwaitingSave = 22,
+    AwaitingCertificateConfirmation = 23,
+    Withdrawn = 24,
+    AwaitingCertificatePayment = 25,
+    AwaitingRecordalProcess = 26,
+    AppealRequest = 27,
+    AwaitingStatusUpdate = 28,
+    RequestWithdrawal = 29,
+    NewOpposition = 30,
+    AwaitingCounter = 31,
+    AwaitingApproval = 32,
+    StatutoryDeclaration = 33,
+    AwaitingRenewalConfirmation = 34,
+    PendingRenewal = 35,
+    AwaitingOfficeProcess = 36,
+    Abandoned = 37,
+    WithdrawalRequested = 38,
+    WithdrawalApproved = 39
 }
 
 public record AssignmentCertificateType
@@ -1050,7 +1069,7 @@ public enum PaymentTypes
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement, StatutoryDeclaration, TrademarkAmendment
+CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
 }
 
 
@@ -1462,6 +1481,11 @@ public record PaymentInfo
     public string? TrademarkAmendmentCost { get; set; }
     public string? TrademarkAmendmentServiceFee { get; set; }
     public string? TrademarkAmendmentServiceID { get; set; }
+
+    // Opposition Withdrawal
+    public string? OppositionWithdrawalCost { get; set; }
+    public string? OppositionWithdrawalServiceFee { get; set; }
+    public string? OppositionWithdrawalServiceID { get; set; }
 }
 
 public record PaymentRecord
@@ -1754,8 +1778,27 @@ public record Opposition
     public string? ResolutionStatement { get; set; }
     public string? ResolvedBy { get; set; }
     public string? ResolvedByUserId { get; set; }
+    public string? CreatorId { get; set; }
     public List<CounterStatement>? CounterStatements { get; set; } = new();
     public List<StatutoryDeclaration>? StatutoryDeclarations { get; set; } = new();
+}
+
+public record OppositionWithdrawal
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? OppositionId { get; set; }
+    public string? FileNumber { get; set; }
+    public string? FileId { get; set; }
+    public string? FileTitle { get; set; }
+    public string? Reason { get; set; }
+    public string? UserId { get; set; }
+    public List<string>? SupportingDocs { get; set; }
+    public string? PaymentId { get; set; }
+    public bool Paid { get; set; } = false;
+    public string? PaymentStatus { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
 }
 
 public record CounterStatement
