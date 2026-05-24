@@ -703,9 +703,10 @@ public class OppositionService
             if (opp == null)
                 return (false, null, "Opposition not found");
 
-            // Guard: block if withdrawal already submitted
-            if (opp.Status == ApplicationStatuses.WithdrawalRequested)
-                return (false, null, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+// Guard: block if withdrawal already submitted
+if (opp.Status == ApplicationStatuses.WithdrawalRequested)
+    return (false, null, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+
 
             // Idempotency: reject if an unpaid or paid withdrawal already exists
             var existing = await _oppositionWithdrawalCollection
@@ -823,10 +824,11 @@ public class OppositionService
 
             if (withdrawal.Paid) return (true, "Withdrawal payment already confirmed");
 
-            // Guard: block if opposition already in WithdrawalRequested state
-            var oppCheck = await _oppositionCollection.Find(o => o.id == withdrawal.OppositionId).FirstOrDefaultAsync();
-            if (oppCheck?.Status == ApplicationStatuses.WithdrawalRequested)
-                return (false, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+// Guard: block if opposition already in WithdrawalRequested state
+var oppCheck = await _oppositionCollection.Find(o => o.id == withdrawal.OppositionId).FirstOrDefaultAsync();
+if (oppCheck?.Status == ApplicationStatuses.WithdrawalRequested)
+    return (false, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+
 
             await _oppositionWithdrawalCollection.UpdateOneAsync(
                 Builders<OppositionWithdrawal>.Filter.Eq(w => w.PaymentId, paymentId),
