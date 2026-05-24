@@ -43,6 +43,9 @@ public class EmailServices
             case EmailType.StatutoryDeclaration:
                 body = PopulateStatutoryDeclarationMail(dto.StatutoryDeclarationMail);
                 break;
+            case EmailType.WithdrawalNotification:
+                body = PopulateWithdrawalNotificationMail(dto.WithdrawalNotificationMail);
+                break;
             case EmailType.ResetPassword:
                 body = ResetPasswordMail(dto.ResetPasswordMail);
                 break;
@@ -270,5 +273,24 @@ public class EmailServices
         body = body.Replace("{OppositionId}", dto.OppositionId);
         body = body.Replace("{DateFiled}", dto.DateFiled);
         return body;
+    }
+
+    private string PopulateWithdrawalNotificationMail(WithdrawalNotificationMail dto)
+    {
+        return $@"
+<html><body style='font-family:Arial,sans-serif;color:#333;'>
+<p>Dear {dto.ApplicantName},</p>
+<p>We wish to inform you that the opposer <strong>{dto.OpposerName}</strong> has submitted a 
+<strong>Withdrawal Request</strong> for the opposition filed against your trademark application.</p>
+<table style='border-collapse:collapse;width:100%;margin-top:16px;'>
+  <tr><td style='padding:8px;border:1px solid #ddd;font-weight:bold;'>File Number</td><td style='padding:8px;border:1px solid #ddd;'>{dto.FileNumber}</td></tr>
+  <tr><td style='padding:8px;border:1px solid #ddd;font-weight:bold;'>File Title</td><td style='padding:8px;border:1px solid #ddd;'>{dto.FileTitle}</td></tr>
+  <tr><td style='padding:8px;border:1px solid #ddd;font-weight:bold;'>Opposition ID</td><td style='padding:8px;border:1px solid #ddd;'>OPP-{dto.OppositionId?.Substring(0, Math.Min(8, dto.OppositionId?.Length ?? 0)).ToUpper()}</td></tr>
+  <tr><td style='padding:8px;border:1px solid #ddd;font-weight:bold;'>Withdrawal Date</td><td style='padding:8px;border:1px solid #ddd;'>{dto.WithdrawalDate}</td></tr>
+</table>
+<p style='margin-top:16px;'>This withdrawal request is currently pending review by the Registry. 
+You will be notified once a decision has been made.</p>
+<p>Regards,<br/>IPON Registry</p>
+</body></html>";
     }
 }

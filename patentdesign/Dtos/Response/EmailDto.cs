@@ -15,6 +15,7 @@ public class EmailDto
     public CounterStatementMail? CounterStatementMail { get; set; }
     public StatutoryDeclarationMail? StatutoryDeclarationMail { get; set; }
     public OppositionConfirmationMail? OppositionConfirmationMail { get; set; }
+    public WithdrawalNotificationMail? WithdrawalNotificationMail { get; set; }
 }
 
 public class BulkEmailDto
@@ -73,6 +74,17 @@ public class StatutoryDeclarationMail
     public string OppositionId { get; set; }
     public string DateFiled { get; set; }
 }
+public class WithdrawalNotificationMail
+{
+    public string To { get; set; }
+    public string ApplicantName { get; set; }
+    public string OpposerName { get; set; }
+    public string FileNumber { get; set; }
+    public string FileTitle { get; set; }
+    public string OppositionId { get; set; }
+    public string WithdrawalDate { get; set; }
+}
+
 public class ResetPasswordMail
 {
     public string UserName { get; set; }

@@ -675,6 +675,10 @@ public class OppositionService
             if (opp == null)
                 return (false, null, "Opposition not found");
 
+            // Guard: block if withdrawal already submitted
+            if (opp.Status == ApplicationStatuses.WithdrawalRequested)
+                return (false, null, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+
             // Idempotency: reject if an unpaid or paid withdrawal already exists
             var existing = await _oppositionWithdrawalCollection
                 .Find(w => w.OppositionId == dto.OppositionId && w.UserId == dto.UserId)
@@ -791,6 +795,11 @@ public class OppositionService
 
             if (withdrawal.Paid) return (true, "Withdrawal payment already confirmed");
 
+            // Guard: block if opposition already in WithdrawalRequested state
+            var oppCheck = await _oppositionCollection.Find(o => o.id == withdrawal.OppositionId).FirstOrDefaultAsync();
+            if (oppCheck?.Status == ApplicationStatuses.WithdrawalRequested)
+                return (false, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+
             await _oppositionWithdrawalCollection.UpdateOneAsync(
                 Builders<OppositionWithdrawal>.Filter.Eq(w => w.PaymentId, paymentId),
                 Builders<OppositionWithdrawal>.Update.Combine(
@@ -806,6 +815,53 @@ public class OppositionService
                     Builders<Opposition>.Filter.Eq(o => o.id, opp.id),
                     Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.WithdrawalRequested));
                 _log.LogInformation($"Opposition {opp.id} status set to WithdrawalRequested");
+
+                // Notify the applicant (file owner) by email and update their ApplicationHistory
+                try
+                {
+                    var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+                    if (file != null)
+                    {
+                        // Update applicant's ApplicationHistory[0].CurrentStatus → WithdrawalRequested
+                        await _fillingCollection.UpdateOneAsync(
+                            Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
+                            Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.WithdrawalRequested));
+
+                        string fileTitle = file.Type switch
+                        {
+                            FileTypes.Design => file.TitleOfDesign,
+                            FileTypes.Patent => file.TitleOfInvention,
+                            _ => file.TitleOfTradeMark
+                        };
+                        var applicant = file.applicants?.FirstOrDefault();
+                        var applicantEmail = file.Correspondence?.email ?? applicant?.Email ?? "";
+
+                        if (!string.IsNullOrEmpty(applicantEmail))
+                        {
+                            await _emailServices.SendMail(new EmailDto
+                            {
+                                To = applicantEmail,
+                                Subject = "Opposition Withdrawal Request Submitted",
+                                EmailType = EmailType.WithdrawalNotification,
+                                WithdrawalNotificationMail = new WithdrawalNotificationMail
+                                {
+                                    To = applicantEmail,
+                                    ApplicantName = applicant?.Name ?? "Applicant",
+                                    OpposerName = opp.Name ?? "Opposer",
+                                    FileNumber = opp.FileNumber,
+                                    FileTitle = fileTitle,
+                                    OppositionId = opp.id,
+                                    WithdrawalDate = DateTime.Now.ToString("dd MMMM yyyy")
+                                }
+                            });
+                            _log.LogInformation($"Withdrawal notification sent to applicant {applicantEmail}");
+                        }
+                    }
+                }
+                catch (Exception notifyEx)
+                {
+                    _log.LogWarning(notifyEx, "Failed to notify applicant of withdrawal — proceeding anyway");
+                }
             }
 
             _log.LogInformation($"Opposition Withdrawal payment confirmed for paymentId {paymentId}");

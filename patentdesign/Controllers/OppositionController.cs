@@ -57,12 +57,16 @@ public class OppositionController(OppositionService oppositionService) :Controll
 
     [HttpPost("UpdateOppositionPayment")]
     public async Task<IActionResult> UpdateOppositionPayment(
-        [FromQuery] string paymentId,
-        [FromBody] PaymentUpdateDto dto)
+        [FromQuery] string? paymentId,
+        [FromBody] PaymentUpdateDto? dto)
     {
         try
         {
-            if (dto?.Status != "success")
+            if (string.IsNullOrWhiteSpace(paymentId))
+                return BadRequest(new { success = false, error = "paymentId is required" });
+
+            // Accept both: frontend with no body, or frontend that sends { "status": "success" }
+            if (dto != null && dto.Status != null && dto.Status.ToLower() != "success")
                 return BadRequest(new { success = false, message = "Payment was not successful" });
 
             bool result = await oppositionService.UpdateOppositionPaymentStatus(paymentId);
@@ -70,6 +74,8 @@ public class OppositionController(OppositionService oppositionService) :Controll
         }
         catch (Exception e)
         {
+            if (e.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                return NotFound(new { success = false, error = e.Message });
             return BadRequest(new { success = false, message = e.Message });
         }
     }
@@ -261,6 +267,9 @@ public class OppositionController(OppositionService oppositionService) :Controll
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(oppositionId) && string.IsNullOrWhiteSpace(fileNumber))
+                return BadRequest(new { success = false, message = "Either oppositionId or fileNumber is required" });
+
             var result = await oppositionService.GetOppositionDetail(oppositionId, fileNumber);
             if (result == null)
                 return NotFound(new { message = "Opposition not found" });
