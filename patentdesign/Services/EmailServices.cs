@@ -46,6 +46,12 @@ public class EmailServices
             case EmailType.WithdrawalNotification:
                 body = PopulateWithdrawalNotificationMail(dto.WithdrawalNotificationMail);
                 break;
+            case EmailType.WithdrawalApproved:
+                body = PopulateWithdrawalApprovedMail(dto.WithdrawalApprovedMail);
+                break;
+            case EmailType.WithdrawalRefused:
+                body = PopulateWithdrawalRefusedMail(dto.WithdrawalRefusedMail);
+                break;
             case EmailType.ResetPassword:
                 body = ResetPasswordMail(dto.ResetPasswordMail);
                 break;
@@ -292,5 +298,30 @@ public class EmailServices
 You will be notified once a decision has been made.</p>
 <p>Regards,<br/>IPON Registry</p>
 </body></html>";
+    }
+
+    private string PopulateWithdrawalApprovedMail(WithdrawalApprovedMail dto)
+    {
+        if (dto.RecipientRole == "opposer")
+            return $@"<html><body style='font-family:Arial,sans-serif;color:#333;'>
+<p>Dear {dto.RecipientName},</p>
+<p>Your withdrawal request for your opposition against <strong>{dto.FileNumber}</strong> has been <strong>approved</strong>.</p>
+<p>The opposition is now closed.</p>
+<p>Regards,<br/>IPON Registry</p></body></html>";
+        return $@"<html><body style='font-family:Arial,sans-serif;color:#333;'>
+<p>Dear {dto.RecipientName},</p>
+<p>The opposition filed against your trademark <strong>{dto.FileNumber}</strong> ({dto.FileTitle}) has been withdrawn.</p>
+<p>Your application is now proceeding to certification.</p>
+<p>Regards,<br/>IPON Registry</p></body></html>";
+    }
+
+    private string PopulateWithdrawalRefusedMail(WithdrawalRefusedMail dto)
+    {
+        return $@"<html><body style='font-family:Arial,sans-serif;color:#333;'>
+<p>Dear {dto.RecipientName},</p>
+<p>Your withdrawal request for your opposition against <strong>{dto.FileNumber}</strong> has been <strong>refused</strong>.</p>
+<p><strong>Reason:</strong> {dto.Reason}</p>
+<p>The opposition remains active.</p>
+<p>Regards,<br/>IPON Registry</p></body></html>";
     }
 }

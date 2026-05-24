@@ -152,3 +152,14 @@ public class OppositionAmendmentReq
     public string? UserId { get; set; }
 }
 
+public class TreatWithdrawalDto
+{
+    public string? OppositionId { get; set; }
+    /// <summary>"approve" or "refuse"</summary>
+    public string? Action { get; set; }
+    public string? Reason { get; set; }
+    public string? StaffId { get; set; }
+    public string? UserName { get; set; }
+    public int? Role { get; set; }
+}
+

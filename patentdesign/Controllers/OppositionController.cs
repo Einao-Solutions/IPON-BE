@@ -101,7 +101,7 @@ public class OppositionController(OppositionService oppositionService) :Controll
         [FromQuery] int? type = null,
         [FromQuery] string? userId = null)
     {
-        ApplicationStatuses? tt = type != null ? Enum.GetValues<ApplicationStatuses>()[type ?? 0] : null;
+        ApplicationStatuses? tt = type != null ? (ApplicationStatuses)type.Value : null;
         var result = await oppositionService.LoadSummary(quantity, skip, tt, userId);
         return Ok(result);
     }
@@ -273,7 +273,11 @@ public class OppositionController(OppositionService oppositionService) :Controll
             var result = await oppositionService.GetOppositionDetail(oppositionId, fileNumber);
             if (result == null)
                 return NotFound(new { message = "Opposition not found" });
-            return Ok(new { success = true, data = result });
+
+            // result is a list — return the first item as a single object so the UI can read fields directly
+            var list = result as System.Collections.IList;
+            var single = (list != null && list.Count > 0) ? list[0] : result;
+            return Ok(new { success = true, data = single });
         }
         catch (Exception e)
         {
@@ -513,6 +517,74 @@ public class OppositionController(OppositionService oppositionService) :Controll
         catch (KeyNotFoundException e)
         {
             return NotFound(new { success = false, message = e.Message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    [HttpPost("TreatWithdrawal")]
+    public async Task<IActionResult> TreatWithdrawal([FromBody] TreatWithdrawalDto? dto)
+    {
+        if (dto == null)
+            return BadRequest(new { success = false, message = "Request body is required" });
+
+        // Role check: TrademarkOpposition=4, Tech=20, SuperAdmin=21
+        var allowedRoles = new[] { 4, 20, 21 };
+        if (dto.Role == null || !allowedRoles.Contains(dto.Role.Value))
+            return StatusCode(403, new { success = false, message = "Access denied. Insufficient role." });
+
+        var action = dto.Action?.Trim().ToLower();
+        if (action != "approve" && action != "refuse")
+            return BadRequest(new { success = false, message = "Action must be 'approve' or 'refuse'" });
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return BadRequest(new { success = false, message = "Reason is required" });
+
+        try
+        {
+            var (success, message) = await oppositionService.TreatWithdrawal(dto);
+            if (!success)
+                return BadRequest(new { success, message });
+            return Ok(new { success, message });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Backfill: fix files stuck on Opposition after withdrawal was approved ─
+    [HttpPost("backfillWithdrawnFiles")]
+    public async Task<IActionResult> BackfillWithdrawnFiles()
+    {
+        try
+        {
+            var count = await oppositionService.BackfillWithdrawnFileStatuses();
+            return Ok(new { success = true, message = $"Fixed {count} file(s) stuck on Opposition status." });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // ─── Debug: inspect withdrawn oppositions and their linked files ─────────
+    [HttpGet("debugWithdrawnOppositions")]
+    public async Task<IActionResult> DebugWithdrawnOppositions()
+    {
+        var result = await oppositionService.DebugWithdrawnOppositions();
+        return Ok(result);
+    }
+
+    // ─── One-shot: patch ApplicationHistory.CurrentStatus for already-backfilled files ─
+    [HttpPost("backfillWithdrawnApplicationHistory")]
+    public async Task<IActionResult> BackfillWithdrawnApplicationHistory()
+    {
+        try
+        {
+            var count = await oppositionService.BackfillWithdrawnApplicationHistory();
+            return Ok(new { success = true, message = $"Fixed ApplicationHistory.CurrentStatus on {count} file(s)." });
         }
         catch (Exception e)
         {
