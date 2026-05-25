@@ -1,4 +1,5 @@
 ﻿using patentdesign.Models;
+using patentdesign.pdfs;
 using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -113,7 +114,7 @@ namespace patentdesign
                        
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Representation of Trademark:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device && model.Attachments.FirstOrDefault(e => e.name == "representation") != null && image.Length > 0)
+                            if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device && model.Attachments.FirstOrDefault(e => e.name == "representation") != null && PdfImageHelper.TryDecodeImage(image))
                             {
                                 var img = Image.FromBinaryData(image);
                                 c.Item().Height(100).AlignCenter().Image(img).FitArea();

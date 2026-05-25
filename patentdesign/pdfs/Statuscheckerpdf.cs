@@ -202,6 +202,8 @@ namespace patentdesign.pdfs
                         {
                             foreach (var image in images)
                             {
+                                if (!PdfImageHelper.TryDecodeImage(image))
+                                    continue;
                                 var img = Image.FromBinaryData(image);
                                 row.RelativeItem().Height(100).Image(img).FitArea();
                             }
