@@ -484,10 +484,37 @@ public class OppositionService
 
     public async Task<Object> LoadSummary(int quantity, int skip, ApplicationStatuses? status, string? userId = null)
     {
-        var paidFilter = Builders<Opposition>.Filter.Eq(x => x.Paid, true);
-        var baseFilter = status != null
-            ? Builders<Opposition>.Filter.And(paidFilter, Builders<Opposition>.Filter.Eq(x => x.Status, status))
-            : paidFilter;
+        // Back-office statuses (withdrawal, awaiting payment, withdrawn) don't require Paid=true
+        var backOfficeStatuses = new[]
+        {
+            ApplicationStatuses.RequestWithdrawal,
+            ApplicationStatuses.WithdrawalRequested,
+            ApplicationStatuses.Withdrawn,
+            ApplicationStatuses.AwaitingPayment
+        };
+        bool isBackOfficeQuery = status != null && backOfficeStatuses.Contains(status.Value);
+
+        FilterDefinition<Opposition> baseFilter;
+        if (isBackOfficeQuery)
+        {
+            // RequestWithdrawal(29) and WithdrawalRequested(38) both mean "pending withdrawal" — match either
+            if (status == ApplicationStatuses.RequestWithdrawal || status == ApplicationStatuses.WithdrawalRequested)
+            {
+                baseFilter = Builders<Opposition>.Filter.In(x => x.Status,
+                    new ApplicationStatuses?[] { ApplicationStatuses.RequestWithdrawal, ApplicationStatuses.WithdrawalRequested });
+            }
+            else
+            {
+                baseFilter = Builders<Opposition>.Filter.Eq(x => x.Status, status);
+            }
+        }
+        else
+        {
+            var paidFilter = Builders<Opposition>.Filter.Eq(x => x.Paid, true);
+            baseFilter = status != null
+                ? Builders<Opposition>.Filter.And(paidFilter, Builders<Opposition>.Filter.Eq(x => x.Status, status))
+                : paidFilter;
+        }
 
         FilterDefinition<Opposition> filter;
         if (!string.IsNullOrWhiteSpace(userId))
@@ -510,14 +537,15 @@ public class OppositionService
         var sn = skip;
         var result = raw.Select(x => new
         {
-            sn = ++sn,
-            date = (x.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
-            title = x.FileTitle,
-            fileId = x.FileNumber,
-            name = x.Name,
-            status = x.Status,
+            sn        = ++sn,
+            date      = (x.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
+            title     = x.FileTitle,
+            fileId    = x.FileNumber,
+            name      = x.Name,
+            email     = x.Email,
+            status    = x.Status,
             paymentId = x.PaymentId,
-            id = x.id
+            id        = x.id
         }).ToList();
         return new { data = result, count };
     }
@@ -675,6 +703,11 @@ public class OppositionService
             if (opp == null)
                 return (false, null, "Opposition not found");
 
+// Guard: block if withdrawal already submitted
+if (opp.Status == ApplicationStatuses.WithdrawalRequested)
+    return (false, null, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+
+
             // Idempotency: reject if an unpaid or paid withdrawal already exists
             var existing = await _oppositionWithdrawalCollection
                 .Find(w => w.OppositionId == dto.OppositionId && w.UserId == dto.UserId)
@@ -791,6 +824,12 @@ public class OppositionService
 
             if (withdrawal.Paid) return (true, "Withdrawal payment already confirmed");
 
+// Guard: block if opposition already in WithdrawalRequested state
+var oppCheck = await _oppositionCollection.Find(o => o.id == withdrawal.OppositionId).FirstOrDefaultAsync();
+if (oppCheck?.Status == ApplicationStatuses.WithdrawalRequested)
+    return (false, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
+
+
             await _oppositionWithdrawalCollection.UpdateOneAsync(
                 Builders<OppositionWithdrawal>.Filter.Eq(w => w.PaymentId, paymentId),
                 Builders<OppositionWithdrawal>.Update.Combine(
@@ -806,6 +845,53 @@ public class OppositionService
                     Builders<Opposition>.Filter.Eq(o => o.id, opp.id),
                     Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.WithdrawalRequested));
                 _log.LogInformation($"Opposition {opp.id} status set to WithdrawalRequested");
+
+                // Notify the applicant (file owner) by email and update their ApplicationHistory
+                try
+                {
+                    var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+                    if (file != null)
+                    {
+                        // Update applicant's ApplicationHistory[0].CurrentStatus → WithdrawalRequested
+                        await _fillingCollection.UpdateOneAsync(
+                            Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
+                            Builders<Filling>.Update.Set("ApplicationHistory.0.CurrentStatus", ApplicationStatuses.WithdrawalRequested));
+
+                        string fileTitle = file.Type switch
+                        {
+                            FileTypes.Design => file.TitleOfDesign,
+                            FileTypes.Patent => file.TitleOfInvention,
+                            _ => file.TitleOfTradeMark
+                        };
+                        var applicant = file.applicants?.FirstOrDefault();
+                        var applicantEmail = file.Correspondence?.email ?? applicant?.Email ?? "";
+
+                        if (!string.IsNullOrEmpty(applicantEmail))
+                        {
+                            await _emailServices.SendMail(new EmailDto
+                            {
+                                To = applicantEmail,
+                                Subject = "Opposition Withdrawal Request Submitted",
+                                EmailType = EmailType.WithdrawalNotification,
+                                WithdrawalNotificationMail = new WithdrawalNotificationMail
+                                {
+                                    To = applicantEmail,
+                                    ApplicantName = applicant?.Name ?? "Applicant",
+                                    OpposerName = opp.Name ?? "Opposer",
+                                    FileNumber = opp.FileNumber,
+                                    FileTitle = fileTitle,
+                                    OppositionId = opp.id,
+                                    WithdrawalDate = DateTime.Now.ToString("dd MMMM yyyy")
+                                }
+                            });
+                            _log.LogInformation($"Withdrawal notification sent to applicant {applicantEmail}");
+                        }
+                    }
+                }
+                catch (Exception notifyEx)
+                {
+                    _log.LogWarning(notifyEx, "Failed to notify applicant of withdrawal — proceeding anyway");
+                }
             }
 
             _log.LogInformation($"Opposition Withdrawal payment confirmed for paymentId {paymentId}");
@@ -1745,6 +1831,14 @@ public class OppositionService
                     Builders<StatutoryDeclaration>.Filter.Eq(sd => sd.Paid, true)))
                 .ToListAsync();
 
+            // Fetch withdrawal records keyed by oppositionId
+            var allWithdrawals = await _oppositionWithdrawalCollection
+                .Find(Builders<OppositionWithdrawal>.Filter.In(w => w.OppositionId, oppIds))
+                .ToListAsync();
+            var withdrawalByOpp = allWithdrawals
+                .GroupBy(w => w.OppositionId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(w => w.CreatedAt).First());
+
             _log.LogInformation($"GetOppositionDetail: Found {allCs.Count} counter statements for {oppIds.Count} oppositions");
             foreach (var cs in allCs)
                 _log.LogInformation($"  CS {cs.Id} -> OppositionId: {cs.OppositionId}");
@@ -1758,6 +1852,7 @@ public class OppositionService
             {
                 var oppCounterStatements = csByOpp.GetValueOrDefault(opp.id, new List<CounterStatement>());
                 var oppStatutoryDeclarations = sdByOpp.GetValueOrDefault(opp.id, new List<StatutoryDeclaration>());
+                withdrawalByOpp.TryGetValue(opp.id, out var withdrawal);
                 string fileName = file?.Type switch
                 {
                     FileTypes.Design => file.TitleOfDesign,
@@ -1769,6 +1864,18 @@ public class OppositionService
                 var counterStatementDate = hasCounterStatement
                     ? oppCounterStatements.First().SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ss")
                     : null;
+
+                // Build audit history
+                var history = new List<object>();
+                history.Add(new { action = "Opposition filed", date = (opp.OppositionDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ssZ") });
+                if (hasCounterStatement)
+                    history.Add(new { action = "Counter statement filed", date = oppCounterStatements.First().SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ssZ") });
+                if (oppStatutoryDeclarations.Count > 0)
+                    history.Add(new { action = "Statutory declaration filed", date = oppStatutoryDeclarations.First().SubmittedDate.ToString("yyyy-MM-ddTHH:mm:ssZ") });
+                if (withdrawal != null && withdrawal.Paid)
+                    history.Add(new { action = "Withdrawal request submitted", date = withdrawal.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ") });
+                if (opp.Status == ApplicationStatuses.Withdrawn)
+                    history.Add(new { action = "Withdrawal approved", date = (opp.ResolvedDate ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ssZ") });
 
                 return new
                 {
@@ -1800,6 +1907,9 @@ public class OppositionService
                     hasCounterStatement = hasCounterStatement,
                     counterStatementDate = counterStatementDate,
                     supportingDocs = opp.SupportingDocs ?? new List<string>(),
+                    withdrawalReason = withdrawal?.Reason,
+                    withdrawalDocument = withdrawal?.SupportingDocs?.FirstOrDefault(),
+                    history = history,
                     counterStatements = oppCounterStatements.Select(cs => new
                     {
                         id = cs.Id,
@@ -2514,4 +2624,312 @@ public class OppositionService
             throw;
         }
     }
+
+    // ─── Treat Withdrawal (approve / refuse) ──────────────────────────────────
+    public async Task<(bool success, string message)> TreatWithdrawal(TreatWithdrawalDto dto)
+    {
+        try
+        {
+            var opp = await _oppositionCollection.Find(o => o.id == dto.OppositionId).FirstOrDefaultAsync();
+            if (opp == null)
+                return (false, "Opposition not found");
+            if (opp.Status != ApplicationStatuses.WithdrawalRequested && opp.Status != ApplicationStatuses.RequestWithdrawal)
+                return (false, "Opposition is not in a withdrawal-request state");
+
+            var action = dto.Action?.Trim().ToLower();
+            if (action != "approve" && action != "refuse")
+                return (false, "Action must be 'approve' or 'refuse'");
+            if (string.IsNullOrWhiteSpace(dto.Reason))
+                return (false, "Reason is required");
+
+            var officerName = dto.UserName ?? "Staff";
+            var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+            var fileId = opp.FileNumber ?? opp.FileTitle ?? dto.OppositionId;
+
+            if (action == "approve")
+            {
+                // 1. Opposition record → Withdrawn (24)
+                await _oppositionCollection.UpdateOneAsync(
+                    o => o.id == opp.id,
+                    Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.Withdrawn));
+
+                // 2 & 3. Filling document — FileStatus (back-office view) + ApplicationHistory[].CurrentStatus (applicant view)
+                if (file != null)
+                {
+                    var prevFileStatus = file.FileStatus;
+
+                    // Find the NewApplication entry in ApplicationHistory to update its CurrentStatus
+                    var appEntry = file.ApplicationHistory?.FirstOrDefault(
+                        a => a.ApplicationType == FormApplicationTypes.NewApplication);
+
+                    // Update StatusHistory audit entry on the in-memory file object first
+                    if (file.ApplicationHistory != null && file.ApplicationHistory.Count > 0)
+                    {
+                        var targetEntry = appEntry ?? file.ApplicationHistory[0];
+                        targetEntry.StatusHistory ??= new List<ApplicationHistory>();
+                        targetEntry.StatusHistory.Add(new ApplicationHistory
+                        {
+                            beforeStatus = prevFileStatus,
+                            afterStatus  = ApplicationStatuses.AwaitingCertification,
+                            Date         = DateTime.UtcNow,
+                            Message      = $"Opposition withdrawn. Approved by {officerName}. Reason: {dto.Reason}",
+                            User         = officerName,
+                            UserId       = dto.StaffId
+                        });
+                        // Also update the in-memory object before ReplaceOne so it doesn't overwrite the status
+                        file.FileStatus = ApplicationStatuses.AwaitingCertification;
+                        if (appEntry != null)
+                            appEntry.CurrentStatus = ApplicationStatuses.AwaitingCertification;
+                    }
+
+                    // Single ReplaceOne with all changes — avoids UpdateOne being overwritten by ReplaceOne
+                    await _fillingCollection.ReplaceOneAsync(f => f.FileId == opp.FileNumber, file);
+                }
+
+                // 3. Email opposer
+                _ = _emailServices.SendMail(new EmailDto
+                {
+                    To        = opp.Email,
+                    Subject   = "Opposition Withdrawal Approved",
+                    EmailType = EmailType.WithdrawalApproved,
+                    WithdrawalApprovedMail = new WithdrawalApprovedMail
+                    {
+                        To            = opp.Email,
+                        RecipientName = opp.Name ?? opp.Email,
+                        FileNumber    = fileId,
+                        FileTitle     = opp.FileTitle ?? "",
+                        OfficerName   = officerName,
+                        Reason        = dto.Reason,
+                        RecipientRole = "opposer"
+                    }
+                });
+
+                // 4. Email file applicant
+                var applicant = file?.applicants?.FirstOrDefault();
+                if (applicant != null && !string.IsNullOrWhiteSpace(applicant.Email))
+                {
+                    _ = _emailServices.SendMail(new EmailDto
+                    {
+                        To        = applicant.Email,
+                        Subject   = "Opposition Against Your Trademark Withdrawn",
+                        EmailType = EmailType.WithdrawalApproved,
+                        WithdrawalApprovedMail = new WithdrawalApprovedMail
+                        {
+                            To            = applicant.Email,
+                            RecipientName = applicant.Name ?? applicant.Email,
+                            FileNumber    = fileId,
+                            FileTitle     = opp.FileTitle ?? "",
+                            OfficerName   = officerName,
+                            Reason        = dto.Reason,
+                            RecipientRole = "applicant"
+                        }
+                    });
+                }
+
+                return (true, "Withdrawal approved. File updated to Awaiting Certification.");
+            }
+            else // refuse
+            {
+                // Email opposer
+                _ = _emailServices.SendMail(new EmailDto
+                {
+                    To        = opp.Email,
+                    Subject   = "Opposition Withdrawal Refused",
+                    EmailType = EmailType.WithdrawalRefused,
+                    WithdrawalRefusedMail = new WithdrawalRefusedMail
+                    {
+                        To            = opp.Email,
+                        RecipientName = opp.Name ?? opp.Email,
+                        FileNumber    = fileId,
+                        OfficerName   = officerName,
+                        Reason        = dto.Reason
+                    }
+                });
+
+                return (true, "Withdrawal refused. No status changes made.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error treating withdrawal for opposition {OppositionId}", dto.OppositionId);
+            throw;
+        }
+    }
+    // ─── Backfill: fix files stuck on Opposition(15) whose opposition is Withdrawn(24) ─
+    public async Task<int> BackfillWithdrawnFileStatuses()
+    {
+        // Use raw BsonDocument to avoid any model deserialization issues
+        var oppColl  = db.GetCollection<MongoDB.Bson.BsonDocument>("opposition");
+        var fileColl = db.GetCollection<MongoDB.Bson.BsonDocument>(
+            _fillingCollection.CollectionNamespace.CollectionName);
+
+        var oppFilter = MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Or(
+            MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("Status", 24),
+            MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("Status", "Withdrawn")
+        );
+        var withdrawnOpps = await oppColl.Find(oppFilter).ToListAsync();
+
+        int fixed_count = 0;
+        foreach (var opp in withdrawnOpps)
+        {
+            var fileNumber = opp.Contains("FileNumber") ? opp["FileNumber"].ToString() : null;
+            var fileId     = opp.Contains("FileId")     ? opp["FileId"].ToString()     : null;
+            var linkKey    = !string.IsNullOrEmpty(fileNumber) ? fileNumber
+                           : !string.IsNullOrEmpty(fileId)     ? fileId : null;
+            if (string.IsNullOrEmpty(linkKey)) continue;
+
+            var fileFilter = MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("FileId", linkKey);
+            var file = await fileColl.Find(fileFilter).FirstOrDefaultAsync();
+            if (file == null) continue;
+
+            // Check if file is stuck on an opposition-related status (15 or 30)
+            if (!file.Contains("FileStatus")) continue;
+            var fileStatus = file["FileStatus"];
+            bool isOpposition = (fileStatus.IsInt32 && (fileStatus.AsInt32 == 15 || fileStatus.AsInt32 == 30))
+                             || (fileStatus.IsString && (fileStatus.AsString == "Opposition" || fileStatus.AsString == "NewOpposition"));
+            if (!isOpposition) continue;
+
+            // Update FileStatus = 20 (AwaitingCertification)
+            await fileColl.UpdateOneAsync(fileFilter,
+                MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Update
+                    .Set("FileStatus", 20));
+
+            // Also update ApplicationHistory[].CurrentStatus for the applicant view
+            // Targets the NewApplication entry (ApplicationType == 0 or "NewApplication")
+            var arrayFilterInt = new MongoDB.Driver.BsonDocumentArrayFilterDefinition<MongoDB.Bson.BsonDocument>(
+                new MongoDB.Bson.BsonDocument("elem.ApplicationType",
+                    new MongoDB.Bson.BsonDocument("$in",
+                        new MongoDB.Bson.BsonArray { 0, "NewApplication" })));
+
+            // Try updating matching array element
+            var updateOptions = new MongoDB.Driver.UpdateOptions
+            {
+                ArrayFilters = new MongoDB.Driver.ArrayFilterDefinition[] { arrayFilterInt }
+            };
+            var arrResult = await fileColl.UpdateOneAsync(fileFilter,
+                MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Update
+                    .Set("ApplicationHistory.$[elem].CurrentStatus", 20),
+                updateOptions);
+
+            // Fallback: if no array element matched, update index 0
+            if (arrResult.ModifiedCount == 0)
+            {
+                await fileColl.UpdateOneAsync(fileFilter,
+                    MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Update
+                        .Set("ApplicationHistory.0.CurrentStatus", 20));
+            }
+
+            fixed_count++;
+        }
+
+        return fixed_count;
+    }
+
+    // ─── One-shot: patch ApplicationHistory.CurrentStatus for already-backfilled files ─
+    public async Task<int> BackfillWithdrawnApplicationHistory()
+    {
+        var oppColl  = db.GetCollection<MongoDB.Bson.BsonDocument>("opposition");
+        var fileColl = db.GetCollection<MongoDB.Bson.BsonDocument>(
+            _fillingCollection.CollectionNamespace.CollectionName);
+
+        // Find all Withdrawn oppositions
+        var oppFilter = MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Or(
+            MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("Status", 24),
+            MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("Status", "Withdrawn")
+        );
+        var withdrawnOpps = await oppColl.Find(oppFilter).ToListAsync();
+
+        int fixed_count = 0;
+        foreach (var opp in withdrawnOpps)
+        {
+            var fileNumber = opp.Contains("FileNumber") ? opp["FileNumber"].ToString() : null;
+            var fileId     = opp.Contains("FileId")     ? opp["FileId"].ToString()     : null;
+            var linkKey    = !string.IsNullOrEmpty(fileNumber) ? fileNumber
+                           : !string.IsNullOrEmpty(fileId)     ? fileId : null;
+            if (string.IsNullOrEmpty(linkKey)) continue;
+
+            var fileFilter = MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("FileId", linkKey);
+            var file = await fileColl.Find(fileFilter).FirstOrDefaultAsync();
+            if (file == null) continue;
+
+            // Ensure FileStatus is AwaitingCertification (20) — it should be after the first backfill
+            await fileColl.UpdateOneAsync(fileFilter,
+                MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Update.Set("FileStatus", 20));
+
+            // Update ApplicationHistory[].CurrentStatus using arrayFilters
+            var arrayFilter = new MongoDB.Driver.BsonDocumentArrayFilterDefinition<MongoDB.Bson.BsonDocument>(
+                new MongoDB.Bson.BsonDocument("elem.ApplicationType",
+                    new MongoDB.Bson.BsonDocument("$in", new MongoDB.Bson.BsonArray { 0, "NewApplication" })));
+
+            var arrResult = await fileColl.UpdateOneAsync(fileFilter,
+                MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Update
+                    .Set("ApplicationHistory.$[elem].CurrentStatus", 20),
+                new MongoDB.Driver.UpdateOptions
+                {
+                    ArrayFilters = new MongoDB.Driver.ArrayFilterDefinition[] { arrayFilter }
+                });
+
+            // Fallback: update first element if no match
+            if (arrResult.ModifiedCount == 0)
+            {
+                await fileColl.UpdateOneAsync(fileFilter,
+                    MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Update
+                        .Set("ApplicationHistory.0.CurrentStatus", 20));
+            }
+
+            fixed_count++;
+        }
+
+        return fixed_count;
+    }
+
+    public async Task<object> DebugWithdrawnOppositions()
+    {
+        // Use raw BsonDocument to avoid deserialization issues
+        var oppColl = db.GetCollection<MongoDB.Bson.BsonDocument>("opposition");
+        var fileColl = db.GetCollection<MongoDB.Bson.BsonDocument>(
+            _fillingCollection.CollectionNamespace.CollectionName);
+
+        // Find all opposition docs where Status == 24 (Withdrawn)
+        var filter = MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Or(
+            MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("Status", 24),
+            MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("Status", "Withdrawn")
+        );
+        var oppDocs = await oppColl.Find(filter).ToListAsync();
+
+        var results = new List<object>();
+        foreach (var doc in oppDocs)
+        {
+            var fileNumber = doc.Contains("FileNumber") ? doc["FileNumber"].ToString() : null;
+            var fileId     = doc.Contains("FileId")     ? doc["FileId"].ToString()     : null;
+            var linkKey    = !string.IsNullOrEmpty(fileNumber) ? fileNumber
+                           : !string.IsNullOrEmpty(fileId)     ? fileId : null;
+
+            string? fileStatus = null;
+            string? linkedFileId = null;
+            if (linkKey != null)
+            {
+                var fileFilter = MongoDB.Driver.Builders<MongoDB.Bson.BsonDocument>.Filter.Eq("FileId", linkKey);
+                var fileDoc = await fileColl.Find(fileFilter).FirstOrDefaultAsync();
+                if (fileDoc != null)
+                {
+                    linkedFileId = fileDoc.Contains("FileId") ? fileDoc["FileId"].ToString() : null;
+                    fileStatus   = fileDoc.Contains("FileStatus") ? fileDoc["FileStatus"].ToString() : null;
+                }
+            }
+
+            results.Add(new
+            {
+                OppId         = doc.Contains("_id")        ? doc["_id"].ToString()        : null,
+                OppFileNumber = fileNumber,
+                OppFileId     = fileId,
+                OppStatus     = doc.Contains("Status")     ? doc["Status"].ToString()     : null,
+                LinkedFileId  = linkedFileId,
+                FileStatus    = fileStatus,
+                FileFound     = linkedFileId != null
+            });
+        }
+        return results;
+    }
+
 }

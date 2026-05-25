@@ -1,0 +1,10 @@
+[33mb41f532[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32misaiahleo[m[33m)[m Fix opposition bugs: UpdateOppositionPayment no-body, LoadSummary remove paid filter, GetOppositionCount remove paid filter, re-opposition block, data repair endpoint
+[33mdaae1d6[m[33m ([m[1;31morigin/isaiahleo[m[33m)[m Add opposition amendment endpoints and refactor services
+[33m75ed767[m Add opposition withdrawal functionality
+[33m56f50a1[m[33m ([m[1;31morigin/dev[m[33m)[m Feature/amendment (#54)
+[33m6277d37[m Refactor signature handling with Signatory class
+[33mcd3ebae[m Add support for trademark amendments
+[33mc49d873[m Add new enum values for staff roles
+[33m51d15ab[m Merge remote-tracking branch 'origin/dev' into isaiahleo
+[33m60f1f3e[m Merge pull request #53 from Einao-Solutions/joel
+[33mba822d6[m Refactor CI workflow for modularity and clarity
