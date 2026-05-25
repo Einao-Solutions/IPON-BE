@@ -421,3 +421,8 @@ FodyWeavers.xsd
 .env
 .env.local
 *.env
+# Accidental debug output files
+api_output.txt
+ersUserOneDriveDesktopEinaoBE
+*.tmp
+
