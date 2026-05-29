@@ -1108,192 +1108,236 @@ public class FilesServices
 
     public async Task<Filling?> UpdateApplicationStatus(UpdateDataType data)
     {
-        _log.LogInformation("UpdateApplicationStatus started for FileId {FileId}, AppId {AppId}, {Before} → {After}",
-            data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
-        var userName = data.user ?? await _userCollection.Find(x => x.Id == data.userId).Project(x => x.Name).FirstOrDefaultAsync() ?? "Unknown User";
-        RemitaResponseClass? remi = null;
-        bool paymentSuccessful = false;
-        if (data.simulate == false)
+        try
         {
-            var status = true;
-            if (data is
-                {
-                    AfterStatus: ApplicationStatuses.AwaitingSearch,
-                    beforeStatus: ApplicationStatuses.AwaitingPayment,
-                    applicationType: FormApplicationTypes.NewApplication
-                })
-            {
-                _log.LogDebug("Checking payment status for RRR {Rrr}", data.paymentId);
-                var response = (await CheckStatusViaOrderId(data.paymentId));
-                status = response.Item1;
-                remi = response.Item2;
-                if (status)
-                {
-                    paymentSuccessful = true;
-                    _log.LogDebug("Payment confirmed for RRR {Rrr}", data.paymentId);
-                }
-            }
+            _log.LogInformation("UpdateApplicationStatus started for FileId {FileId}, AppId {AppId}, {Before} → {After}",
+                data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
 
-            if (!status)
+            if (string.IsNullOrWhiteSpace(data.fileId) || string.IsNullOrWhiteSpace(data.applicationId))
             {
-                _log.LogWarning("Payment validation failed for FileId {FileId}, RRR {Rrr}", data.fileId, data.paymentId);
+                _log.LogWarning("UpdateApplicationStatus aborted due to invalid identifiers. FileId: {FileId}, AppId: {AppId}",
+                    data.fileId, data.applicationId);
                 return null;
             }
+
+            var userName = await ResolveUserNameAsync(data);
+            var paymentOk = await ValidatePaymentIfRequiredAsync(data);
+            if (!paymentOk) return null;
+
+            var now = DateTime.Now;
+            var newStatusHistory = new ApplicationHistory
+            {
+                beforeStatus = data.beforeStatus,
+                afterStatus = data.AfterStatus,
+                Date = now,
+                Message = data.message,
+                User = userName,
+                UserId = data.userId
+            };
+
+            var operations = BuildBaseStatusOperations(data.AfterStatus, newStatusHistory);
+
+            var perf = new PerformanceDto
+            {
+                ApplicationId = data.applicationId,
+                Reason = data.message,
+                AfterStatus = data.AfterStatus,
+                BeforeStatus = data.beforeStatus,
+                Date = now,
+                ApplicationType = data.applicationType,
+                AppUserId = data.userId,
+                FileNumber = data.fileNumber,
+                FileType = data.FileType,
+                OfficeUnit = null
+            };
+
+            await ApplyNewApplicationStatusUpdatesAsync(data, userName, operations, perf);
+            var result = await ApplyApplicationStatusUpdateAsync(data, operations);
+
+            if (result == null)
+            {
+                _log.LogWarning("No file/application matched update filter for FileId {FileId}, AppId {AppId}",
+                    data.fileId, data.applicationId);
+                return null;
+            }
+
+            await SyncCertificationStatusAsync(data, result, newStatusHistory);
+
+            SavePerformance(perf);
+            _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, AppId {AppId}, NewStatus {Status}",
+                data.fileId, data.applicationId, data.AfterStatus);
+            return result;
         }
-        var newStatusHistory = new ApplicationHistory()
+        catch (Exception ex)
         {
-            beforeStatus = data.beforeStatus,
-            afterStatus = data.AfterStatus,
-            Date = DateTime.Now,
-            Message = data.message,
-            User = userName,
-            UserId = data.userId
-        };
-        List<UpdateDefinition<Filling>> operations =
+            _log.LogError(ex,
+                "UpdateApplicationStatus failed for FileId {FileId}, AppId {AppId}, {Before} → {After}",
+                data.fileId, data.applicationId, data.beforeStatus, data.AfterStatus);
+            throw;
+        }
+    }
+
+    private async Task<string> ResolveUserNameAsync(UpdateDataType data)
+    {
+        return data.user
+               ?? await _userCollection.Find(x => x.Id == data.userId).Project(x => x.Name).FirstOrDefaultAsync()
+               ?? "Unknown User";
+    }
+
+    private static List<UpdateDefinition<Filling>> BuildBaseStatusOperations(ApplicationStatuses afterStatus,
+        ApplicationHistory history)
+    {
+        return
         [
-            Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory",
-                newStatusHistory),
-
-            Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", data.AfterStatus)
-
+            Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", history),
+            Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", afterStatus)
         ];
-        var perf = new PerformanceDto
-        {
-            ApplicationId = data.applicationId,
-            Reason = data.message,
-            AfterStatus = data.AfterStatus,
-            BeforeStatus = data.beforeStatus,
-            Date = DateTime.Now,
-            ApplicationType = data.applicationType,
-            AppUserId = data.userId,
-            FileNumber = data.fileNumber,
-            FileType = data.FileType,
-            OfficeUnit = null
-        };
-        if (data.applicationType is FormApplicationTypes.NewApplication)
-        {
-            operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
-            if (data.AfterStatus is ApplicationStatuses.Active)
-            {
-                var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.NewApplication);
-                _log.LogDebug("Calculated expiry date {ExpiryDate} for FileId {FileId}", nextDate, data.fileId);
+    }
 
-                
-                if (data.FileType != FileTypes.TradeMark)
+    private bool RequiresPaymentValidation(UpdateDataType data)
+    {
+        return !data.simulate &&
+               data is
+               {
+                   AfterStatus: ApplicationStatuses.AwaitingSearch,
+                   beforeStatus: ApplicationStatuses.AwaitingPayment,
+                   applicationType: FormApplicationTypes.NewApplication
+               };
+    }
+
+    private async Task<bool> ValidatePaymentIfRequiredAsync(UpdateDataType data)
+    {
+        if (!RequiresPaymentValidation(data)) return true;
+
+        _log.LogDebug("Validating payment for FileId {FileId}, AppId {AppId}, RRR {Rrr}",
+            data.fileId, data.applicationId, data.paymentId);
+        var (status, _) = await CheckStatusViaOrderId(data.paymentId);
+        if (status) return true;
+
+        _log.LogWarning("Payment validation failed for FileId {FileId}, AppId {AppId}, RRR {Rrr}",
+            data.fileId, data.applicationId, data.paymentId);
+        return false;
+    }
+
+    private async Task ApplyNewApplicationStatusUpdatesAsync(UpdateDataType data, string userName,
+        List<UpdateDefinition<Filling>> operations, PerformanceDto perf)
+    {
+        if (data.applicationType is not FormApplicationTypes.NewApplication) return;
+
+        operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+
+        if (data.AfterStatus is ApplicationStatuses.Active)
+        {
+            var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId,
+                FormApplicationTypes.NewApplication);
+            _log.LogDebug("Calculated expiry date {ExpiryDate} for FileId {FileId}", nextDate, data.fileId);
+
+            if (data.FileType != FileTypes.TradeMark)
+            {
+                operations.Add(Builders<Filling>.Update.AddToSetEach(
+                    "ApplicationHistory.$.ApplicationLetters",
+                    [ApplicationLetters.NewApplicationAcceptance, ApplicationLetters.NewApplicationCertificate]));
+            }
+
+            if (data.FileType is FileTypes.TradeMark)
+            {
+                var rtmCounter = await _countersCollection.Find(e => e.id == "RTM").FirstOrDefaultAsync();
+                if (rtmCounter == null)
                 {
-                    operations.Add(Builders<Filling>.Update.AddToSetEach(
-                        "ApplicationHistory.$.ApplicationLetters",
-                        [
-                            ApplicationLetters.NewApplicationAcceptance,
-                            ApplicationLetters.NewApplicationCertificate
-                        ]));
+                    _log.LogError("RTM counter not found while activating trademark file {FileId}", data.fileId);
+                    throw new InvalidOperationException("RTM counter not found");
                 }
-                //assign RTM
-                if (data.FileType is FileTypes.TradeMark)
+
+                _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmCounter.currentNumber,
+                    data.fileId);
+                operations.Add(Builders<Filling>.Update.AddToSetEach(
+                    "ApplicationHistory.$.ApplicationLetters",
+                    [ApplicationLetters.NewApplicationCertificate]));
+                operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmCounter.currentNumber.ToString()));
+
+                await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
+                    Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
+
+                var signatory = await SignDocument("trademarkCertificateSignatory");
+                if (signatory is null)
                 {
-                    var rtmNumber = _countersCollection.Find(e => e.id == "RTM").FirstOrDefault().currentNumber;
-                    _log.LogDebug("Assigning RTM number {RtmNumber} to FileId {FileId}", rtmNumber, data.fileId);
-                    operations.Add(Builders<Filling>.Update.AddToSetEach(
-                        "ApplicationHistory.$.ApplicationLetters",
-                        [
-                            ApplicationLetters.NewApplicationCertificate
-                        ]));
-                    operations.Add(Builders<Filling>.Update.Set(x => x.RtmNumber, rtmNumber.ToString()));
-                    await _countersCollection.FindOneAndUpdateAsync(e => e.id == "RTM",
-                        Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
-                    perf.OfficeUnit = Roles.TrademarkCertification;
-                }
-                else if (data.FileType is FileTypes.Patent)
-                {
-                    perf.OfficeUnit = Roles.PatentCertification;
+                    _log.LogWarning("No active trademark certificate signatory found for FileId {FileId}", data.fileId);
                 }
                 else
                 {
-                    perf.OfficeUnit = Roles.DesignCertification;
+                    operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.SignatureId", signatory.Value.Item2));
+                    operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.SignatoryName", signatory.Value.Item1));
                 }
-                
 
-                operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
+                perf.OfficeUnit = Roles.TrademarkCertification;
             }
-            if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer || data.AfterStatus is ApplicationStatuses.Rejected)
+            else if (data.FileType is FileTypes.Patent)
             {
-                _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
-                var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1)
-                    .ToListAsync()).First();
-                operations.Add(Builders<Filling>.Update.Push(
-                    "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
-                if (data.FileType is FileTypes.TradeMark)
-                {
-                    perf.OfficeUnit = Roles.TrademarkExaminer;
-                }
-                else if (data.FileType is FileTypes.Patent)
-                {
-                    perf.OfficeUnit = Roles.PatentExaminer;
-                }
-                else
-                {
-                    perf.OfficeUnit = Roles.DesignExaminer;
-                }
+                perf.OfficeUnit = Roles.PatentCertification;
             }
-            if (data.AfterStatus is ApplicationStatuses.Publication)
+            else
             {
-                var publish = new PublicationDto
-                {
-                    FileNumber = data.fileNumber,
-                    Comment = data.message,
-                    StaffId = data.userId,
-                    StaffName = userName,
-                };
-                var pubResult = await _publicationServices.SavePublication(publish);
-                if (pubResult is null)
-                {
-                    _log.LogError("Failed to save publication data for FileId {FileId}", data.fileId);
-                    throw new NullReferenceException("Failed to save publication data");
-                }
-                perf.OfficeUnit = Roles.TrademarkExaminer;
+                perf.OfficeUnit = Roles.DesignCertification;
             }
+
+            operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
         }
 
-        //if (data.applicationType is FormApplicationTypes.LicenseRenewal)
-        //{
-        //    var dt = _fillingCollection.Find(Builders<Filling>.Filter.And(
-        //        Builders<Filling>.Filter.Eq(a => a.Id, data.fileId)
-        //    )).FirstOrDefault();
+        if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer or ApplicationStatuses.Rejected)
+        {
+            _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
+            operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters",
+                ApplicationLetters.NewApplicationRejection));
 
-        //    if (dt.ApplicationHistory.Select(x => x.ExpiryDate)
-        //        .ToList().Any(y => y < DateOnly.FromDateTime(DateTime.Now)))
-        //    {
-        //        operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
-        //    }
-        //    if (data.AfterStatus is ApplicationStatuses.Active or ApplicationStatuses.Approved)
-        //    {
-        //        var nextDate = getNewExpiryDate(data.dates, data.FileType ?? FileTypes.Design, data.fileId, FormApplicationTypes.LicenseRenewal);
-        //        if (data.applicationType == FormApplicationTypes.LicenseRenewal)
-        //        {
-        //            operations.Add(Builders<Filling>.Update.Push(
-        //                "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.RenewalCertificate));
-        //        }
-        //        operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
-        //    }
+            if (data.FileType is FileTypes.TradeMark) perf.OfficeUnit = Roles.TrademarkExaminer;
+            else if (data.FileType is FileTypes.Patent) perf.OfficeUnit = Roles.PatentExaminer;
+            else perf.OfficeUnit = Roles.DesignExaminer;
+        }
 
-        //    if (data.AfterStatus is ApplicationStatuses.RejectedByExaminer)
-        //    {
-        //        var fil = (await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, data.fileId)).Limit(1).ToListAsync()).First();
-        //        operations.Add(Builders<Filling>.Update.Push(
-        //            "ApplicationHistory.$.ApplicationLetters", ApplicationLetters.NewApplicationRejection));
-        //    }
-        //}
-        
+        if (data.AfterStatus is not ApplicationStatuses.Publication) return;
 
-        var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", data.fileId),
+        var publish = new PublicationDto
+        {
+            FileNumber = data.fileNumber,
+            Comment = data.message,
+            StaffId = data.userId,
+            StaffName = userName,
+        };
+        var pubResult = await _publicationServices.SavePublication(publish);
+        if (pubResult is null)
+        {
+            _log.LogError("Failed to save publication data for FileId {FileId}", data.fileId);
+            throw new NullReferenceException("Failed to save publication data");
+        }
+
+        _log.LogDebug("Publication saved for FileId {FileId} with Id {PublicationId}", data.fileId, pubResult);
+        perf.OfficeUnit = Roles.TrademarkExaminer;
+    }
+
+    private async Task<Filling?> ApplyApplicationStatusUpdateAsync(UpdateDataType data,
+        List<UpdateDefinition<Filling>> operations)
+    {
+        var filter = Builders<Filling>.Filter.And(
+            Builders<Filling>.Filter.Eq("_id", data.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == data.applicationId));
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
-        var result = await _fillingCollection.FindOneAndUpdateAsync(filter, Builders<Filling>.Update.Combine(operations), options);
-        SavePerformance(perf);
-        _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, NewStatus {Status}",
-            data.fileId, data.AfterStatus);
-        return result;
+        return await _fillingCollection.FindOneAndUpdateAsync(filter, Builders<Filling>.Update.Combine(operations), options);
+    }
 
+    private async Task SyncCertificationStatusAsync(UpdateDataType data, Filling result, ApplicationHistory history)
+    {
+        if (result.ApplicationHistory?.Any(a =>
+                a.ApplicationType == FormApplicationTypes.Certification && a.id != data.applicationId) != true) return;
+
+        var certFilter = Builders<Filling>.Filter.And(
+            Builders<Filling>.Filter.Eq("_id", data.fileId),
+            Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
+                a => a.ApplicationType == FormApplicationTypes.Certification && a.id != data.applicationId));
+
+        await _fillingCollection.UpdateOneAsync(
+            certFilter,Builders<Filling>.Update.Combine(
+            Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", data.AfterStatus),
+            Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", history)));
     }
 
     public async Task<PaginatedResponse> GetPaginatedSummaryAsync(int startingIndex, int quantity, SummaryRequestObj filter)
@@ -5200,7 +5244,8 @@ public class FilesServices
             //Signature for Certificate
             var signature = await _signatures.Find(a => a.Designation == "recordalSignatory" && a.IsActive == true).FirstOrDefaultAsync();
             app.SignatoryName = signature.Name;
-            app.Signature = signature.SignatureData;
+            app.SignatureId = signature.Id;
+            //app.Signature = signature.SignatureData;
 
             //Update reg user
             var regUser = file.RegisteredUsers?.FirstOrDefault(r => r.Id == recordalApp.appId);
@@ -13232,5 +13277,16 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         _log.LogError(e, "Failed to create restoration application");
         throw e;
     }
+    }
+
+private async Task<(string, string)?> SignDocument(string designation)
+    {
+        var signatory = _signatures.Find(s => s.Designation == designation && s.IsActive).FirstOrDefault();
+        if (signatory is null)
+        {
+            _log.LogDebug("Failed to find signatory");
+            return null;
+        }
+        return (signatory.Name, signatory.Id);
     }
 }
