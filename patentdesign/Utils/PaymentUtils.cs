@@ -1,16 +1,19 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using Bogus.DataSets;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Utils;
 
-public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
+public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<PaymentUtils> log)
 {
     private PaymentInfo _paymentInfo = remitaPaymentDetails.Value;
+    private readonly ILogger<PaymentUtils> _log = log;
 
     public  (string, string, string)  GetCost(PaymentTypes type,  FileTypes? fileType, string applicantNationality, DesignTypes? designType=null, PatentTypes? patentType=null, string? patentChangeType=null)
     {
@@ -572,6 +575,12 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
 
     public async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
     {
+        if (string.IsNullOrWhiteSpace(rrr))
+        {
+            _log.LogWarning("GetDetailsByRRR called with an empty rrr");
+            return null;
+        }
+
         const string merchantId = "6230040240";
         const string apiKey = "192753";
         var test = rrr + apiKey + merchantId;
@@ -579,28 +588,72 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
         var hash = Convert.ToHexString(apiHash).ToLower();
         var transactionStatusUrl =
             $"https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/{merchantId}/{rrr}/{hash}/status.reg";
-        var client = new HttpClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
-        request.Headers.TryAddWithoutValidation("Authorization",
-            $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
-        var response = await client.SendAsync(request);
-        var dataMod = await response.Content.ReadAsStringAsync();
-        RemitaResponseClass? obj = null;
+
+        _log.LogInformation("Fetching Remita payment details by rrr: {Rrr}", rrr);
+
         try
         {
-            obj = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod);
-        }
-        catch (Exception e)
-        {
-            obj = null;
-        }
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
+            request.Headers.TryAddWithoutValidation("Authorization",
+                $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
 
-        return obj;
+            using var response = await client.SendAsync(request);
+            var dataMod = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _log.LogWarning("Remita RRR status request failed for rrr {Rrr}. StatusCode: {StatusCode}. Response: {Response}",
+                    rrr, (int)response.StatusCode, dataMod);
+                return null;
+            }
+
+            var result = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null)
+            {
+                _log.LogWarning("Remita returned an empty payload for rrr {Rrr}", rrr);
+                return null;
+            }
+
+            result.paymentDate = FormatPaymentDate(result.paymentDate);
+
+            _log.LogInformation("Successfully fetched Remita details for rrr {Rrr}", rrr);
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            _log.LogError(ex, "Failed to deserialize Remita response for rrr {Rrr}", rrr);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogError(ex, "HTTP error while fetching Remita details for rrr {Rrr}", rrr);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _log.LogError(ex, "Request timed out while fetching Remita details for rrr {Rrr}", rrr);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Unexpected error while fetching Remita details for rrr {Rrr}", rrr);
+            return null;
+        }
     }
 
     public async Task<RemitaResponseClass?> GetDetailsByOrderId(string orderId)
     {
-        Console.WriteLine($"Getting details based on orderId, {orderId}");
+        if (string.IsNullOrWhiteSpace(orderId))
+        {
+            _log.LogWarning("GetDetailsByOrderId called with an empty orderId");
+            return null;
+        }
+
         const string merchantId = "6230040240";
         const string apiKey = "192753";
         var test = orderId + apiKey + merchantId;
@@ -608,27 +661,92 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
         var hash = Convert.ToHexString(apiHash).ToLower();
         var transactionStatusUrl =
             $"https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/{merchantId}/{orderId}/{hash}/orderstatus.reg";
-        var client = new HttpClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
-        request.Headers.TryAddWithoutValidation("Authorization",
-            $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
-        var response = await client.SendAsync(request);
-        var dataMod = await response.Content.ReadAsStringAsync();
-        RemitaResponseClass? obj = null;
+
+        _log.LogInformation("Fetching Remita payment details by orderId: {OrderId}", orderId);
+
         try
         {
-            obj = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod);
-            return obj;
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
+            request.Headers.TryAddWithoutValidation("Authorization",
+                $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
+
+            using var response = await client.SendAsync(request);
+            var dataMod = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _log.LogWarning("Remita order status request failed for orderId {OrderId}. StatusCode: {StatusCode}. Response: {Response}",
+                    orderId, (int)response.StatusCode, dataMod);
+                return null;
+            }
+
+            var result = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null)
+            {
+                _log.LogWarning("Remita returned an empty payload for orderId {OrderId}", orderId);
+                return null;
+            }
+
+            result.paymentDate = FormatPaymentDate(result.paymentDate);
+
+            _log.LogInformation("Successfully fetched Remita details for orderId {OrderId}", orderId);
+            return result;
         }
-        catch (Exception e)
+        catch (JsonException ex)
         {
+            _log.LogError(ex, "Failed to deserialize Remita response for orderId {OrderId}", orderId);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogError(ex, "HTTP error while fetching Remita details for orderId {OrderId}", orderId);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _log.LogError(ex, "Request timed out while fetching Remita details for orderId {OrderId}", orderId);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Unexpected error while fetching Remita details for orderId {OrderId}", orderId);
             return null;
         }
     }
 
-    public (string, string, string?) GetPatentLateRenewalCost()
+    private static string? FormatPaymentDate(string? paymentDate)
     {
-        return (_paymentInfo.PatentLateRenewalCost, _paymentInfo.PatentLateRenewalServiceFee, _paymentInfo.PatentLateRenewalServiceID);
+        if (string.IsNullOrWhiteSpace(paymentDate))
+        {
+            return paymentDate;
+        }
+
+        var inputFormats = new[]
+        {
+            "yyyy-MM-dd HH:mm:ss.F",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.fff"
+        };
+
+        if (DateTime.TryParseExact(paymentDate, inputFormats, CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var parsedDate))
+        {
+            return parsedDate.ToString("dd MMMM, yyyy", CultureInfo.InvariantCulture);
+        }
+
+        if (DateTime.TryParse(paymentDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsedDate))
+        {
+            return parsedDate.ToString("dd MMMM, yyyy", CultureInfo.InvariantCulture);
+        }
+
+        return paymentDate;
     }
+
+
 }
 
