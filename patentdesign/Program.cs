@@ -149,6 +149,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
             )
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    path.StartsWithSegments("/hubs/notifications"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 // ------------------ QuestPDF ------------------
@@ -208,6 +225,7 @@ builder.Services.AddProblemDetails();
 
 // ------------------ Services ------------------
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddSingleton<OppositionService>();
 builder.Services.AddSingleton<FilesServices>();
@@ -265,5 +283,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();

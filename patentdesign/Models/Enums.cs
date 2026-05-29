@@ -126,4 +126,32 @@
         High,
         Critical
     }
+
+    public enum NotificationAudience
+    {
+        User,
+        System
+    }
+    public enum NotificationCategory
+    {
+        Application,
+        Payment,
+        CustomerSupport,
+        Security,
+        System,
+        Messaging
+    }
+    public enum NotificationPriority
+    {
+        Low,
+        Medium,
+        High,
+        Critical
+    }
+    public enum NotificationTemplate
+    {
+        ApplicationUpdate,
+        PaymentUpdate,
+        StatusUpdate,
+    }
 }
