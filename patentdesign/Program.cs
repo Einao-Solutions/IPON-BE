@@ -7,6 +7,7 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;
@@ -208,6 +209,9 @@ BsonSerializer.RegisterSerializer(typeof(TicketState), new EnumSerializer<Ticket
 BsonSerializer.RegisterSerializer(typeof(FormApplicationTypes), new EnumSerializer<FormApplicationTypes>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkType), new EnumSerializer<TradeMarkType>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkLogo), new EnumSerializer<TradeMarkLogo>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationCategory), new EnumSerializer<NotificationCategory>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationAudience), new EnumSerializer<NotificationAudience>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationPriority), new EnumSerializer<NotificationPriority>(BsonType.String));
 
 // ------------------ Controllers & Swagger ------------------
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -244,7 +248,7 @@ builder.Services.AddSingleton<PublicationServices>();
 builder.Services.AddSingleton<NotificationServices>();
 
 //------------------- Background Jobs ------------------
-builder.Services.AddHostedService<PublishTrademarkJob>();
+//builder.Services.AddHostedService<PublishTrademarkJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------

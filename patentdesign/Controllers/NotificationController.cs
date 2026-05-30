@@ -11,7 +11,7 @@ namespace patentdesign.Controllers
     [ApiController]
     public class NotificationController(NotificationServices notificationServices) : ControllerBase
     {
-        [HttpGet]
+        [HttpGet("GetNotifications")]
         public async Task<IActionResult> GetNotifications([FromQuery]string userId) 
         {
             var notifs = await notificationServices.GetNotificationsAsync(userId);
