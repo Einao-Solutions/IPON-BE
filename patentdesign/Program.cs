@@ -225,7 +225,7 @@ builder.Services.AddSingleton<StatisticsService>();
 builder.Services.AddSingleton<PublicationServices>();
 
 //------------------- Background Jobs ------------------
-builder.Services.AddHostedService<PublishTrademarkJob>();
+//builder.Services.AddHostedService<PublishTrademarkJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------
