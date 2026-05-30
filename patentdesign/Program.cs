@@ -241,6 +241,7 @@ builder.Services.AddSingleton<AuthServices>();
 builder.Services.AddSingleton<AdminServices>();
 builder.Services.AddSingleton<StatisticsService>();
 builder.Services.AddSingleton<PublicationServices>();
+builder.Services.AddSingleton<NotificationServices>();
 
 //------------------- Background Jobs ------------------
 builder.Services.AddHostedService<PublishTrademarkJob>();
