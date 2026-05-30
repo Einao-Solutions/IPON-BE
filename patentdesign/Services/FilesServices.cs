@@ -109,6 +109,13 @@ public class FilesServices
     // atomically create file
     public async Task CreateFileAsync(Filling newFile)
     {
+        // Check for existing file with the same FileId (idempotency)
+        var existing = await _fillingCollection.Find(x => x.FileId == newFile.FileId).FirstOrDefaultAsync();
+        if (existing != null)
+        {
+            _log.LogInformation("File with FileId {FileId} already exists. Skipping creation.", newFile.FileId);
+            return;
+        }
         newFile.FileId = string.Join("/", [newFile.FileId, Guid.NewGuid().ToString().Split("-")[0]]);
         _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);

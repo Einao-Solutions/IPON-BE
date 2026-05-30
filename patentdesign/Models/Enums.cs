@@ -139,7 +139,8 @@
         CustomerSupport,
         Security,
         System,
-        Messaging
+        Messaging,
+        Renewal
     }
     public enum NotificationPriority
     {
