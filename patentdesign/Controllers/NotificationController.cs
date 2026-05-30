@@ -1,6 +1,8 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using static QuestPDF.Helpers.Colors;
@@ -35,6 +37,7 @@ namespace patentdesign.Controllers
             await notificationServices.MarkAllAsReadAsync(userId);
             return Ok(new { message = "All notifications marked as read" });
         }
+        [Authorize(Roles = nameof(Roles.SuperAdmin))]
         [HttpPost]
         public async Task<IActionResult> CreateNotification([FromBody] CreateNotificationDto dto)
         {
