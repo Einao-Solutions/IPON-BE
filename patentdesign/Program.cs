@@ -249,6 +249,7 @@ builder.Services.AddSingleton<NotificationServices>();
 
 //------------------- Background Jobs ------------------
 //builder.Services.AddHostedService<PublishTrademarkJob>();
+builder.Services.AddHostedService<NotificationJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------

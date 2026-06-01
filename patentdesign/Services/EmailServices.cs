@@ -34,6 +34,9 @@ public class EmailServices
             case EmailType.Opposition:
                 body = PopulateOppositionMail(dto.OppositionMail);
                 break;
+            case EmailType.RenewalEarlyReminder:
+                body = PopulateRenewalReminder(dto.RenewalReminder);
+                break;
             case EmailType.CounterStatement:
                 body = PopulateCounterStatementMail(dto.CounterStatementMail);
                 break;
@@ -61,6 +64,12 @@ public class EmailServices
 
         var builder = new BodyBuilder();
         builder.HtmlBody = body;
+
+        if (dto.EmailType == EmailType.RenewalEarlyReminder || dto.EmailType == EmailType.ResetPassword)
+        {
+            AttachMinistryLogo(builder);
+        }
+
         message.Body = builder.ToMessageBody();
 
         using (var client = new SmtpClient(new MailKit.ProtocolLogger(Console.OpenStandardError())))
@@ -131,6 +140,13 @@ public class EmailServices
             template = reader.ReadToEnd();
         }
 
+        var logoPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "ministry.png");
+        var logoExists = File.Exists(logoPath);
+        if (!logoExists)
+        {
+            _log.LogWarning("Announcement logo was not found at {LogoPath}", logoPath);
+        }
+
         using var client = new SmtpClient();
         try
         {
@@ -157,9 +173,17 @@ public class EmailServices
                     message.Subject = dto.Subject;
 
                     var html = template.Replace("{{UserName}}", recipient.Value)
-                        .Replace("{{Message}}", dto.Body);
+                        .Replace("{{Message}}", dto.Body)
+                        .Replace("{{CurrentYear}}", DateTime.UtcNow.Year.ToString());
 
-                    message.Body = new BodyBuilder { HtmlBody = html }.ToMessageBody();
+                    var builder = new BodyBuilder { HtmlBody = html };
+                    if (logoExists)
+                    {
+                        var logo = builder.LinkedResources.Add(logoPath);
+                        logo.ContentId = "ministry-logo";
+                    }
+
+                    message.Body = builder.ToMessageBody();
                     await client.SendAsync(message);
                     sentCount++;
                 }
@@ -180,6 +204,19 @@ public class EmailServices
             if (client.IsConnected)
                 await client.DisconnectAsync(true);
         }
+    }
+
+    private void AttachMinistryLogo(BodyBuilder builder)
+    {
+        var logoPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "ministry.png");
+        if (File.Exists(logoPath))
+        {
+            var logo = builder.LinkedResources.Add(logoPath);
+            logo.ContentId = "ministry-logo";
+            return;
+        }
+
+        _log.LogWarning("Email logo was not found at {LogoPath}", logoPath);
     }
 
     private string PopulateOppositionConfirmationMail(OppositionConfirmationMail dto)
@@ -258,6 +295,7 @@ public class EmailServices
 
         body = body.Replace("{{ResetLink}}", dto.ResetLink);
         body = body.Replace("{{UserName}}", dto.UserName);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -327,5 +365,32 @@ public class EmailServices
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         body = body.Replace("{Reason}",        dto.Reason ?? "");
         return body;
+    }
+    private string PopulateRenewalReminder(RenewalReminder dto)
+    {
+        _log.LogDebug("Populating renewal reminder mail template for applicant {Applicant}, file {FileNumber}",
+            dto.ApplicantName, dto.FileNumber);
+
+        string body = string.Empty;
+        string filePath = dto.IsExpiryDay ? Directory.GetCurrentDirectory() + @"\Templates\RenewalDueNotification.html" : Directory.GetCurrentDirectory() + @"\Templates\RenewalReminder.html";
+        bool isTrademark = dto.Type == Models.FileTypes.TradeMark; 
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{{ApplicantName}}", dto.ApplicantName);
+        body = body.Replace("{{FileNumber}}", dto.FileNumber);
+        body = body.Replace("{{Title}}", dto.Title);
+        body = body.Replace("{{DueDate}}", dto.RenewalDue.ToString("dd MMMM, yyyy"));
+        body = body.Replace("{{Class}}", dto.Class.ToString());
+        body = body.Replace("{{RegistryName}}", isTrademark ? "Trademarks" : "Patents & Designs");
+        body = ApplyCommonTemplateTokens(body);
+
+        return body;
+    }
+
+    private static string ApplyCommonTemplateTokens(string body)
+    {
+        return body.Replace("{{CurrentYear}}", DateTime.UtcNow.Year.ToString());
     }
 }

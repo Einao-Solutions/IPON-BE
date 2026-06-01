@@ -50,12 +50,18 @@ namespace patentdesign.pdfs
 
                 column.Item().Height(70).PaddingTop(10).Row(row =>
                 {
-                    if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
+                    if (model.TrademarkLogo is TradeMarkLogo.Device or TradeMarkLogo.WordandDevice &&
                         model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
                         PdfImageHelper.TryDecodeImage(imageData))
                     {
                         row.RelativeItem().AlignCenter().Image(imageData!).FitArea();
+                        if (model.TrademarkLogo is TradeMarkLogo.WordandDevice)
+                        {
+                            row.RelativeItem().AlignCenter().Text(model.TitleOfTradeMark ?? "N/A")
+                                .FontSize(18).FontFamily(Fonts.TimesNewRoman);
+                        }
                     }
+                    
                     else
                     {
                         row.RelativeItem().AlignCenter().Text(model.TitleOfTradeMark ?? "N/A")
