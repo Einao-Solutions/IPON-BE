@@ -2,23 +2,31 @@
 using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Utils;
+using Serilog;
 
 namespace patentdesign.Services
 {
     public class NotificationServices
     {
         private static IMongoCollection<Notification> _notifications;
+        private static IMongoCollection<Filling> _files;
+        private static IMongoCollection<AppUser> _users;
         private readonly IHubContext<NotificationHub> _hubContext;
         private readonly ILogger<NotificationServices> _logger;
+        private readonly EmailServices _emailServices;
 
-        public NotificationServices(IHubContext<NotificationHub> hubContext, IMongoDatabase db, ILogger<NotificationServices> logger)
+        public NotificationServices(IHubContext<NotificationHub> hubContext, IMongoDatabase db, ILogger<NotificationServices> logger, EmailServices emailServices)
         {
             _hubContext = hubContext;
             _notifications = db.GetCollection<Notification>("notifications");
+            _files = db.GetCollection<Filling>("files");
             _logger = logger;
+            _users = db.GetCollection<AppUser>("appUsers");
+            _emailServices = emailServices;
         }
 
         public async Task CreateNotificationAsync(CreateNotificationDto dto)
@@ -136,7 +144,6 @@ namespace patentdesign.Services
 
             _logger.LogInformation("Notification {NotificationId} marked as read", id);
         }
-
         public async Task MarkAllAsReadAsync(string userId)
         {
             _logger.LogInformation("Marking all unread notifications as read for user {UserId}", userId);
@@ -159,6 +166,156 @@ namespace patentdesign.Services
             );
 
             _logger.LogInformation("Marked {ModifiedCount} notifications as read for user {UserId}", result.ModifiedCount, userId);
+        }
+        public async Task<int> RenewalNotifications()
+        {
+            _logger.LogInformation("Renewal Notifications");
+
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var cutoffDate = today.AddDays(90);
+
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(p => p.FileStatus, ApplicationStatuses.Active),
+                Builders<Filling>.Filter.Gte("ApplicationHistory.0.ExpiryDate", today),
+                Builders<Filling>.Filter.Lte("ApplicationHistory.0.ExpiryDate", cutoffDate));
+
+            var files = await _files.Find(filter).ToListAsync();
+
+            if (files.Count == 0)
+            {
+                _logger.LogInformation("No trademarks found eligible for publishing");
+                return 0;
+            }
+
+            var sentCount = 0;
+
+            foreach (var file in files) 
+            {
+                var expiryDate = file.ApplicationHistory?.FirstOrDefault()?.ExpiryDate;
+                if (!expiryDate.HasValue)
+                {
+                    _logger.LogWarning("Skipping renewal notification for file {FileId} because no expiry date was found", file.Id);
+                    continue;
+                }
+
+                var daysUntilExpiry = expiryDate.Value.DayNumber - today.DayNumber;
+                if (daysUntilExpiry != 90 && daysUntilExpiry != 0)
+                {
+                    continue;
+                }
+
+                var recipient = await ResolveRecipientAsync(file.CreatorAccount);
+                if (string.IsNullOrWhiteSpace(recipient))
+                {
+                    _logger.LogWarning("Skipping renewal notification for file {FileId} because no recipient could be resolved", file.Id);
+                    continue;
+                }
+
+                var notificationDto = BuildRenewalNotificationDto(file, recipient, expiryDate.Value, daysUntilExpiry == 0);
+
+                var wasSent = await HasRenewalReminderBeenSentAsync(file.FileId, recipient, notificationDto.Title);
+                if (wasSent)
+                {
+                    _logger.LogDebug("Skipping duplicate renewal reminder for file {FileId} and recipient {Recipient}", file.FileId, recipient);
+                    continue;
+                }
+
+                await CreateNotificationAsync(notificationDto);
+
+                var emailRecipient = await ResolveEmailAsync(file.CreatorAccount);
+                if (!string.IsNullOrWhiteSpace(emailRecipient))
+                {
+                    var emailDto = BuildRenewalReminderEmailDto(file, emailRecipient, expiryDate.Value, daysUntilExpiry == 0);
+                    await _emailServices.SendMail(emailDto);
+                }
+                else
+                {
+                    _logger.LogWarning("Renewal reminder email skipped for file {FileId} because no email could be resolved", file.Id);
+                }
+
+                sentCount++;
+            }
+
+            return sentCount;
+
+        }
+        private async Task<bool> HasRenewalReminderBeenSentAsync(string fileNumber, string recipientId, string title)
+        {
+            var sentFilter = Builders<Notification>.Filter.And(
+                Builders<Notification>.Filter.Eq(x => x.Category, NotificationCategory.Renewal),
+                Builders<Notification>.Filter.Eq(x => x.FileNumber, fileNumber),
+                Builders<Notification>.Filter.Eq(x => x.RecipientId, recipientId),
+                Builders<Notification>.Filter.Eq(x => x.Title, title));
+
+            return await _notifications.Find(sentFilter).AnyAsync();
+        }
+        private async Task<string?> ResolveEmailAsync(string? creatorAccount)
+        {
+            if (string.IsNullOrWhiteSpace(creatorAccount))
+            {
+                return null;
+            }
+
+            var fileCreator = await _users.Find(u => u.CreatorId == creatorAccount).FirstOrDefaultAsync();
+            if (fileCreator is null || string.IsNullOrWhiteSpace(fileCreator.Email))
+            {
+                return null;
+            }
+
+            return fileCreator.Email;
+        }
+        private async Task<string?> ResolveRecipientAsync(string? creatorAccount)
+        {
+            if (string.IsNullOrWhiteSpace(creatorAccount))
+            {
+                return null;
+            }
+
+            var fileCreator = await _users.Find(u => u.CreatorId == creatorAccount).FirstOrDefaultAsync();
+            if (fileCreator is null)
+            {
+                return null;
+            }
+
+            return !string.IsNullOrWhiteSpace(fileCreator.Email)
+                ? fileCreator.Email
+                : fileCreator.Id;
+        }
+        private static CreateNotificationDto BuildRenewalNotificationDto(Filling file, string recipient, DateOnly expiryDate, bool isExpiryDay)
+        {
+            return new CreateNotificationDto
+            {
+                Audience = NotificationAudience.User,
+                RecipientId = recipient,
+                Title = isExpiryDay ? "Trademark Renewal Due Today" : "Trademark Renewal Reminder (90 Days)",
+                Message = isExpiryDay
+                    ? $"Your trademark with File Number {file.FileId} is due for renewal today ({expiryDate:MMMM dd, yyyy}). Please take necessary action immediately."
+                    : $"Your trademark with File Number {file.FileId} is due for renewal on {expiryDate:MMMM dd, yyyy}. This is your 90-day reminder.",
+                Category = NotificationCategory.Renewal,
+                Priority = NotificationPriority.High,
+                CreatedBy = "System",
+                FileNumber = file.FileId,
+                ActionUrl = $"https://yourdomain.com/trademarks/{file.FileId}/renewal"
+            };
+        }
+        private static EmailDto BuildRenewalReminderEmailDto(Filling file, string recipientEmail, DateOnly expiryDate, bool isExpiryDay)
+        {
+            return new EmailDto
+            {
+                To = recipientEmail,
+                Subject = isExpiryDay ? "Trademark Renewal Due Today" : "Trademark Renewal Reminder (90 Days)",
+                EmailType = isExpiryDay ? EmailType.RenewalDueNotice : EmailType.RenewalEarlyReminder,
+                RenewalReminder = new RenewalReminder
+                {
+                    ApplicantName = file.applicants?.FirstOrDefault()?.Name ?? "Applicant",
+                    FileNumber = file.FileId,
+                    Title = file.TitleOfTradeMark ?? file.TitleOfDesign ?? file.TitleOfInvention ?? "Trademark",
+                    RenewalDue = expiryDate.ToDateTime(TimeOnly.MinValue),
+                    Type = file.Type,
+                    Class = file.TrademarkClass ?? 0,
+                    IsExpiryDay = isExpiryDay
+                }
+            };
         }
     }
 }
