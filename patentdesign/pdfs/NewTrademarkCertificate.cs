@@ -76,7 +76,7 @@ namespace patentdesign.pdfs
                 column.Item().Text(app?.Applicants[0].Name ?? applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(13);
-                var applicantAddress = model.applicants?.FirstOrDefault()?.Address ?? "N/A";
+                var applicantAddress = model.ApplicationHistory[0].Applicants[0].Address ?? model.applicants?.FirstOrDefault()?.Address ?? "N/A";
                 column.Item().Text(applicantAddress).FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(7);
