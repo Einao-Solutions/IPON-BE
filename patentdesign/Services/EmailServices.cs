@@ -242,6 +242,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}",       dto.FileTitle);
         body = body.Replace("{DateFiled}",       dto.DateFiled);
         body = body.Replace("{PaymentReference}", dto.PaymentReference);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -262,6 +263,7 @@ public class EmailServices
         body = body.Replace("{FileOwnerName}", dto.FileOwnerName);
         body = body.Replace("{CounterStatementDate}", dto.CounterStatementDate);
         body = body.Replace("{SignatoryName}", dto.SignatoryName ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -284,7 +286,7 @@ public class EmailServices
         body = body.Replace("{OppositionDate}", dto.OppositionDate);
         body = body.Replace("{SignatoryName}", dto.SignatoryName);
         body = body.Replace("{OppositionId}", dto.OppositionId ?? "");
-
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -322,6 +324,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}", dto.FileTitle);
         body = body.Replace("{OppositionId}", dto.OppositionId);
         body = body.Replace("{DateFiled}", dto.DateFiled);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -339,6 +342,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}",     dto.FileTitle);
         body = body.Replace("{OppositionId}",  dto.OppositionId ?? "");
         body = body.Replace("{WithdrawalDate}",dto.WithdrawalDate);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -355,6 +359,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         body = body.Replace("{Reason}",        dto.Reason ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -370,6 +375,7 @@ public class EmailServices
         body = body.Replace("{FileNumber}",    dto.FileNumber);
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         body = body.Replace("{Reason}",        dto.Reason ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -385,6 +391,7 @@ public class EmailServices
         body = body.Replace("{FileNumber}",    dto.FileNumber);
         body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -400,6 +407,7 @@ public class EmailServices
         body = body.Replace("{FileNumber}",    dto.FileNumber);
         body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
