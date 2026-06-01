@@ -18,6 +18,7 @@ public class EmailDto
     public WithdrawalNotificationMail? WithdrawalNotificationMail { get; set; }
     public WithdrawalApprovedMail? WithdrawalApprovedMail { get; set; }
     public WithdrawalRefusedMail? WithdrawalRefusedMail { get; set; }
+    public RenewalReminder? RenewalReminder { get; set; }
 }
 
 public class BulkEmailDto
@@ -121,4 +122,12 @@ public class StatusUpdateMail
     public string NewStatus { get; set; }
     public DateTime DateTreated { get; set; }
     public string? Remarks { get; set; }
+}
+public class RenewalReminder 
+{ 
+    public string? ApplicantName { get; set; }
+    public string FileNumber { get; set; }
+    public string Title { get; set; }
+    public DateTime RenewalDue { get; set; }
+
 }

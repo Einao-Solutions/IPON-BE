@@ -34,6 +34,9 @@ public class EmailServices
             case EmailType.Opposition:
                 body = PopulateOppositionMail(dto.OppositionMail);
                 break;
+            case EmailType.RenewalReminder:
+                body = PopulateRenewalReminder(dto.RenewalReminder);
+                break;
             case EmailType.CounterStatement:
                 body = PopulateCounterStatementMail(dto.CounterStatementMail);
                 break;
@@ -323,5 +326,23 @@ You will be notified once a decision has been made.</p>
 <p><strong>Reason:</strong> {dto.Reason}</p>
 <p>The opposition remains active.</p>
 <p>Regards,<br/>IPON Registry</p></body></html>";
+    }
+    private string PopulateRenewalReminder(RenewalReminder dto)
+    {
+        _log.LogDebug("Populating renewal reminder mail template for applicant {Applicant}, file {FileNumber}",
+            dto.ApplicantName, dto.FileNumber);
+
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\RenewalReminder.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{ApplicantName}", dto.ApplicantName);
+        body = body.Replace("{FileNumber}", dto.FileNumber);
+        body = body.Replace("{Title}", dto.Title);
+        body = body.Replace("{DueDate}", dto.RenewalDue.ToString("dd MMMM, yyyy"));
+
+        return body;
     }
 }
