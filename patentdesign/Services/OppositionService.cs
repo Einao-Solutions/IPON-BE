@@ -2704,16 +2704,14 @@ public class OppositionService
                     {
                         To        = applicant.Email,
                         Subject   = "Opposition Against Your Trademark Withdrawn",
-                        EmailType = EmailType.WithdrawalApproved,
-                        WithdrawalApprovedMail = new WithdrawalApprovedMail
+                        EmailType = EmailType.WithdrawalApprovedApplicant,
+                        WithdrawalApprovedApplicantMail = new WithdrawalApprovedApplicantMail
                         {
                             To            = applicant.Email,
                             RecipientName = applicant.Name ?? applicant.Email,
                             FileNumber    = fileId,
                             FileTitle     = opp.FileTitle ?? "",
-                            OfficerName   = officerName,
-                            Reason        = dto.Reason,
-                            RecipientRole = "applicant"
+                            OfficerName   = officerName
                         }
                     });
                 }
@@ -2737,6 +2735,26 @@ public class OppositionService
                         Reason        = dto.Reason
                     }
                 });
+
+                // Email file applicant
+                var refusedApplicant = file?.applicants?.FirstOrDefault();
+                if (refusedApplicant != null && !string.IsNullOrWhiteSpace(refusedApplicant.Email))
+                {
+                    _ = _emailServices.SendMail(new EmailDto
+                    {
+                        To        = refusedApplicant.Email,
+                        Subject   = "Update on Opposition Against Your Trademark",
+                        EmailType = EmailType.WithdrawalRefusedApplicant,
+                        WithdrawalRefusedApplicantMail = new WithdrawalRefusedApplicantMail
+                        {
+                            To            = refusedApplicant.Email,
+                            RecipientName = refusedApplicant.Name ?? refusedApplicant.Email,
+                            FileNumber    = fileId,
+                            FileTitle     = opp.FileTitle ?? "",
+                            OfficerName   = officerName
+                        }
+                    });
+                }
 
                 return (true, "Withdrawal refused. No status changes made.");
             }

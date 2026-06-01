@@ -18,6 +18,8 @@ public class EmailDto
     public WithdrawalNotificationMail? WithdrawalNotificationMail { get; set; }
     public WithdrawalApprovedMail? WithdrawalApprovedMail { get; set; }
     public WithdrawalRefusedMail? WithdrawalRefusedMail { get; set; }
+    public WithdrawalApprovedApplicantMail? WithdrawalApprovedApplicantMail { get; set; }
+    public WithdrawalRefusedApplicantMail? WithdrawalRefusedApplicantMail { get; set; }
 }
 
 public class BulkEmailDto
@@ -106,6 +108,24 @@ public class WithdrawalRefusedMail
     public string FileNumber { get; set; }
     public string OfficerName { get; set; }
     public string Reason { get; set; }
+}
+
+public class WithdrawalApprovedApplicantMail
+{
+    public string To { get; set; }
+    public string RecipientName { get; set; }
+    public string FileNumber { get; set; }
+    public string FileTitle { get; set; }
+    public string OfficerName { get; set; }
+}
+
+public class WithdrawalRefusedApplicantMail
+{
+    public string To { get; set; }
+    public string RecipientName { get; set; }
+    public string FileNumber { get; set; }
+    public string FileTitle { get; set; }
+    public string OfficerName { get; set; }
 }
 
 public class ResetPasswordMail

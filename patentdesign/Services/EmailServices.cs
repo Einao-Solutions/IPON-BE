@@ -52,6 +52,12 @@ public class EmailServices
             case EmailType.WithdrawalRefused:
                 body = PopulateWithdrawalRefusedMail(dto.WithdrawalRefusedMail);
                 break;
+            case EmailType.WithdrawalApprovedApplicant:
+                body = PopulateWithdrawalApprovedApplicantMail(dto.WithdrawalApprovedApplicantMail);
+                break;
+            case EmailType.WithdrawalRefusedApplicant:
+                body = PopulateWithdrawalRefusedApplicantMail(dto.WithdrawalRefusedApplicantMail);
+                break;
             case EmailType.ResetPassword:
                 body = ResetPasswordMail(dto.ResetPasswordMail);
                 break;
@@ -326,6 +332,36 @@ public class EmailServices
         body = body.Replace("{FileNumber}",    dto.FileNumber);
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         body = body.Replace("{Reason}",        dto.Reason ?? "");
+        return body;
+    }
+
+    private string PopulateWithdrawalApprovedApplicantMail(WithdrawalApprovedApplicantMail dto)
+    {
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalApprovedApplicant.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{RecipientName}", dto.RecipientName);
+        body = body.Replace("{FileNumber}",    dto.FileNumber);
+        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
+        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
+        return body;
+    }
+
+    private string PopulateWithdrawalRefusedApplicantMail(WithdrawalRefusedApplicantMail dto)
+    {
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalRefusedApplicant.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{RecipientName}", dto.RecipientName);
+        body = body.Replace("{FileNumber}",    dto.FileNumber);
+        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
+        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         return body;
     }
 }
