@@ -304,13 +304,16 @@ namespace patentdesign.Services
             {
                 To = recipientEmail,
                 Subject = isExpiryDay ? "Trademark Renewal Due Today" : "Trademark Renewal Reminder (90 Days)",
-                EmailType = EmailType.RenewalReminder,
+                EmailType = isExpiryDay ? EmailType.RenewalDueNotice : EmailType.RenewalEarlyReminder,
                 RenewalReminder = new RenewalReminder
                 {
                     ApplicantName = file.applicants?.FirstOrDefault()?.Name ?? "Applicant",
                     FileNumber = file.FileId,
                     Title = file.TitleOfTradeMark ?? file.TitleOfDesign ?? file.TitleOfInvention ?? "Trademark",
-                    RenewalDue = expiryDate.ToDateTime(TimeOnly.MinValue)
+                    RenewalDue = expiryDate.ToDateTime(TimeOnly.MinValue),
+                    Type = file.Type,
+                    Class = file.TrademarkClass ?? 0,
+                    IsExpiryDay = isExpiryDay
                 }
             };
         }

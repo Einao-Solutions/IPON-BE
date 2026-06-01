@@ -101,7 +101,7 @@
 
     public enum EmailType
     {
-        ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, OppositionConfirmation, StatutoryDeclaration, WithdrawalNotification, WithdrawalApproved, WithdrawalRefused, RenewalReminder, 
+        ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, OppositionConfirmation, StatutoryDeclaration, WithdrawalNotification, WithdrawalApproved, WithdrawalRefused, RenewalEarlyReminder, RenewalDueNotice
     }
     public enum ApplicationUnits
     {

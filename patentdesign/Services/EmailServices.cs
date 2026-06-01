@@ -34,7 +34,7 @@ public class EmailServices
             case EmailType.Opposition:
                 body = PopulateOppositionMail(dto.OppositionMail);
                 break;
-            case EmailType.RenewalReminder:
+            case EmailType.RenewalEarlyReminder:
                 body = PopulateRenewalReminder(dto.RenewalReminder);
                 break;
             case EmailType.CounterStatement:
@@ -65,7 +65,7 @@ public class EmailServices
         var builder = new BodyBuilder();
         builder.HtmlBody = body;
 
-        if (dto.EmailType == EmailType.RenewalReminder || dto.EmailType == EmailType.ResetPassword)
+        if (dto.EmailType == EmailType.RenewalEarlyReminder || dto.EmailType == EmailType.ResetPassword)
         {
             AttachMinistryLogo(builder);
         }
@@ -372,15 +372,18 @@ public class EmailServices
             dto.ApplicantName, dto.FileNumber);
 
         string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\RenewalReminder.html";
+        string filePath = dto.IsExpiryDay ? Directory.GetCurrentDirectory() + @"\Templates\RenewalDueNotification.html" : Directory.GetCurrentDirectory() + @"\Templates\RenewalReminder.html";
+        bool isTrademark = dto.Type == Models.FileTypes.TradeMark; 
         using (var reader = new StreamReader(filePath))
         {
             body = reader.ReadToEnd();
         }
-        body = body.Replace("{ApplicantName}", dto.ApplicantName);
-        body = body.Replace("{FileNumber}", dto.FileNumber);
-        body = body.Replace("{Title}", dto.Title);
-        body = body.Replace("{DueDate}", dto.RenewalDue.ToString("dd MMMM, yyyy"));
+        body = body.Replace("{{ApplicantName}}", dto.ApplicantName);
+        body = body.Replace("{{FileNumber}}", dto.FileNumber);
+        body = body.Replace("{{Title}}", dto.Title);
+        body = body.Replace("{{DueDate}}", dto.RenewalDue.ToString("dd MMMM, yyyy"));
+        body = body.Replace("{{Class}}", dto.Class.ToString());
+        body = body.Replace("{{RegistryName}}", isTrademark ? "Trademarks" : "Patents & Designs");
         body = ApplyCommonTemplateTokens(body);
 
         return body;

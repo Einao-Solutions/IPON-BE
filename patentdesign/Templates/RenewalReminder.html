@@ -82,7 +82,6 @@
                     <div class="header-text">
                         <div class="header-ministry">Federal Ministry of Industry, Trade &amp; Investment</div>
                         <div class="header-org">Intellectual Property Office of Nigeria (IPO Nigeria)</div>
-                        <div class="header-dept">Trademark Renewal Reminder</div>
                     </div>
                 </div>
             </div>
@@ -91,47 +90,68 @@
             <div class="status-banner">
                 <div class="status-badge">
                     <span class="status-dot"></span>
-                    Renewal Notice
+                    Renewal Reminder
                 </div>
             </div>
 
             <div class="body-content">
-                <div class="greeting">Dear {ApplicantName},</div>
+                <div class="greeting">Dear {{ApplicantName}},</div>
 
                 <p class="body-text">
-                    This is a reminder that your trademark renewal deadline is approaching.
-                    Kindly review the details below and take the necessary action before the due date
-                    to avoid lapse of rights.
+                    This is a reminder from the {{RegistryName}} Registry that your
+                    intellectual property registration is due for renewal within the
+                    next ninety (90) days.
                 </p>
 
                 <div class="ref-box">
                     <div class="ref-box-title">Renewal Reference</div>
                     <div class="ref-row">
                         <span class="ref-label">File Number</span>
-                        <span class="ref-value">{FileNumber}</span>
+                        <span class="ref-value">{{FileNumber}}</span>
                     </div>
                     <div class="ref-row">
                         <span class="ref-label">Trademark Title</span>
-                        <span class="ref-value">{Title}</span>
+                        <span class="ref-value">{{Title}}</span>
                     </div>
                     <div class="ref-row">
                         <span class="ref-label">Renewal Due Date</span>
-                        <span class="ref-value">{DueDate}</span>
+                        <span class="ref-value">{{DueDate}}</span>
+                    </div>
+                    <div class="ref-row">
+                        <span class="ref-label">Class</span>
+                        <span class="ref-value">{{Class}}</span>
                     </div>
                 </div>
 
                 <div class="notice-box">
                     <div class="notice-icon">⚠️</div>
                     <div class="notice-text">
-                        Failure to renew on or before the due date may result in expiration of your trademark rights.
-                        Please initiate renewal promptly on the IPO Nigeria portal.
+                        To maintain the validity and protection of your registration, you
+                        are advised to initiate the renewal process before the due date.
                     </div>
                 </div>
 
                 <hr class="gold-divider" />
+                <p class="body-text"
+                   style="font-size: 13px; color: #6b8078; margin-bottom: 12px">
+                    Renewal applications can be submitted through the <a href="https://portal.iponigeria.com">IPO Nigeria Portal</a>
+                    by logging into your account and selecting the appropriate renewal
+                    service from your dashboard.
+                </p>
+                <p class="body-text"
+                   style="font-size: 13px; color: #6b8078; margin-bottom: 12px">
+                    Please note that failure to renew within the prescribed period may
+                    result in the registration becoming inactive or subject to
+                    additional procedures and applicable fees for restoration, where
+                    permitted by law.
+                </p>
+                <p class="body-text"
+                   style="font-size: 13px; color: #6b8078; margin-bottom: 0">
+                    If you have already submitted your renewal application, kindly
+                    disregard this notice.
+                </p>
                 <p class="body-text" style="font-size: 13px; color: #6b8078; margin-bottom: 0">
-                    This is an automated message from IPO Nigeria. If you require assistance,
-                    kindly contact the registry via the details below.
+                    This is an automated message from IPO Nigeria. Please do not reply directly to this email.
                 </p>
             </div>
 

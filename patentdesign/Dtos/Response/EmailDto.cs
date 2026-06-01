@@ -1,4 +1,5 @@
 using patentdesign.Enums;
+using patentdesign.Models;
 
 namespace patentdesign.Dtos.Response;
 
@@ -129,5 +130,9 @@ public class RenewalReminder
     public string FileNumber { get; set; }
     public string Title { get; set; }
     public DateTime RenewalDue { get; set; }
+    public bool IsExpiryDay { get; set; }
+    public FileTypes Type { get; set; }
+    public int Class { get; set; }
+    public string RegistryName { get; set; } = "Trademarks";
 
 }
