@@ -18,7 +18,9 @@ public class PaymentService
     private static IMongoCollection<OtherPaymentModel> _otherPaymentCollection;
     private static IMongoCollection<AttachmentInfo> _attachmentCollection;
     private static IMongoCollection<FinanceHistory> _financeCollection;
-
+    private static IMongoCollection<XpayApplicant> _payxApplicants;
+    private static IMongoCollection<XpayTwallet> _payxWallet;
+    private readonly ILogger<PaymentService> _log;
     private PaymentUtils _remitaPaymentUtils;
 
     private MongoClient _mongoClient;
@@ -26,7 +28,7 @@ public class PaymentService
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
 
-    public PaymentService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
+    public PaymentService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<PaymentService> log)
     {
         _remitaPaymentUtils = remitaPaymentUtils;
         var s = patentDesignDbSettings.Value;
@@ -35,6 +37,9 @@ public class PaymentService
         _otherPaymentCollection = db.GetCollection<OtherPaymentModel>("otherPayments");
         _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
         _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
+        _payxApplicants = db.GetCollection<XpayApplicant>("xpayApplicants");
+        _payxWallet = db.GetCollection<XpayTwallet>("xpayTwallet");
+        _log = log;
     }
 
     public async Task<List<PaymentServiceModel>> GetAllPayment()
@@ -175,6 +180,25 @@ public class PaymentService
             // check via order_id
             return await _remitaPaymentUtils.GetDetailsByOrderId(rrr);
         }
+        else if (rrr.Length > 24)
+        {
+            var payx = await VerifyPayx(rrr.Substring(0, 15));
+            if (payx is null)
+            {
+                _log.LogError("Payx not found");
+                return null;
+            }
+            var response = new RemitaResponseClass
+            {
+                payerEmail = payx.PayerEmail,
+                paymentDate = (payx.PaymentDate)?.ToString("dd MMMM, yyyy"),
+                payerName = payx.PayerName,
+                payerPhoneNumber = payx.PayerPhone,
+                status = "00",
+                rrr = rrr
+            };
+            return response;
+        }
         else
         {
             try
@@ -192,5 +216,37 @@ public class PaymentService
     {
         await _payments.InsertOneAsync(payment);
     }
-   
+    private async Task<PayxResponse?> VerifyPayx(string paymentId)
+    {
+        _log.LogInformation($"Verifying payx Id: {paymentId}...");
+        try
+        {
+            var payment = await _payxWallet.Find(p => p.transID == paymentId).FirstOrDefaultAsync();
+            if (payment == null)
+            {
+                _log.LogError("Payment not found");
+                return null;
+            }
+            var applicant = await _payxApplicants.Find(a => a.xid == payment.applicantID.ToString()).FirstOrDefaultAsync();
+            if (applicant == null)
+            {
+                _log.LogError($"Applicant not found for payment {paymentId} (applicantID: {payment.applicantID})");
+            }
+
+            var response = new PayxResponse
+            {
+                PaymentId = paymentId,
+                PaymentDate = payment.xreg_date,
+                PayerEmail = applicant?.xemail ?? "",
+                PayerName = applicant?.xname ?? "",
+                PayerPhone = applicant?.xmobile ?? ""
+            };
+
+            return response;
+        } 
+        catch (Exception)
+        {
+            throw;
+        }
+    }
 }

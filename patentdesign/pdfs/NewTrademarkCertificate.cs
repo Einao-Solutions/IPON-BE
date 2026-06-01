@@ -52,9 +52,9 @@ namespace patentdesign.pdfs
                 {
                     if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
                         model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
-                        imageData?.Length > 0)
+                        PdfImageHelper.TryDecodeImage(imageData))
                     {
-                        row.RelativeItem().AlignCenter().Image(imageData).FitArea();
+                        row.RelativeItem().AlignCenter().Image(imageData!).FitArea();
                     }
                     else
                     {

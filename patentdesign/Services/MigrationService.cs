@@ -81,6 +81,7 @@ public class MigrationService
                 var exFile  = await _fillingCollection.Find(x=>x.FileId == fileNumber).FirstOrDefaultAsync();
                 if (exFile != null) throw new Exception("File Exists on Current System");
                 var mark =  await _ipoNgMarkInformationsCollection.Find(m => m.RegistrationNumber == fileNumber).FirstOrDefaultAsync();
+                
                 if (mark == null) return null;
                 var app = await _ipoNgApplicationCollection.Find(a=>a.Id == mark.applicationid).FirstOrDefaultAsync();
                 if  (app == null) throw new Exception("Application Not Found");
@@ -106,15 +107,19 @@ public class MigrationService
                 {
                     logo = TradeMarkLogo.WordandDevice;
                 }
-                int countryId = Convert.ToInt32(mark.ApplicantNationality);
-                CldxCountry country = (CldxCountry)countryId;
+
+                string countryName = string.Empty;
+                if (mark.ApplicantNationality.HasValue)
+                {
+                    countryName = ((CldxCountry)mark.ApplicantNationality.Value).ToString();
+                }
                 var applicant = new ApplicantInfo
                 {
                     Name = mark.ApplicantName,
                     Email = mark.ApplicantEmail,
-                    Phone = mark.ApplicantPhone.ToString(),
+                    Phone = mark.ApplicantPhone?.ToString() ?? string.Empty,
                     Address = mark.ApplicantAddress,
-                    country = country.ToString()
+                    country = countryName
                 };
                 var applicants = new List<ApplicantInfo>();
                 var apps = new List<ApplicationInfo>();
@@ -256,7 +261,7 @@ public class MigrationService
         try
         {
             Console.WriteLine("Searching Pwallet");
-            string searchId = paymentId.Contains('-') ? paymentId.Split('-')[0] : paymentId;
+            string searchId = paymentId.Contains('-') ? paymentId.Split('-', 2)[0] : paymentId;
             var payment = await _pwalletCollection.Find(p => p.TransactionId == searchId).FirstOrDefaultAsync();
             if (payment == null)
             {
@@ -269,7 +274,7 @@ public class MigrationService
             var paid = await _paymentService.CheckPayment(paymentId);
             if (paid == null) Console.WriteLine("Not a remita id");
            
-            ApplicationStatuses status = ApplicationStatuses.None;
+            ApplicationStatuses status;
             switch (payment?.data_status)
             {
                 case "Certified":
@@ -303,36 +308,55 @@ public class MigrationService
                     status = ApplicationStatuses.AwaitingSearch;
                     break;
             }
-            var xpay = await _xpayTwalletCollection.Find(x=>x.transID == searchId).FirstOrDefaultAsync();
-            if (xpay == null) throw new Exception("Payment Not Found");
-            string appId = xpay.applicantID.ToString() ?? "";
-            var applicant = await _xpayApplicantCollection.Find(a => a.xid == appId).FirstOrDefaultAsync();
-            if (applicant == null) throw new Exception("Applicant Not Found");
+            var xpaySearchIds = new List<string> { searchId, paymentId };
+            if (!string.IsNullOrWhiteSpace(paid?.rrr)) xpaySearchIds.Add(paid.rrr);
+
+            var xpay = await _xpayTwalletCollection
+                .Find(Builders<XpayTwallet>.Filter.In(x => x.transID, xpaySearchIds.Distinct()))
+                .FirstOrDefaultAsync();
+
+            if (xpay == null && paid == null) throw new Exception("Payment Not Found");
+
+            XpayApplicant applicant = null;
+            if (xpay?.applicantID != null)
+            {
+                string appId = xpay.applicantID.ToString() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(appId))
+                {
+                    applicant = await _xpayApplicantCollection.Find(a => a.xid == appId).FirstOrDefaultAsync();
+                }
+            }
+
             var applicants = new List<ApplicantInfo>();
             var app = new ApplicantInfo
             {
-                Name = paid.payerName ?? applicant.xname,
-                Email = paid.payerEmail ?? applicant.xemail,
-                Address = applicant.address,
-                Phone = paid.payerPhoneNumber ?? applicant.xmobile,
+                Name = paid?.payerName ?? applicant?.xname ?? string.Empty,
+                Email = paid?.payerEmail ?? applicant?.xemail ?? string.Empty,
+                Address = applicant?.address ?? string.Empty,
+                Phone = paid?.payerPhoneNumber ?? applicant?.xmobile ?? string.Empty,
             };
             applicants.Add(app);
+
             var history = new List<ApplicationInfo>();
-            var altDate = !string.IsNullOrEmpty(paid.paymentDate) 
-                ? DateTime.Parse(paid.paymentDate) 
-                : DateTime.Now;
+            DateTime parsedPaymentDate = DateTime.MinValue;
+            var hasParsedPaymentDate = !string.IsNullOrWhiteSpace(paid?.paymentDate)
+                && DateTime.TryParse(paid!.paymentDate, out parsedPaymentDate);
+
+            var fallbackDate = hasParsedPaymentDate ? parsedPaymentDate : DateTime.Now;
+            var applicationDate = xpay?.xreg_date ?? fallbackDate;
 
             var newApp = new ApplicationInfo
             {
-                PaymentId = paid.rrr ?? paymentId,
-                ApplicationDate = xpay.xreg_date ?? altDate,
+                PaymentId = paid?.rrr ?? payment?.TransactionId ?? paymentId,
+                ApplicationDate = applicationDate,
                 ApplicationType = FormApplicationTypes.NewApplication,
                 CurrentStatus = status 
             };
             history.Add(newApp);
+
             var details = new MarkInfoDto
             {
-                FilingDate = xpay.xreg_date.ToString(),
+                FilingDate = applicationDate.ToString(),
                 FileStatus = status,
                 Applicants = applicants,
                 ApplicationHistory = history

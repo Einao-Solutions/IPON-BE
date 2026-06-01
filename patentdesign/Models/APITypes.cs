@@ -220,7 +220,15 @@ namespace patentdesign.Enums;
         public int? TradeMarkClass { get; set; }
         public RemitaResponseClass? remitaResonse { get; set; }
     }
-     
+    public record PayxResponse
+    {
+        public string? PaymentId { get; set; }
+        public string? PayerName { get; set; }
+        public string? PayerEmail { get; set; }
+        public string? PayerPhone { get; set; }
+        public DateTime? PaymentDate { get; set; }
+    
+    }
     public record RemitaResponseClass
     {
         public double? amount { get; set; }

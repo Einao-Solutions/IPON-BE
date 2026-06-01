@@ -1879,15 +1879,23 @@ public record SignatureInfo
     public bool IsActive { get; set; } = true;
 }
 
-public record Announcements
+public class Notification
 {
     [BsonId]
     public string Id { get; set; } = Guid.NewGuid().ToString();
-    public string? Title { get; set; }
-    public string? Content { get; set; }
-    public DateTime DateCreated { get; set; } = DateTime.Now;
-    public string? UserId { get; set; }
-    public AnnouncementType AnnouncementType { get; set; }
-    public AnnouncementSeverity AnnouncementSeverity { get; set; }
-
+    public NotificationAudience Audience { get; set; }
+    public NotificationCategory Category { get; set; }
+    public NotificationPriority Priority { get; set; }
+    public string Title { get; set; }
+    public string Message { get; set; }
+    public string? RecipientId { get; set; }
+    public bool IsRead { get; set; }
+    public string? ActionUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ReadAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public bool IsActive { get; set; } = true;
+    public string? CreatedBy { get; set; }
+    public string? FileNumber { get; set; }
+    public FileTypes? FileType { get; set; }
 }

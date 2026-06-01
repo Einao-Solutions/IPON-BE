@@ -7,6 +7,7 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;
@@ -149,6 +150,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
             )
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    path.StartsWithSegments("/hubs/notifications"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 // ------------------ QuestPDF ------------------
@@ -191,6 +209,9 @@ BsonSerializer.RegisterSerializer(typeof(TicketState), new EnumSerializer<Ticket
 BsonSerializer.RegisterSerializer(typeof(FormApplicationTypes), new EnumSerializer<FormApplicationTypes>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkType), new EnumSerializer<TradeMarkType>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkLogo), new EnumSerializer<TradeMarkLogo>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationCategory), new EnumSerializer<NotificationCategory>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationAudience), new EnumSerializer<NotificationAudience>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationPriority), new EnumSerializer<NotificationPriority>(BsonType.String));
 
 // ------------------ Controllers & Swagger ------------------
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -208,6 +229,7 @@ builder.Services.AddProblemDetails();
 
 // ------------------ Services ------------------
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddSingleton<OppositionService>();
 builder.Services.AddSingleton<FilesServices>();
@@ -223,9 +245,10 @@ builder.Services.AddSingleton<AuthServices>();
 builder.Services.AddSingleton<AdminServices>();
 builder.Services.AddSingleton<StatisticsService>();
 builder.Services.AddSingleton<PublicationServices>();
+builder.Services.AddSingleton<NotificationServices>();
 
 //------------------- Background Jobs ------------------
-builder.Services.AddHostedService<PublishTrademarkJob>();
+//builder.Services.AddHostedService<PublishTrademarkJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------
@@ -265,5 +288,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();
