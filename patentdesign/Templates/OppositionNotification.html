@@ -74,25 +74,29 @@
 
         <div class="body-content">
             <div class="greeting">Dear {ApplicantName},</div>
-            <p class="body-text">We wish to inform you that your trademark application has received an <strong>opposition</strong>. Please review the details below carefully and act within the stated timeframe.</p>
+            <p class="body-text">This is to formally notify you that a Notice of Opposition has been filed against your trademark application currently being processed by the Trademark Registry of the Commercial Law Department, Ministry of Industry, Trade and Investment.</p>
 
             <div class="ref-box">
-                <div class="ref-box-title">Opposition Details</div>
-                <div class="ref-row"><span class="ref-label">Trademark Title</span><span class="ref-value">{Title}</span></div>
+                <div class="ref-box-title">Application Details</div>
                 <div class="ref-row"><span class="ref-label">File Number</span><span class="ref-value">{FileNumber}</span></div>
+                <div class="ref-row"><span class="ref-label">Title of Mark</span><span class="ref-value">{Title}</span></div>
                 <div class="ref-row"><span class="ref-label">Opposition ID</span><span class="ref-value">{OppositionId}</span></div>
                 <div class="ref-row"><span class="ref-label">Date of Opposition</span><span class="ref-value">{OppositionDate}</span></div>
                 <div class="ref-row"><span class="ref-label">Opposing Party</span><span class="ref-value">{OpposerName}</span></div>
                 <div class="ref-row"><span class="ref-label">Reason for Opposition</span><span class="ref-value">{Reason}</span></div>
             </div>
 
+            <p class="body-text">The Notice of Opposition has been recorded against the above-mentioned application and may affect the registration process pending the determination of the opposition proceedings.</p>
+
             <div class="notice-box">
                 <div class="notice-icon">⚠️</div>
-                <div class="notice-text">You are required to file a <strong>Counter Statement</strong> through the <a href="https://portal.iponigeria.com" style="color:#8a6000;">online portal</a> within <strong>thirty (30) days</strong> of receipt of this notification. Failure to do so will result in the application being treated as <em>Abandoned</em>.</div>
+                <div class="notice-text">You are required to file a <strong>Counter Statement</strong> in response to the opposition within <strong>thirty (30) days</strong> from the date of this notice. Failure to file a Counter Statement within the prescribed period will result in the application being treated as <strong>Abandoned</strong>.</div>
             </div>
 
+            <p class="body-text">You are advised to log in to the <a href="https://portal.iponigeria.com" style="color:#1a5c38;">IPO Nigeria Portal</a> to review the details of the opposition and submit the necessary response within the stipulated timeline in accordance with the applicable laws, regulations, and procedures governing trademark registration.</p>
+
             <hr class="gold-divider" />
-            <p class="body-text" style="font-size:13px;color:#6b8078;margin-bottom:0;">If you need assistance or clarification, contact our support team at <a href="mailto:trademarks@iponigeria.com" style="color:#1a5c38;">trademarks@iponigeria.com</a>. Please do not reply to this automated email.</p>
+            <p class="body-text" style="font-size:13px;color:#6b8078;margin-bottom:0;">Should you require clarification or assistance regarding the opposition process, kindly contact our support team at <a href="mailto:trademark@iponigeria.com" style="color:#1a5c38;">trademark@iponigeria.com</a>. Please do not reply to this automated email.</p>
         </div>
 
         <div class="footer">
@@ -112,7 +116,7 @@
                 </div>
             </div>
             <div class="footer-bottom">
-                <div class="footer-copy">© 2025 IPO Nigeria — Intellectual Property Office of Nigeria. All rights reserved.</div>
+                © {{CurrentYear}} IPO Nigeria — Intellectual Property Office of Nigeria. All rights reserved.
                 <div class="footer-links"><a href="https://www.iponigeria.com">Website</a><a href="https://www.iponigeria.com/faq">FAQs</a><a href="https://www.iponigeria.com/contact">Contact</a></div>
             </div>
         </div>

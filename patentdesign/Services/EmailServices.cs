@@ -55,6 +55,12 @@ public class EmailServices
             case EmailType.WithdrawalRefused:
                 body = PopulateWithdrawalRefusedMail(dto.WithdrawalRefusedMail);
                 break;
+            case EmailType.WithdrawalApprovedApplicant:
+                body = PopulateWithdrawalApprovedApplicantMail(dto.WithdrawalApprovedApplicantMail);
+                break;
+            case EmailType.WithdrawalRefusedApplicant:
+                body = PopulateWithdrawalRefusedApplicantMail(dto.WithdrawalRefusedApplicantMail);
+                break;
             case EmailType.ResetPassword:
                 body = ResetPasswordMail(dto.ResetPasswordMail);
                 break;
@@ -236,6 +242,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}",       dto.FileTitle);
         body = body.Replace("{DateFiled}",       dto.DateFiled);
         body = body.Replace("{PaymentReference}", dto.PaymentReference);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -256,6 +263,7 @@ public class EmailServices
         body = body.Replace("{FileOwnerName}", dto.FileOwnerName);
         body = body.Replace("{CounterStatementDate}", dto.CounterStatementDate);
         body = body.Replace("{SignatoryName}", dto.SignatoryName ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -278,7 +286,7 @@ public class EmailServices
         body = body.Replace("{OppositionDate}", dto.OppositionDate);
         body = body.Replace("{SignatoryName}", dto.SignatoryName);
         body = body.Replace("{OppositionId}", dto.OppositionId ?? "");
-
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -316,6 +324,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}", dto.FileTitle);
         body = body.Replace("{OppositionId}", dto.OppositionId);
         body = body.Replace("{DateFiled}", dto.DateFiled);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -333,6 +342,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}",     dto.FileTitle);
         body = body.Replace("{OppositionId}",  dto.OppositionId ?? "");
         body = body.Replace("{WithdrawalDate}",dto.WithdrawalDate);
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -349,6 +359,7 @@ public class EmailServices
         body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         body = body.Replace("{Reason}",        dto.Reason ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
 
@@ -364,8 +375,42 @@ public class EmailServices
         body = body.Replace("{FileNumber}",    dto.FileNumber);
         body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
         body = body.Replace("{Reason}",        dto.Reason ?? "");
+        body = ApplyCommonTemplateTokens(body);
         return body;
     }
+
+    private string PopulateWithdrawalApprovedApplicantMail(WithdrawalApprovedApplicantMail dto)
+    {
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalApprovedApplicant.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{RecipientName}", dto.RecipientName);
+        body = body.Replace("{FileNumber}",    dto.FileNumber);
+        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
+        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
+        body = ApplyCommonTemplateTokens(body);
+        return body;
+    }
+
+    private string PopulateWithdrawalRefusedApplicantMail(WithdrawalRefusedApplicantMail dto)
+    {
+        string body = string.Empty;
+        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalRefusedApplicant.html";
+        using (var reader = new StreamReader(filePath))
+        {
+            body = reader.ReadToEnd();
+        }
+        body = body.Replace("{RecipientName}", dto.RecipientName);
+        body = body.Replace("{FileNumber}",    dto.FileNumber);
+        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
+        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
+        body = ApplyCommonTemplateTokens(body);
+        return body;
+    }
+
     private string PopulateRenewalReminder(RenewalReminder dto)
     {
         _log.LogDebug("Populating renewal reminder mail template for applicant {Applicant}, file {FileNumber}",
@@ -373,7 +418,7 @@ public class EmailServices
 
         string body = string.Empty;
         string filePath = dto.IsExpiryDay ? Directory.GetCurrentDirectory() + @"\Templates\RenewalDueNotification.html" : Directory.GetCurrentDirectory() + @"\Templates\RenewalReminder.html";
-        bool isTrademark = dto.Type == Models.FileTypes.TradeMark; 
+        bool isTrademark = dto.Type == Models.FileTypes.TradeMark;
         using (var reader = new StreamReader(filePath))
         {
             body = reader.ReadToEnd();
