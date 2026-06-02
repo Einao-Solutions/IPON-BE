@@ -90,11 +90,18 @@ namespace patentdesign.Services
 
         private string GenerateJwtToken(AppUser user)
         {
-            var claims = new[]
+            var claims = new List<Claim>
             {
-                    new Claim(ClaimTypes.NameIdentifier, user.Id),
-                    new Claim(ClaimTypes.Email, user.Email),
-                };
+                new Claim(ClaimTypes.NameIdentifier, user.Id),
+                new Claim(ClaimTypes.Email, user.Email),
+            };
+
+            if (user.UserRoles != null)
+            {
+                claims.AddRange(user.UserRoles
+                    .Distinct()
+                    .Select(role => new Claim(ClaimTypes.Role, role.ToString())));
+            }
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
