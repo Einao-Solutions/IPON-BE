@@ -654,6 +654,23 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+
+    [HttpPost("ChangeOfAgent")]
+    public async Task<IActionResult> ChangeOfAgent(
+        [FromForm] string fileId,
+        [FromForm] string userId,
+        IFormFile? powerOfAttorney)
+    {
+        if (string.IsNullOrWhiteSpace(fileId) || string.IsNullOrWhiteSpace(userId))
+            return BadRequest(new { success = false, message = "fileId and userId are required." });
+
+        var (success, message) = await fileService.ChangeOfAgent(fileId, userId, powerOfAttorney);
+
+        if (!success)
+            return BadRequest(new { success = false, message });
+
+        return Ok(new { success = true, message });
+    }
     [HttpGet("GetAllFileDetails")]
     public async Task<IActionResult> GetAllFileDetails([FromQuery] string fileNumber)
     {
