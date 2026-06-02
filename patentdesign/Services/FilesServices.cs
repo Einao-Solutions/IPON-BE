@@ -7930,6 +7930,22 @@ public class FilesServices
     //Get existing clerical update application
     public async Task<ClericalUpdateDetailsDto> GetClericalUpdateApp(string fileId, string appId)
     {
+        static string? GetArrayValue(List<string>? values)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return null;
+            }
+
+            var nonEmpty = values.Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
+            if (nonEmpty.Count == 0)
+            {
+                return null;
+            }
+
+            return string.Join(", ", nonEmpty);
+        }
+
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
@@ -7947,8 +7963,8 @@ public class FilesServices
         switch (clerical.UpdateType)
         {
             case "ApplicantName":
-                update.OldValue = clerical?.OldApplicantName;
-                update.NewValue = clerical?.NewApplicantName;
+                update.OldValue = GetArrayValue(clerical?.OldApplicantNames) ?? clerical?.OldApplicantName;
+                update.NewValue = GetArrayValue(clerical?.NewApplicantNames) ?? clerical?.NewApplicantName;
                 break;
             case "ApplicantAddress":
                 update.OldValue = clerical?.OldApplicantAddress;
