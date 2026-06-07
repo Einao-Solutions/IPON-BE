@@ -5952,9 +5952,10 @@ public class FilesServices
                 poaUrl = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={fileName}";
             }
 
-            // Update the file's correspondence field
+            // Update the file's correspondence and creator account
             var update = Builders<Filling>.Update
-                .Set(f => f.Correspondence, newCorrespondence);
+                .Set(f => f.Correspondence, newCorrespondence)
+                .Set(f => f.CreatorAccount, user.Id);
 
             await _fillingCollection.UpdateOneAsync(f => f.FileId == fileId, update);
 
