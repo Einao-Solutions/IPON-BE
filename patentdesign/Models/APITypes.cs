@@ -16,6 +16,15 @@ namespace patentdesign.Enums;
         public List<string> ticketId { get; set; }
     }
 
+//public record TicketsSummariesType
+//{
+//    public int? amount { get; set; }
+//    public int? startIndex { get; set; }
+//    public string? creatorId { get; set; }
+//    public string? title { get; set; }
+//    public TicketState? status { get; set; }
+//}
+
     public record TicketsSummariesType
     {
         public int? amount { get; set; }
@@ -23,6 +32,14 @@ namespace patentdesign.Enums;
         public string? creatorId { get; set; }
         public string? title { get; set; }
         public TicketState? status { get; set; }
+        public TicketCategory? category { get; set; }
+        public bool? isEscalated { get; set; }
+        public bool? raisedByRegistryStaff { get; set; }
+        public string? ticketNumber { get; set; }
+        public string? fileNumber { get; set; }
+        public ApplicationType? applicationType { get; set; }
+        public DateTime? startDate { get; set; }
+        public DateTime? endDate { get; set; }
     }
 
     public record AssReq
