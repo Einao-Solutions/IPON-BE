@@ -140,7 +140,8 @@ ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, Opposit
         Security,
         System,
         Messaging,
-        Renewal
+        Renewal,
+        Opposition
     }
     public enum NotificationPriority
     {
