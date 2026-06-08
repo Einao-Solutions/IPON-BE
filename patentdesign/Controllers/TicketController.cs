@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using patentdesign.Dtos.Request;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
@@ -49,14 +50,27 @@ public class TicketController(TicketServices ticketService) :ControllerBase
         var res= await ticketService.AddMessageAsync(newMessageInfo);
         return Ok(res);
     }
-    
-    [HttpGet("GetStats")]
-    public async Task<ActionResult> GetTicketStats([FromQuery] string? userId)
-    {
-        var tickets=await ticketService.TicketStats(userId);
-        return Ok(tickets);
 
+    //[HttpGet("GetStats")]
+    //public async Task<ActionResult> GetTicketStats([FromQuery] string? userId)
+    //{
+    //    var tickets=await ticketService.TicketStats(userId);
+    //    return Ok(tickets);
+    //}
+
+    [HttpGet("GetStats")]
+    public async Task<ActionResult> GetTicketStats([FromQuery] string? userId, [FromQuery] int? category = null)
+    {
+        var tickets = await ticketService.TicketStats(userId, category);
+        return Ok(tickets);
     }
-    
-    
+
+    [HttpPost("Escalate")]
+    public async Task<ActionResult<TicketInfo>> EscalateTicket([FromBody] EscalateTicketRequest request)
+    {
+        var result = await ticketService.EscalateTicketAsync(request);
+        if (result == null) return NotFound();
+        return Ok(result);
+    }
+
 }
