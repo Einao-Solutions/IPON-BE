@@ -1229,9 +1229,12 @@ public class FilesServices
     private async Task ApplyNewApplicationStatusUpdatesAsync(UpdateDataType data, string userName,
         List<UpdateDefinition<Filling>> operations, PerformanceDto perf)
     {
-        if (data.applicationType is not FormApplicationTypes.NewApplication) return;
+        if (data.applicationType is FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal)
+        {
+            operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+        }
 
-        operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+        if (data.applicationType is not FormApplicationTypes.NewApplication) return;
 
         if (data.AfterStatus is ApplicationStatuses.Active)
         {
