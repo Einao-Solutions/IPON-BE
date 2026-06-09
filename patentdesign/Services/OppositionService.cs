@@ -220,7 +220,7 @@ public class OppositionService
             }
             catch (Exception ex)
             {
-                _log.LogWarning(ex, "Failed to send opposition notifications for {FileNumber} — non-critical", oppose.FileNumber);
+                _log.LogWarning(ex, "Failed to send opposition notifications — non-critical");
             }
 
             return oppose.id;
@@ -1440,7 +1440,7 @@ public class OppositionService
                             DateFiled = DateTime.Now.ToString("dd MMMM yyyy")
                         }
                     });
-                    _log.LogInformation($"Statutory declaration notification sent to applicant {applicantEmail}");
+                    _log.LogInformation("Statutory declaration notification sent to applicant");
                 }
 
                 // Notify opposer
@@ -2202,7 +2202,7 @@ public class OppositionService
                                     WithdrawalDate = DateTime.Now.ToString("dd MMMM yyyy")
                                 }
                             });
-                                    _log.LogInformation($"Withdrawal notification sent to applicant {applicantEmail}");
+                                    _log.LogInformation("Withdrawal notification sent to applicant");
                                     }
                                 }
                             }

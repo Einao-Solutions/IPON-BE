@@ -5959,14 +5959,14 @@ public class FilesServices
 
             await _fillingCollection.UpdateOneAsync(f => f.FileId == fileId, update);
 
-            _log.LogInformation("ChangeOfAgent completed for FileId {FileId} by UserId {UserId}. POA: {PoaUrl}",
-                fileId, userId, poaUrl ?? "none");
+            _log.LogInformation("ChangeOfAgent completed for FileId {FileId}. POA attached: {HasPoa}",
+                fileId, poaUrl != null);
 
             return (true, "Agent changed successfully.");
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Error in ChangeOfAgent for FileId {FileId}", fileId);
+            _log.LogError(ex, "Error in ChangeOfAgent");
             return (false, "An error occurred while processing the request.");
         }
     }
