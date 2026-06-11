@@ -1938,4 +1938,8 @@ public class Notification
     public string? CreatedBy { get; set; }
     public string? FileNumber { get; set; }
     public FileTypes? FileType { get; set; }
+    public ApplicationStatuses? PreviousStatus { get; set; }
+    public ApplicationStatuses? NewStatus { get; set; }
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public string? ApplicationId { get; set; }
 }
