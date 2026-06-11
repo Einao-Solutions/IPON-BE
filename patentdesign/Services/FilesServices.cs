@@ -66,12 +66,12 @@ public class FilesServices
     private FinanceService _financeService;
     private PaymentService _paymentService;
     private PublicationServices _publicationServices;
-
+    private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
      //private string attachmentBaseUrl = "http://localhost:5044";
 
-    public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices)
+    public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
         var s = patentDesignDbSettings.Value;
         _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
@@ -89,6 +89,7 @@ public class FilesServices
         _fileUpdateHistoryCollection = db.GetCollection<FileUpdateHistory>("FileUpdateHistory");
         _publicationCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
         _publicationServices = publicationServices;
+        _notificationServices = notificationServices;
         _signatures = db.GetCollection<SignatureInfo>("signatures");
     }
 
@@ -132,6 +133,8 @@ public class FilesServices
         var application = file.ApplicationHistory?.FirstOrDefault(d => d.id == applicationId)
                           ?? throw new KeyNotFoundException("Application not found.");
 
+        var beforeStatus = application.CurrentStatus;
+
         if (isCertificate == true)
         {
             _log.LogDebug("Updating certificate application for FileId {FileId}", fileId);
@@ -148,6 +151,16 @@ public class FilesServices
 
         var idx = file.ApplicationHistory.FindIndex(f => f.id == application.id);
         if (idx >= 0) file.ApplicationHistory[idx] = application;
+
+        if (beforeStatus != application.CurrentStatus)
+        {
+            await SendStatusUpdateNotificationAsync(
+                file,
+                application.id,
+                application.ApplicationType,
+                beforeStatus,
+                application.CurrentStatus);
+        }
 
         _log.LogInformation("ManualUpdate completed for FileId {FileId}", fileId);
         return file;
@@ -1173,6 +1186,27 @@ public class FilesServices
             SavePerformance(perf);
             _log.LogInformation("UpdateApplicationStatus completed for FileId {FileId}, AppId {AppId}, NewStatus {Status}",
                 data.fileId, data.applicationId, data.AfterStatus);
+            var fileOwner = await GetFileOwner(data.fileNumber ?? data.fileId);
+
+            var notif = new CreateNotificationDto
+            {
+                Audience = NotificationAudience.User,
+                Category = NotificationCategory.StatusUpdate,
+                Priority = NotificationPriority.Medium,
+                PreviousStatus = data.beforeStatus,
+                NewStatus = data.AfterStatus,
+                ApplicationType = data.applicationType,
+                Title = "Application Status Update",
+                Message = $"Your {data.applicationType} status has been updated from {data.beforeStatus} to {data.AfterStatus}",
+                RecipientId = fileOwner,
+                CreatedBy = "System",
+                FileNumber = data.fileNumber,
+                FileType = data.FileType,
+                ApplicationId = data.applicationId,
+                ActionUrl = $"/dataview/?id={data.fileId}"
+            };
+            await _notificationServices.CreateNotificationAsync(notif);
+            _log.LogInformation($"notification sent to {notif.RecipientId} ");
             return result;
         }
         catch (Exception ex)
@@ -1183,7 +1217,11 @@ public class FilesServices
             throw;
         }
     }
-
+    private async Task<string> GetFileOwner(string fileNumber)
+    {
+        var creatorId = await _fillingCollection.Find(x => x.FileId == fileNumber).Project(x => x.CreatorAccount).FirstOrDefaultAsync();
+        return await _userCollection.Find(x => x.CreatorId == creatorId).Project(x => x.Email).FirstOrDefaultAsync() ?? "Unknown User";
+    }
     private async Task<string> ResolveUserNameAsync(UpdateDataType data)
     {
         return data.user
@@ -3162,9 +3200,51 @@ public class FilesServices
         }
         var options = new FindOneAndUpdateOptions<Filling> { ReturnDocument = ReturnDocument.After };
         var result = await _fillingCollection.FindOneAndUpdateAsync<Filling>(filter, Builders<Filling>.Update.Combine(operations), options);
+
+        if (result != null)
+        {
+            await SendStatusUpdateNotificationAsync(
+                result,
+                req.applicationId,
+                req.applicationType,
+                req.beforeStatus,
+                req.afterStatus);
+        }
+
         //savePerformance(PerformanceType.Staff, FormApplicationTypes.None, req.beforeStatus, req.afterStatus,
         //    DateTime.Now, req.userName, result.Id, result.Type, result.PatentType, result.DesignType, result.TrademarkType);
         return result;
+    }
+
+    private async Task SendStatusUpdateNotificationAsync(
+        Filling file,
+        string applicationId,
+        FormApplicationTypes applicationType,
+        ApplicationStatuses previousStatus,
+        ApplicationStatuses newStatus)
+    {
+        var fileOwner = await GetFileOwner(file.FileId);
+
+        var notif = new CreateNotificationDto
+        {
+            Audience = NotificationAudience.User,
+            Category = NotificationCategory.StatusUpdate,
+            Priority = NotificationPriority.Medium,
+            PreviousStatus = previousStatus,
+            NewStatus = newStatus,
+            ApplicationType = applicationType,
+            Title = "Application Status Update",
+            Message = $"Your {applicationType} status has been updated from {previousStatus} to {newStatus}",
+            RecipientId = fileOwner,
+            CreatedBy = "System",
+            FileNumber = file.FileId,
+            FileType = file.Type,
+            ApplicationId = applicationId,
+            ActionUrl = $"/dataview/?id={file.Id}"
+        };
+
+        await _notificationServices.CreateNotificationAsync(notif);
+        _log.LogInformation("notification sent to {RecipientId}", notif.RecipientId);
     }
 
     public void SavePerformance(PerformanceDto perf)

@@ -53,6 +53,10 @@ namespace patentdesign.Services
                 CreatedBy = dto.CreatedBy,
                 FileNumber = dto?.FileNumber,
                 ActionUrl = dto?.ActionUrl,
+                PreviousStatus = dto?.PreviousStatus,
+                NewStatus = dto?.NewStatus,
+                FileType = dto?.FileType,
+                ApplicationId = dto?.ApplicationId
             };
 
             if (notification.Audience == NotificationAudience.User && string.IsNullOrWhiteSpace(notification.RecipientId))
@@ -239,6 +243,8 @@ namespace patentdesign.Services
             return sentCount;
 
         }
+
+
         private async Task<bool> HasRenewalReminderBeenSentAsync(string fileNumber, string recipientId, string title)
         {
             var sentFilter = Builders<Notification>.Filter.And(
@@ -317,5 +323,6 @@ namespace patentdesign.Services
                 }
             };
         }
+        
     }
 }
