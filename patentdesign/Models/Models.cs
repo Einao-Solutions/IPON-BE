@@ -256,6 +256,8 @@ public record Filling
     public DateOnly? ExpiryDate { get; set; }
     public bool? IsExpired { get; set; } = false;
     public bool? IsDueForRenewal { get; set; } = false;
+    public bool? IsRenewalEligible { get; set; } = false;
+    
 }
 
 public record ClericalUpdate
