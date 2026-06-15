@@ -5965,7 +5965,8 @@ public class FilesServices
                 PublicationDate = f.PublicationDate,
                 FirstPriorityInfo = f.FirstPriorityInfo,
                 WithdrawalDate = f.WithdrawalDate,
-                WithdrawalRequestDate = f.WithdrawalRequestDate
+                WithdrawalRequestDate = f.WithdrawalRequestDate,
+                IsRenewalEligible = f.IsRenewalEligible
             });
 
             result = await _fillingCollection
