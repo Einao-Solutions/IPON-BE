@@ -136,6 +136,7 @@ namespace patentdesign.Dtos.Request
         public int? LateYearsCount { get; set; }
         public FileTypes? FileTypes { get; set; }
         public string? ApplicantName { get; set; }
+        public bool? IsRenewalEligible { get; set; }
     }
 
     public class RenewalAppDto
