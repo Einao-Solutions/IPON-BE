@@ -2453,7 +2453,7 @@ public class FilesServices
             FileTypes.TradeMark => await TrademarkRenewalCost(fileNumber, FileTypes.TradeMark),
             _ => throw new ArgumentOutOfRangeException(nameof(fileType), $"Unsupported file type: {fileType}")
         };
-
+        if (renew is null) return null;
         var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
@@ -2759,7 +2759,8 @@ public class FilesServices
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
                 IsLateRenewal = lateRenewal,
-                LateRenewalCost = "9500"
+                LateRenewalCost = "9500",
+                IsRenewalEligible = file?.IsRenewalEligible
             };
             return renew;
         }
