@@ -30,6 +30,7 @@ namespace patentdesign.Dtos.Response
         public DateTime? WithdrawalRequestDate { get; set; }
         public List<PriorityInfo>? FirstPriorityInfo { get; set; } = new();
         public List<ApplicantInfo>? Applicants { get; set; }
+        public bool? IsRenewalEligible { get; set; }
 
     }
 }
