@@ -216,6 +216,7 @@ namespace patentdesign.Services
                 }
 
                 var notificationDto = BuildRenewalNotificationDto(file, recipient, expiryDate.Value, daysUntilExpiry == 0);
+                await MarkFileRenewalEligibleAsync(file.Id);
 
                 var wasSent = await HasRenewalReminderBeenSentAsync(file.FileId, recipient, notificationDto.Title);
                 if (wasSent)
@@ -242,6 +243,22 @@ namespace patentdesign.Services
 
             return sentCount;
 
+        }
+
+        private async Task MarkFileRenewalEligibleAsync(string? fileId)
+        {
+            if (string.IsNullOrWhiteSpace(fileId))
+            {
+                return;
+            }
+
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Id, fileId),
+                Builders<Filling>.Filter.Ne(x => x.IsRenewalEligible, true));
+
+            await _files.UpdateOneAsync(
+                filter,
+                Builders<Filling>.Update.Set(x => x.IsRenewalEligible, true));
         }
 
 
@@ -289,6 +306,8 @@ namespace patentdesign.Services
         }
         private static CreateNotificationDto BuildRenewalNotificationDto(Filling file, string recipient, DateOnly expiryDate, bool isExpiryDay)
         {
+            file.IsRenewalEligible = true;
+
             return new CreateNotificationDto
             {
                 Audience = NotificationAudience.User,
