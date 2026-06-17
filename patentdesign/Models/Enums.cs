@@ -127,8 +127,8 @@ ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, Opposit
         System,
         Messaging,
         Renewal,
-        Opposition,
-        StatusUpdate
+        StatusUpdate,
+        Opposition
     }
     public enum NotificationPriority
     {
