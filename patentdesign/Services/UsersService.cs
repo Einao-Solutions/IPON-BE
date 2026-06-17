@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Controllers;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 
@@ -20,140 +21,18 @@ public class UsersService
     private static IMongoCollection<AttachmentInfo> _attachmentCollection;
     private static IMongoCollection<PerformanceMarker> _performanceCollection;
     private static IMongoCollection<Filling> _fillingCollection;
+    private readonly ILogger<UsersService> _log;
 
-    public UsersService(IOptions<PatentDesignDBSettings> patentDesignDbSettings)
+    public UsersService(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, ILogger<UsersService> log)
     {
-        
-        var useSandbox = patentDesignDbSettings.Value.UseSandbox;
-
-       // string digitalOcean = useSandbox != "Y" ? @"mongodb+srv://doadmin:72mY9T1sI360HU8d@db-mongodb-lon1-93952-8f46b05e.mongo.ondigitalocean.com/admin?tls=true&authSource=admin" : patentDesignDbSettings.Value.ConnectionString;
-        string digitalOcean = useSandbox != "Y" ? patentDesignDbSettings.Value.ConnectionStringUp : patentDesignDbSettings.Value.ConnectionString;
-
-
-        MongoClientSettings settings = MongoClientSettings.FromUrl(
-            new MongoUrl(digitalOcean)
-        );
-        settings.SslSettings =
-            new SslSettings() { EnabledSslProtocols = SslProtocols.Tls12 };
-        _mongoClient = new MongoClient(settings);
-        // _mongoClient = new MongoClient(patentDesignDbSettings.Value.ConnectionString);
-        var pdDb = _mongoClient.GetDatabase(patentDesignDbSettings.Value.DatabaseName);
-        _userCollection = pdDb.GetCollection<AppUser>("appUsers");
-        _attachmentCollection =
-            pdDb.GetCollection<AttachmentInfo>(patentDesignDbSettings.Value.AttachmentCollectionName);
-        _fillingCollection = pdDb.GetCollection<Filling>(patentDesignDbSettings.Value.FilesCollectionName);
-        _performanceCollection = pdDb.GetCollection<PerformanceMarker>("performance");
+        var s = patentDesignDbSettings.Value;
+        _userCollection = db.GetCollection<AppUser>("appUsers");
+        _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _performanceCollection = db.GetCollection<PerformanceMarker>("performance");
+        _log = log;
     }
-
-    //    public async Task<CorrespondenceType?> LoadDefaultCorrespondence(UserCreateType user)
-    //    {
-    //        var corr = _userCollection.Find(x => x.id == user.id)
-    //            .Project(y => y.DefaultCorrespondence).FirstOrDefault();
-    //        if (corr == null)
-    //        {
-    //            corr = _fillingCollection
-    //                .Find(x => x.CreatorAccount == user.id && x.Correspondence != null && x.Correspondence.name != "-")
-    //                .Project(x => x.Correspondence).FirstOrDefault();
-    //            // if user doesnt exist, create and save
-    //            if (corr != null)
-    //            {
-    //                var userFound = _userCollection.Find(x => x.id == user.id).FirstOrDefault();
-    //                if (userFound != null)
-    //                {
-    //                    await _userCollection.FindOneAndUpdateAsync(
-    //                        Builders<UserCreateType>.Filter.Eq(x => x.id, user.id),
-    //                        Builders<UserCreateType>.Update.Set(y => y.DefaultCorrespondence, corr),
-    //                        new FindOneAndUpdateOptions<UserCreateType>()
-    //                        {
-    //                            ReturnDocument = ReturnDocument.After
-    //                        }
-    //                    );
-    //                }
-
-    //                else
-    //                {
-    //                    _ = SaveNewCorrespondence(corr, user);
-    //                }
-
-    //            }
-
-    //            return corr;
-    //        }
-    //        else
-    //        {
-    //            return corr;
-    //        }
-    //    }
-
-    //    public async Task<CorrespondenceType?> SaveNewCorrespondence(CorrespondenceType? newCorr, UserCreateType? userInfo)
-    //    {
-    //        var updated=await _userCollection.FindOneAndUpdateAsync(
-    //            Builders<UserCreateType>.Filter.Eq(x=>x.id, userInfo.id),
-    //            Builders<UserCreateType>.Update.Set(x => x.DefaultCorrespondence, newCorr), new FindOneAndUpdateOptions<UserCreateType>()
-    //            {
-    //                ReturnDocument = ReturnDocument.After
-    //            } 
-    //            );
-    //        if (updated == null)
-    //        {
-    //            userInfo.DefaultCorrespondence = newCorr;
-    //            await _userCollection.InsertOneAsync(userInfo);
-    //            return newCorr;
-    //        }
-    //        return updated.DefaultCorrespondence;
-    //    }
-
-    //    public async Task<string> UpdateUserSig(UpdateSigReq sigInfo)
-    //    {
-    //        var url = await UploadSignature(sigInfo);
-    //        if (_userCollection.Find(x => x.id == sigInfo.UserId).FirstOrDefault()!=null)
-    //        {
-    //            var response = await _userCollection.FindOneAndUpdateAsync(
-    //                Builders<UserCreateType>.Filter.Eq(x => x.id, sigInfo.UserId),
-    //                Builders<UserCreateType>.Update.Set(x => x.Signature, url),
-    //                new FindOneAndUpdateOptions<UserCreateType, UserCreateType>()
-    //                {
-    //                    ReturnDocument = ReturnDocument.After
-    //                });
-    //            return url;
-    //        }
-    //        else
-    //        {
-    //            await _userCollection.InsertOneAsync(new UserCreateType()
-    //            {
-    //                id = sigInfo.UserId,
-    //                Signature = url
-    //            });
-    //            return url;
-    //        }
-    //    }
-
-
-
-    //    private async Task<string> UploadSignature(UpdateSigReq item)
-    //    {
-    //        if (item.data == null) return "";
-    //        var extention = item.fileName.Split(".").Last();
-    //        var trustedFileName = Path.GetRandomFileName();
-    //        trustedFileName = trustedFileName.Split(".")[0] + $".{extention}";
-
-    //        await _attachmentCollection.InsertOneAsync(new AttachmentInfo
-    //        {
-    //            Id = trustedFileName,
-    //            ContentType = item.contentType,
-    //            Data = item.data
-    //        });
-    //        var uri =
-    //            $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
-    //        return uri;
-    //    }
-
-    //    public string? GetSignature(string userId)
-    //    {
-    //        return _userCollection.Find(x => x.id == userId).FirstOrDefault().Signature??"-";
-    //    }
-
-
+    
     public async Task<List<AppUser>> SearchUsersByNameId(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -174,115 +53,7 @@ public class UsersService
         Console.WriteLine("Search result count: " + result.Count);
         return result;
     }
-
-    //    public async Task<dynamic> GetPerformances(FinanceQueryType data)
-    //    {
-    //        var applicationsCount = _performanceCollection.AsQueryable()
-    //            .Where(x => x.Date >= data.startDate && x.Date <= data.endDate && x.Type == PerformanceType.Application)
-    //            .GroupBy(x => new { x.ApplicationType, x.fileType })
-    //            .Select(t => new { applicationType = t.Key.ApplicationType, fileType = t.Key.fileType, amount = t.Count() })
-    //            .OrderByDescending(x => x.amount)
-    //            .ToList();
-
-    //        var treatedCount = _performanceCollection.AsQueryable()
-    //            .Where(x => x.Date >= data.startDate && x.Date <= data.endDate && x.Type == PerformanceType.Staff)
-    //            .GroupBy(x => new { x.fileType, x.beforeStatus, x.afterStatus, x.user })
-    //            .Select(t => new
-    //            {
-    //                fileType = t.Key.fileType, before = t.Key.beforeStatus, t.Key.user, after = t.Key.afterStatus,
-    //                amount = t.Count()
-    //            })
-    //            .OrderByDescending(x => x.amount)
-    //            .ToList();
-    //        return new
-    //        {
-    //            applicationsCount, treatedCount
-    //        };
-    //    }
-
-    //    public async Task<UserCreateType?> VerifyUser(string userId)
-    //    {
-    //        try
-    //        {
-    //            var result=await _userCollection.FindOneAndUpdateAsync(Builders<UserCreateType>.Filter.Eq(x=>x.id, userId),
-    //                Builders<UserCreateType>.Update.Set(x => x.verified, true), new FindOneAndUpdateOptions<UserCreateType, UserCreateType>()
-    //                {
-    //                    ReturnDocument = ReturnDocument.After
-    //                });
-    //            return result;
-    //        }
-    //        catch
-    //        {
-    //            return null;
-    //        }
-
-    //    }
-    //    public async Task<UserCreateType?> GetUser(string uuId, UsersController.UserLogin user)
-    //    {
-    //        try
-    //        {
-    //            var result = _userCollection.Find(Builders<UserCreateType>.Filter.Eq(x => x.uuid, uuId))
-    //                .FirstOrDefault();
-    //            Console.WriteLine(uuId);
-    //            if (result != null)
-    //            {
-    //                await _userCollection.FindOneAndUpdateAsync(x => x.uuid == uuId,
-    //                    Builders<UserCreateType>.Update.Set(x => x.password, user.password));
-    //            }
-    //            return result;
-    //        }
-    //        catch
-    //        {
-    //            return null;
-    //        }
-
-    //    }
-    //public async Task<UserCreateType?> GetUserById(string id)
-    //    {
-    //        try
-    //        {
-    //            var result = _userCollection.Find(Builders<UserCreateType>.Filter.Eq(x => x.id, id))
-    //                .FirstOrDefault();
-    //            return result;
-    //        }
-    //        catch
-    //        {
-    //            return null;
-    //        }
-
-    //    }
-
-    //    public async Task<List<UserCreateType>?> FetchAll()
-    //    {
-    //        var allUsers=await _userCollection.Find(x => x.id != "").ToListAsync();
-    //        return allUsers;
-    //    }
-
-    //    public async Task AddIds(List<UsersController.AddIDS> ids)
-    //    {
-    //        foreach (var user in ids)
-    //        {
-    //            await _userCollection.FindOneAndUpdateAsync(x => x.id == user.id, Builders<UserCreateType>.Update.Set(x=>x.uuid, user.uuid));
-    //        }
-
-    //        Console.WriteLine("DONE");
-
-
-    //    }
-
-    //    public async Task<bool?> CreateUser(UserCreateType user)
-    //    {
-    //        try
-    //        {
-    //            await _userCollection.InsertOneAsync(user);
-    //            return true;
-    //        }
-    //        catch
-    //        {
-    //            return false;
-    //        }
-    //    }
-
+    
     public async Task<dynamic?> LoadUsers(GetUsersRequest user)
     {
         try
@@ -321,9 +92,113 @@ public class UsersService
         }
     }
 
-    //public async Task<bool?> UpdateUser(UserCreateType user)
-    //{
-    //    await _userCollection.ReplaceOneAsync(Builders<UserCreateType>.Filter.Eq(x=>x.id, user.id), user);
-    //    return true;
-    //}
+    public async Task<Dictionary<string, string>> GetAllUserEmails()
+    {
+        var emails = await _userCollection
+            .Find(Builders<AppUser>.Filter.Empty)
+            .Project(u => new { u.Email, u.Name })
+            .ToListAsync();
+
+        return emails.ToDictionary(e => e.Name ?? "", e => e.Email ?? "");
+    }
+
+    public async Task<PaginatedUsersDto> GetAllUsers(GetUsersDto dto)
+    {
+        _log.LogInformation("Getting users with skip={Skip} and take={Take}", dto.Skip, dto.Take);
+        try
+        {
+            var filter = Builders<AppUser>.Filter;
+            var filters = dto.Roles is { Count: > 0 }
+                ? filter.AnyIn(f => f.UserRoles, dto.Roles)
+                : filter.Empty;
+            if (!string.IsNullOrWhiteSpace(dto.Name))
+            {
+                var nameRegex = new BsonRegularExpression(Regex.Escape(dto.Name), "i");
+                var nameFilter = filter.Or(
+                    filter.Regex(u => u.FirstName, nameRegex),
+                    filter.Regex(u => u.LastName, nameRegex),
+                    filter.Regex(u => u.Email, nameRegex)
+                );
+                filters &= nameFilter;
+            }
+            var users = await _userCollection.Find(filters)
+                .Skip(dto.Skip)
+                .Limit(dto.Take)
+                .ToListAsync();
+
+            var count = await _userCollection.CountDocumentsAsync(filters);
+
+            return new PaginatedUsersDto
+            {
+                Users = users.Select(u => new UserDto
+                {
+                    Id = u.Id,
+                    Name = $"{u.FirstName} {u.LastName}",
+                    Email = u.Email,
+                    PhoneNumber = u.PhoneNumber,
+                    UserRoles = u.UserRoles
+                }).ToList(),
+                TotalCount = count
+            };
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+    }
+
+    public async Task<bool> UpdateUserRoles(UserRoleDto request)
+    {
+        _log.LogInformation("Updating roles for user {UserId}", request.UserId);
+
+        var filter = Builders<AppUser>.Filter.Eq(u => u.Id, request.UserId);
+        var matched = false;
+
+        if (request.RemoveRoles is { Count: > 0 })
+        {
+            var removeUpdate = Builders<AppUser>.Update
+                .PullAll(u => u.UserRoles, request.RemoveRoles)
+                .Set(u => u.LastUpdatedAt, DateTime.Now);
+
+            var removeResult = await _userCollection.UpdateOneAsync(filter, removeUpdate);
+            matched |= removeResult.MatchedCount > 0;
+        }
+
+        if (request.AddRoles is { Count: > 0 })
+        {
+            var addUpdate = Builders<AppUser>.Update
+                .AddToSetEach(u => u.UserRoles, request.AddRoles)
+                .Set(u => u.LastUpdatedAt, DateTime.Now);
+
+            var addResult = await _userCollection.UpdateOneAsync(filter, addUpdate);
+            matched |= addResult.MatchedCount > 0;
+        }
+
+        if (!matched && request.AddRoles is not { Count: > 0 } && request.RemoveRoles is not { Count: > 0 })
+            return false;
+
+        return matched;
+    }
+
+    public async Task<AppUser> GetUserById(string id)
+    {
+        _log.LogInformation($"Getting User information for {id} ");
+        try
+        {
+            var user = await _userCollection.Find(u => u.Id == id).FirstOrDefaultAsync();
+            if (user is null)
+            {
+                _log.LogError("User not found");
+                throw new KeyNotFoundException("User not found");
+            }
+
+            return user;
+        }
+        catch (Exception e)
+        {
+            _log.LogError(e,"User not found");
+            throw;
+        }
+    }
 }

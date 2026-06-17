@@ -214,7 +214,7 @@ namespace patentdesign.pdfs
                                 table.Cell().Element(Block).Column(c =>
                                 {
                                     c.Item().Text("Representation Of Trademark:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                                    if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device && model.Attachments.FirstOrDefault(e => e.name == "representation") != null && image.Length > 0)
+                                    if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device && model.Attachments.FirstOrDefault(e => e.name == "representation") != null && PdfImageHelper.TryDecodeImage(image))
                                     {
                                         var img = Image.FromBinaryData(image);
                                         c.Item().Height(100).AlignCenter().Image(img).FitArea();
@@ -299,7 +299,7 @@ namespace patentdesign.pdfs
                                 {
                                     c.Item().Text("Representation:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                                     // Show the image if available, otherwise show "N/A"
-                                    if (image != null && image.Length > 0)
+                                    if (PdfImageHelper.TryDecodeImage(image))
                                     {
                                         var img = Image.FromBinaryData(image);
                                         c.Item().Height(100).AlignCenter().Image(img).FitArea();

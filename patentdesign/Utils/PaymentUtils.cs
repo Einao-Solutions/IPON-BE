@@ -1,16 +1,19 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using Bogus.DataSets;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using patentdesign.Enums;
 using patentdesign.Models;
 
 namespace patentdesign.Utils;
 
-public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
+public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<PaymentUtils> log)
 {
     private PaymentInfo _paymentInfo = remitaPaymentDetails.Value;
+    private readonly ILogger<PaymentUtils> _log = log;
 
     public  (string, string, string)  GetCost(PaymentTypes type,  FileTypes? fileType, string applicantNationality, DesignTypes? designType=null, PatentTypes? patentType=null, string? patentChangeType=null)
     {
@@ -215,7 +218,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.StatusServiceId;
                 serviceFee = _paymentInfo.StatusServiceFee;
                 break;
-            case PaymentTypes.LateRenewal:
+            case PaymentTypes.LateTrademarkRenewal:
                 amount = _paymentInfo.LateTrademarkRenewalCost;
                 serviceId = _paymentInfo.LateTrademarkRenewalID;
                 serviceFee = _paymentInfo.LateTrademarkRenewalServiceFee;
@@ -255,6 +258,21 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 serviceId = _paymentInfo.OppositionServiceID;
                 serviceFee = _paymentInfo.OppositionServiceFee;
                 break;
+            case PaymentTypes.CounterStatement:
+                amount = _paymentInfo.CounterStatementCost;
+                serviceId = _paymentInfo.CounterStatementServiceID;
+                serviceFee = _paymentInfo.CounterStatementServiceFee;
+                break;
+            case PaymentTypes.StatutoryDeclaration:
+                amount = _paymentInfo.StatutoryDeclarationCost ?? _paymentInfo.CounterStatementCost;
+                serviceId = _paymentInfo.StatutoryDeclarationServiceID ?? _paymentInfo.CounterStatementServiceID;
+                serviceFee = _paymentInfo.StatutoryDeclarationServiceFee ?? _paymentInfo.CounterStatementServiceFee;
+                break;
+            case PaymentTypes.OppositionWithdrawal:
+                amount = _paymentInfo.OppositionWithdrawalCost ?? "7000";
+                serviceId = _paymentInfo.OppositionWithdrawalServiceID ?? _paymentInfo.StatutoryDeclarationServiceID;
+                serviceFee = _paymentInfo.OppositionWithdrawalServiceFee ?? "3500";
+                break;
             case PaymentTypes.PublicationStatusUpdate:
                 amount = _paymentInfo.PublicationStatusUpdateCost;
                 serviceId = _paymentInfo.PublicationStatusUpdateServiceID;
@@ -269,6 +287,86 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
                 amount += _paymentInfo.AppealCost;
                 serviceId = _paymentInfo.AppealServiceID;
                 serviceFee = _paymentInfo.AppealServiceFee;
+                break;
+            case PaymentTypes.PatentAssignment:
+                amount = _paymentInfo.PatentAssignmentCost;
+                serviceId = _paymentInfo.PatentAssignmentServiceID;
+                serviceFee = _paymentInfo.PatentAssignmentServiceFee;
+                break;
+            case PaymentTypes.PatentLicense:
+                amount = _paymentInfo.PatentLicenseCost;
+                serviceId = _paymentInfo.PatentLicenseServiceID;
+                serviceFee = _paymentInfo.PatentLicenseServiceFee;
+                break;
+            case PaymentTypes.PatentMortgage:
+                amount = _paymentInfo.PatentMortgageCost;
+                serviceId = _paymentInfo.PatentMortgageServiceID;
+                serviceFee = _paymentInfo.PatentMortgageServiceFee;
+                break;
+            case PaymentTypes.PatentCtc:
+                amount = _paymentInfo.PatentCtcCost;
+                serviceId = _paymentInfo.PatentCtcServiceID;
+                serviceFee = _paymentInfo.PatentCtcServiceFee;
+                break;
+            case PaymentTypes.PatentAmendment:
+                amount = _paymentInfo.PatentAmendmentCost;
+                serviceId = _paymentInfo.PatentAmendmentServiceID;
+                serviceFee = _paymentInfo.PatentAmendmentServiceFee;
+                break;
+            case PaymentTypes.PatentMerger:
+                amount = _paymentInfo.PatentMergerCost;
+                serviceId = _paymentInfo.PatentMergerServiceID;
+                serviceFee = _paymentInfo.PatentMergerServiceFee;
+                break;
+            case PaymentTypes.DesignAssignment:
+                amount = _paymentInfo.DesignAssignmentCost;
+                serviceId = _paymentInfo.DesignAssignmentServiceID;
+                serviceFee = _paymentInfo.DesignAssignmentServiceFee;
+                break;
+             case PaymentTypes.DesignLicense:
+                amount = _paymentInfo.DesignLicenseCost;
+                serviceId = _paymentInfo.DesignLicenseServiceID;
+                serviceFee = _paymentInfo.DesignLicenseServiceFee;
+                break;
+             case PaymentTypes.DesignMerger:
+                amount = _paymentInfo.DesignMergerCost;
+                serviceId = _paymentInfo.DesignMergerServiceID;
+                serviceFee = _paymentInfo.DesignMergerServiceFee;
+                break;
+             case PaymentTypes.DesignMortgage:
+                amount = _paymentInfo.DesignMortgageCost;
+                serviceId = _paymentInfo.DesignMortgageServiceID;
+                serviceFee = _paymentInfo.DesignMortgageServiceFee;
+                break;
+             case PaymentTypes.DesignCtc:
+                amount = _paymentInfo.DesignCtcCost;
+                serviceId = _paymentInfo.DesignCtcServiceID;
+                serviceFee = _paymentInfo.DesignCtcServiceFee;
+                break;
+             case PaymentTypes.TrademarkCtc:
+                amount = _paymentInfo.TrademarkCtcCost;
+                serviceId = _paymentInfo.TrademarkCtcServiceID;
+                serviceFee = _paymentInfo.TrademarkCtcServiceFee;
+                break;
+             case PaymentTypes.DesignAmendment:
+                amount = _paymentInfo.DesignAmendmentCost;
+                serviceId = _paymentInfo.DesignAmendmentServiceID;
+                serviceFee = _paymentInfo.DesignAmendmentServiceFee;
+                break;
+            case PaymentTypes.Reclassification:
+                amount = _paymentInfo.ReclassificationCost;
+                serviceFee = _paymentInfo.ReclassificationServiceFee;
+                serviceId = _paymentInfo.ReclassificationServiceID;
+                break;
+            case PaymentTypes.FileRestoration:
+                amount = _paymentInfo.TrademarkRestorationCost;
+                serviceId = _paymentInfo.TrademarkRestorationServiceId;
+                serviceFee = _paymentInfo.TrademarkRestorationServiceFee;
+                break;
+            case PaymentTypes.TrademarkAmendment:
+                amount = _paymentInfo.TrademarkAmendmentCost;
+                serviceId = _paymentInfo.TrademarkAmendmentServiceID;
+                serviceFee = _paymentInfo.TrademarkAmendmentServiceFee;
                 break;
         }
 
@@ -341,18 +439,22 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
              request.Content = jsonContent;
              var response = await _client.SendAsync(request);
              var dataMod = await response.Content.ReadAsStringAsync();
-             Console.WriteLine(dataMod);
+             Console.WriteLine($"[Remita RAW] status={response.StatusCode} body={dataMod}");
              try
              {
                  int startIndex = dataMod.IndexOf("{");
-                 int stopIndex = dataMod.IndexOf("}") + 1;
+                 int stopIndex = dataMod.LastIndexOf("}") + 1;
                  var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(
                      dataMod.Substring(startIndex: startIndex, length: stopIndex - startIndex));
-                 Console.WriteLine(dict);
+                 Console.WriteLine($"[Remita DICT] {JsonSerializer.Serialize(dict)}");
                  string rrr = dict["RRR"].ToString();
                  return rrr;
              }
              catch (Exception e)
+             {
+                 Console.WriteLine($"[Remita PARSE ERROR] {e.Message} | raw={dataMod}");
+                 return null;
+             }
              {
                  return null;
              }
@@ -360,86 +462,6 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
 
     public async Task<string?> GeneratePublicationStatusUpdateRemitaPaymentId(string total, string serviceFee, string serviceId, string description,
     string applicantName, string applicantEmail, string applicantNumber)
-    {
-        if (string.IsNullOrWhiteSpace(total) || string.IsNullOrWhiteSpace(serviceFee))
-        {
-            throw new ArgumentException("Total or Service Fee cannot be null or empty.");
-        }
-
-        if (!int.TryParse(total, out int totalAmount) || !int.TryParse(serviceFee, out int serviceFeeAmount))
-        {
-            throw new ArgumentException("Total or Service Fee must be valid integers.");
-        }
-        var _client = new HttpClient();
-        var orderId = $"IPONMWD{DateTime.Now.Ticks}";
-        // var serviceId = "4019135160";
-        var merchantId = "6230040240";
-        var apiKey = "192753";
-        using StringContent jsonContent = new(
-                 JsonSerializer.Serialize(new
-                 {
-                     serviceTypeId = serviceId,
-                     amount = total,
-                     orderId,
-                     payerName = applicantName,
-                     payerEmail = applicantEmail,
-                     payerPhone = applicantNumber,
-                     description,
-                     lineItems = new[]
-                     {
-                         new {
-                             lineItemsId= "itemid1",
-                             beneficiaryName= "Einao Solutions",
-                             beneficiaryAccount= "1013590643",
-                             bankCode= "057",
-                             //beneficiaryName= "Federal Ministry of Commerce",
-                             //beneficiaryAccount= "0020110961047",
-                             //bankCode= "000",
-                             beneficiaryAmount= (int.Parse(total) - int.Parse(serviceFee)).ToString(),
-                             deductFeeFrom= "1",
-                         },
-                         new {
-                             lineItemsId= "itemid2",
-                             beneficiaryName= "Einao Solutions",
-                             beneficiaryAccount= "1013590643",
-                             bankCode= "057",
-                             beneficiaryAmount= serviceFee,
-                             deductFeeFrom= "0",
-                         }
-                     }
-                 }),
-                 Encoding.UTF8,
-                 "application/json");
-        _client = new HttpClient();
-        var test = merchantId + serviceId + orderId + total + apiKey;
-        var apiHash = SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(test));
-        var convertedHash = Convert.ToHexString(apiHash).ToLower();
-        Console.WriteLine(convertedHash);
-        var request = new HttpRequestMessage(HttpMethod.Post,
-            "https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/merchant/api/paymentinit");
-        request.Headers.TryAddWithoutValidation("Authorization", $"remitaConsumerKey={merchantId},remitaConsumerToken={convertedHash}");
-        request.Content = jsonContent;
-        var response = await _client.SendAsync(request);
-        var dataMod = await response.Content.ReadAsStringAsync();
-        Console.WriteLine(dataMod);
-        try
-        {
-            int startIndex = dataMod.IndexOf("{");
-            int stopIndex = dataMod.IndexOf("}") + 1;
-            var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(
-                dataMod.Substring(startIndex: startIndex, length: stopIndex - startIndex));
-            Console.WriteLine(dict);
-            string rrr = dict["RRR"].ToString();
-            return rrr;
-        }
-        catch (Exception e)
-        {
-            return null;
-        }
-    }
-
-    public async Task<string?> GenerateFileWithdrawalRemitaPaymentId(string total, string serviceFee, string serviceId, string description,
-   string applicantName, string applicantEmail, string applicantNumber)
     {
         if (string.IsNullOrWhiteSpace(total) || string.IsNullOrWhiteSpace(serviceFee))
         {
@@ -553,6 +575,12 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
 
     public async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
     {
+        if (string.IsNullOrWhiteSpace(rrr))
+        {
+            _log.LogWarning("GetDetailsByRRR called with an empty rrr");
+            return null;
+        }
+
         const string merchantId = "6230040240";
         const string apiKey = "192753";
         var test = rrr + apiKey + merchantId;
@@ -560,28 +588,72 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
         var hash = Convert.ToHexString(apiHash).ToLower();
         var transactionStatusUrl =
             $"https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/{merchantId}/{rrr}/{hash}/status.reg";
-        var client = new HttpClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
-        request.Headers.TryAddWithoutValidation("Authorization",
-            $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
-        var response = await client.SendAsync(request);
-        var dataMod = await response.Content.ReadAsStringAsync();
-        RemitaResponseClass? obj = null;
+
+        _log.LogInformation("Fetching Remita payment details by rrr: {Rrr}", rrr);
+
         try
         {
-            obj = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod);
-        }
-        catch (Exception e)
-        {
-            obj = null;
-        }
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
+            request.Headers.TryAddWithoutValidation("Authorization",
+                $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
 
-        return obj;
+            using var response = await client.SendAsync(request);
+            var dataMod = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _log.LogWarning("Remita RRR status request failed for rrr {Rrr}. StatusCode: {StatusCode}. Response: {Response}",
+                    rrr, (int)response.StatusCode, dataMod);
+                return null;
+            }
+
+            var result = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null)
+            {
+                _log.LogWarning("Remita returned an empty payload for rrr {Rrr}", rrr);
+                return null;
+            }
+
+            result.paymentDate = FormatPaymentDate(result.paymentDate);
+
+            _log.LogInformation("Successfully fetched Remita details for rrr {Rrr}", rrr);
+            return result;
+        }
+        catch (JsonException ex)
+        {
+            _log.LogError(ex, "Failed to deserialize Remita response for rrr {Rrr}", rrr);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogError(ex, "HTTP error while fetching Remita details for rrr {Rrr}", rrr);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _log.LogError(ex, "Request timed out while fetching Remita details for rrr {Rrr}", rrr);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Unexpected error while fetching Remita details for rrr {Rrr}", rrr);
+            return null;
+        }
     }
 
     public async Task<RemitaResponseClass?> GetDetailsByOrderId(string orderId)
     {
-        Console.WriteLine($"Getting details based on orderId, {orderId}");
+        if (string.IsNullOrWhiteSpace(orderId))
+        {
+            _log.LogWarning("GetDetailsByOrderId called with an empty orderId");
+            return null;
+        }
+
         const string merchantId = "6230040240";
         const string apiKey = "192753";
         var test = orderId + apiKey + merchantId;
@@ -589,27 +661,92 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails)
         var hash = Convert.ToHexString(apiHash).ToLower();
         var transactionStatusUrl =
             $"https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/{merchantId}/{orderId}/{hash}/orderstatus.reg";
-        var client = new HttpClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
-        request.Headers.TryAddWithoutValidation("Authorization",
-            $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
-        var response = await client.SendAsync(request);
-        var dataMod = await response.Content.ReadAsStringAsync();
-        RemitaResponseClass? obj = null;
+
+        _log.LogInformation("Fetching Remita payment details by orderId: {OrderId}", orderId);
+
         try
         {
-            obj = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod);
-            return obj;
+            using var client = new HttpClient();
+            using var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
+            request.Headers.TryAddWithoutValidation("Authorization",
+                $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
+
+            using var response = await client.SendAsync(request);
+            var dataMod = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _log.LogWarning("Remita order status request failed for orderId {OrderId}. StatusCode: {StatusCode}. Response: {Response}",
+                    orderId, (int)response.StatusCode, dataMod);
+                return null;
+            }
+
+            var result = JsonSerializer.Deserialize<RemitaResponseClass>(dataMod, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null)
+            {
+                _log.LogWarning("Remita returned an empty payload for orderId {OrderId}", orderId);
+                return null;
+            }
+
+            result.paymentDate = FormatPaymentDate(result.paymentDate);
+
+            _log.LogInformation("Successfully fetched Remita details for orderId {OrderId}", orderId);
+            return result;
         }
-        catch (Exception e)
+        catch (JsonException ex)
         {
+            _log.LogError(ex, "Failed to deserialize Remita response for orderId {OrderId}", orderId);
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _log.LogError(ex, "HTTP error while fetching Remita details for orderId {OrderId}", orderId);
+            return null;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _log.LogError(ex, "Request timed out while fetching Remita details for orderId {OrderId}", orderId);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Unexpected error while fetching Remita details for orderId {OrderId}", orderId);
             return null;
         }
     }
 
-    public (string, string, string?) GetPatentLateRenewalCost()
+    private static string? FormatPaymentDate(string? paymentDate)
     {
-        return (_paymentInfo.PatentLateRenewalCost, _paymentInfo.PatentLateRenewalServiceFee, _paymentInfo.PatentLateRenewalServiceID);
+        if (string.IsNullOrWhiteSpace(paymentDate))
+        {
+            return paymentDate;
+        }
+
+        var inputFormats = new[]
+        {
+            "yyyy-MM-dd HH:mm:ss.F",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss.fff"
+        };
+
+        if (DateTime.TryParseExact(paymentDate, inputFormats, CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var parsedDate))
+        {
+            return parsedDate.ToString("dd MMMM, yyyy", CultureInfo.InvariantCulture);
+        }
+
+        if (DateTime.TryParse(paymentDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsedDate))
+        {
+            return parsedDate.ToString("dd MMMM, yyyy", CultureInfo.InvariantCulture);
+        }
+
+        return paymentDate;
     }
+
+
 }
 

@@ -6,6 +6,7 @@ public class DocumentsDto
 {
     public string? ApplicationId { get; set; }
     public string? PaymentId { get; set; }
+    public string? OppositionId { get; set; }
     public List<ApplicationLetters>? Documents { get; set; }
 
 }

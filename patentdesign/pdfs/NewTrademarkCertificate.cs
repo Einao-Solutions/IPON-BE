@@ -50,12 +50,18 @@ namespace patentdesign.pdfs
 
                 column.Item().Height(70).PaddingTop(10).Row(row =>
                 {
-                    if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
+                    if (model.TrademarkLogo is TradeMarkLogo.Device or TradeMarkLogo.WordandDevice &&
                         model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
-                        imageData?.Length > 0)
+                        PdfImageHelper.TryDecodeImage(imageData))
                     {
-                        row.RelativeItem().AlignCenter().Image(imageData).FitArea();
+                        row.RelativeItem().AlignCenter().Image(imageData!).FitArea();
+                        if (model.TrademarkLogo is TradeMarkLogo.WordandDevice)
+                        {
+                            row.RelativeItem().AlignCenter().Text(model.TitleOfTradeMark ?? "N/A")
+                                .FontSize(18).FontFamily(Fonts.TimesNewRoman);
+                        }
                     }
+                    
                     else
                     {
                         row.RelativeItem().AlignCenter().Text(model.TitleOfTradeMark ?? "N/A")
@@ -68,13 +74,15 @@ namespace patentdesign.pdfs
                     .FontFamily(Fonts.TimesNewRoman).Justify();
                 column.Item().Height(10);
 
+                var app = model?.ApplicationHistory[0];
                 var applicantName = model.applicants?.Count > 1
                     ? model.applicants[0]?.Name + " et al."
                     : model.applicants?.FirstOrDefault()?.Name ?? "N/A";
-                column.Item().Text(applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
+
+                column.Item().Text(app?.Applicants[0].Name ?? applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(13);
-                var applicantAddress = model.applicants?.FirstOrDefault()?.Address ?? "N/A";
+                var applicantAddress = model.ApplicationHistory[0].Applicants[0].Address ?? model.applicants?.FirstOrDefault()?.Address ?? "N/A";
                 column.Item().Text(applicantAddress).FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(7);
@@ -84,7 +92,8 @@ namespace patentdesign.pdfs
                     .FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(9);
-                column.Item().Text(model.TrademarkClassDescription ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman).AlignCenter().ClampLines(6);
+                column.Item().Text(model.TrademarkClassDescription ?? " ").FontSize(12).FontFamily(Fonts.TimesNewRoman).AlignCenter().ClampLines(6);
+                column.Item().Text(model.AdditionalDescription ?? " ").FontSize(12).FontFamily(Fonts.TimesNewRoman).AlignCenter().ClampLines(3);
 
                 //QR Code
                 column.Item().AlignCenter().Element(GetQrCode);

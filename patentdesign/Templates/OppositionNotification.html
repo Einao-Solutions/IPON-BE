@@ -1,69 +1,127 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notification of Opposition</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>IPO Nigeria — Notification of Opposition</title>
     <style>
-
-        /* Basic email-safe styles */
-
-        body { margin:0; padding:0; background-color:#f4f4f6; }
-
-        table { border-collapse:collapse; }
-
-        .container { width:100%; max-width:600px; margin:20px auto; }
-
-        .card { background:#ffffff; border-radius:6px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
-
-        h1 { font-size:20px; margin:0 0 10px 0; }
-
-        p { margin:0 0 12px 0; line-height:1.45; color:#333333; }
-
-        .muted { color:#6b7280; font-size:13px; }
-
-        .details { background:#f9fafb; padding:12px; border-radius:6px; margin:12px 0; }
-
-        .detail-row { margin:6px 0; }
-
-        .cta { display:inline-block; padding:10px 16px; border-radius:6px; text-decoration:none; font-weight:600; }
-
-        .btn-primary { background:#0b72ef; color:#ffffff; }
-
-        .footer { font-size:12px; color:#6b7280; margin-top:16px; }
-
-        @media (max-width:420px){ .card{padding:16px;} h1{font-size:18px;} }
+        *,*::before,*::after{box-sizing:border-box;}
+        body,table,td,a{-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;}
+        table,td{mso-table-lspace:0pt;mso-table-rspace:0pt;}
+        img{-ms-interpolation-mode:bicubic;border:0;height:auto;line-height:100%;outline:none;text-decoration:none;display:block;}
+        body{margin:0!important;padding:0!important;width:100%!important;}
+        .email-wrapper{background-color:#eef2ec;background-image:radial-gradient(ellipse at 10% 0%,rgba(26,92,56,.08) 0%,transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(200,155,42,.07) 0%,transparent 50%);padding:40px 16px;font-family:"Georgia","Times New Roman",serif;}
+        .email-container{max-width:620px;margin:0 auto;background:#fff;border-radius:4px;overflow:hidden;box-shadow:0 4px 24px rgba(26,92,56,.12),0 1px 4px rgba(0,0,0,.06);border-top:5px solid #1a5c38;}
+        .header{background:linear-gradient(135deg,#1a5c38 0%,#227a4a 60%,#1f6b40 100%);padding:32px 40px 28px;position:relative;overflow:hidden;}
+        .header::before{content:"";position:absolute;top:-60px;right:-60px;width:200px;height:200px;border-radius:50%;background:rgba(200,155,42,.1);}
+        .header::after{content:"";position:absolute;bottom:-40px;left:30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.04);}
+        .header-inner{display:flex;align-items:center;gap:16px;position:relative;z-index:1;}
+        .header-ministry{font-family:"Arial Narrow",Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:rgba(200,155,42,.9);margin-bottom:4px;}
+        .header-org{font-family:"Georgia",serif;font-size:18px;font-weight:bold;color:#fff;line-height:1.2;}
+        .header-dept{font-family:Arial,sans-serif;font-size:11px;color:rgba(255,255,255,.7);margin-top:3px;letter-spacing:.3px;}
+        .header-divider{height:3px;background:linear-gradient(to right,#c89b2a,#e2b84a,#c89b2a);opacity:.85;}
+        .status-banner{padding:20px 40px 0;}
+        .status-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:100px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;}
+        .status-badge.info{background:#e8f2f9;color:#1a4a72;border:1px solid #a8cbe4;}
+        .status-dot{width:8px;height:8px;border-radius:50%;}
+        .status-dot.info{background:#2471a3;}
+        .body-content{padding:28px 40px 32px;}
+        .greeting{font-family:"Georgia",serif;font-size:22px;color:#1a2b22;margin-bottom:16px;font-weight:normal;line-height:1.3;}
+        .body-text{font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.75;color:#3d5246;margin-bottom:20px;}
+        .ref-box{background:#f4f8f5;border-left:4px solid #1a5c38;border-radius:0 4px 4px 0;padding:16px 20px;margin:24px 0;}
+        .ref-box-title{font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6b8078;margin-bottom:10px;}
+        .ref-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #dde8e2;}
+        .ref-row:last-child{border-bottom:none;}
+        .ref-label{font-family:Arial,sans-serif;font-size:12px;color:#6b8078;}
+        .ref-value{font-family:"Courier New",monospace;font-size:13px;font-weight:700;color:#1a2b22;}
+        .notice-box{background:#fffbee;border:1px solid #e2cc7a;border-radius:4px;padding:14px 18px;margin:20px 0;display:flex;gap:12px;align-items:flex-start;}
+        .notice-icon{font-size:18px;flex-shrink:0;margin-top:1px;}
+        .notice-text{font-family:Arial,sans-serif;font-size:12.5px;color:#6b5000;line-height:1.6;}
+        .gold-divider{border:none;height:2px;background:linear-gradient(to right,transparent,#c89b2a,transparent);margin:24px 0;opacity:.5;}
+        .footer{background:#1a2b22;padding:28px 40px;}
+        .footer-contact-grid{display:flex;gap:24px;margin-bottom:20px;}
+        .footer-contact-col{flex:1;}
+        .footer-contact-label{font-family:Arial,sans-serif;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#c89b2a;margin-bottom:6px;}
+        .footer-contact-value{font-family:Arial,sans-serif;font-size:11.5px;color:rgba(255,255,255,.8);line-height:1.6;}
+        .footer-contact-value a{color:rgba(255,255,255,.8)!important;text-decoration:underline;}
+        .footer-bottom{border-top:1px solid rgba(255,255,255,.1);padding-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+        .footer-copy{font-family:Arial,sans-serif;font-size:11px;color:rgba(255,255,255,.45);}
+        .footer-links{font-family:Arial,sans-serif;font-size:11px;}
+        .footer-links a{color:rgba(255,255,255,.5)!important;text-decoration:none;margin-left:14px;}
+        .footer-seal-bar{height:2px;background:linear-gradient(to right,transparent,rgba(200,155,42,.4),transparent);margin-bottom:16px;}
+        @media only screen and (max-width:480px){.header{padding:24px 24px 20px;}.body-content{padding:20px 24px 24px;}.footer{padding:20px 24px;}.status-banner{padding:16px 24px 0;}.ref-row{flex-direction:column;gap:2px;}.footer-contact-grid{flex-direction:column;gap:16px;}.footer-bottom{flex-direction:column;align-items:flex-start;gap:8px;}.header-org{font-size:15px;}}
     </style>
 </head>
 <body>
-<table role="presentation" width="100%">
-    <tr>
-        <td align="center">
-            <table class="container" role="presentation">
-                <tr>
-                    <td class="card">
-                        <h1>Notification of Opposition</h1>
-                        <p class="muted">Hello <strong>{ApplicantName}</strong>,</p>
-                        <p>We wish to inform you that your trademark application has received an <strong>opposition</strong>. Please review the details below carefully and act within the stated timeframe.</p>
-                        <div class="details">
-                            <div class="detail-row"><strong>Trademark Title:</strong>{Title}</div>
-                            <div class="detail-row"><strong>File Number:</strong> {FileNumber}</div>
-                            <div class="detail-row"><strong>Date of Opposition:</strong> {OppositionDate}</div>
-                            <div class="detail-row"><strong>Opposing Party:</strong>{OpposerName}</div>
-                            <div class="detail-row"><strong>Reason for Opposition:</strong>{Reason}</div>
-                        </div>
-                        <h2 style="font-size:16px; margin:10px 0 6px 0;">Next Steps</h2>
-                        <p>Please review the opposition details carefully. You are required to file a <strong>Counter Statement</strong> through the <a href="https://portal.iponigeria.com" target="_blank">online portal</a> within <strong>thirty (30) days</strong> of receipt of this notification. Failure to do so will result in the application being treated as <em>Abandoned</em>.</p>
-                        <p style="margin-top:12px;">If you need assistance or clarification, contact our support team at <a href="mailto:trademarks@iponigeria.com">trademarks@iponigeria.com</a>.</p>
-                        <p style="margin-top:18px;">Thank you,</p>
-                        <p style="margin-bottom:4px;"><br>[Insert Signature]<br><strong>{SignatoryName}</strong><br>Head of Opposition Unit<br>The Trademark Registry<br>Federal Ministry of Industry, Trade and Investment<br>Federal Capital Territory, Abuja, Nigeria</p>
-                        <div class="footer">This is an automated notice from the Trademark Registry. If you believe you have received this message in error, please contact trademarks@iponigeria.com immediately.</div>
-                    </td>
-                </tr>
-            </table>
-        </td>
-    </tr>
-</table>
+<div class="email-wrapper">
+    <div class="email-container">
+        <div class="header">
+            <div class="header-inner">
+                <div class="header-text">
+                    <div class="header-ministry">Federal Ministry of Industry, Trade &amp; Investment</div>
+                    <div class="header-org">IPO Nigeria</div>
+                    <div class="header-dept">Intellectual Property Office of Nigeria — Trademark Registry</div>
+                </div>
+            </div>
+        </div>
+        <div class="header-divider"></div>
+
+        <div class="status-banner">
+            <span class="status-badge info"><span class="status-dot info"></span>Notice of Opposition</span>
+        </div>
+
+        <div class="body-content">
+            <div class="greeting">Dear {ApplicantName},</div>
+            <p class="body-text">This is to formally notify you that a Notice of Opposition has been filed against your trademark application currently being processed by the Trademark Registry of the Commercial Law Department, Ministry of Industry, Trade and Investment.</p>
+
+            <div class="ref-box">
+                <div class="ref-box-title">Application Details</div>
+                <div class="ref-row"><span class="ref-label">File Number</span><span class="ref-value">{FileNumber}</span></div>
+                <div class="ref-row"><span class="ref-label">Title of Mark</span><span class="ref-value">{Title}</span></div>
+                <div class="ref-row"><span class="ref-label">Opposition ID</span><span class="ref-value">{OppositionId}</span></div>
+                <div class="ref-row"><span class="ref-label">Date of Opposition</span><span class="ref-value">{OppositionDate}</span></div>
+                <div class="ref-row"><span class="ref-label">Opposing Party</span><span class="ref-value">{OpposerName}</span></div>
+                <div class="ref-row"><span class="ref-label">Reason for Opposition</span><span class="ref-value">{Reason}</span></div>
+            </div>
+
+            <p class="body-text">The Notice of Opposition has been recorded against the above-mentioned application and may affect the registration process pending the determination of the opposition proceedings.</p>
+
+            <div class="notice-box">
+                <div class="notice-icon">⚠️</div>
+                <div class="notice-text">You are required to file a <strong>Counter Statement</strong> in response to the opposition within <strong>thirty (30) days</strong> from the date of this notice. Failure to file a Counter Statement within the prescribed period will result in the application being treated as <strong>Abandoned</strong>.</div>
+            </div>
+
+            <p class="body-text">You are advised to log in to the <a href="https://portal.iponigeria.com" style="color:#1a5c38;">IPO Nigeria Portal</a> to review the details of the opposition and submit the necessary response within the stipulated timeline in accordance with the applicable laws, regulations, and procedures governing trademark registration.</p>
+
+            <hr class="gold-divider" />
+            <p class="body-text" style="font-size:13px;color:#6b8078;margin-bottom:0;">Should you require clarification or assistance regarding the opposition process, kindly contact our support team at <a href="mailto:trademark@iponigeria.com" style="color:#1a5c38;">trademark@iponigeria.com</a>. Please do not reply to this automated email.</p>
+        </div>
+
+        <div class="footer">
+            <div class="footer-seal-bar"></div>
+            <div class="footer-contact-grid">
+                <div class="footer-contact-col">
+                    <div class="footer-contact-label">Trademark Registry</div>
+                    <div class="footer-contact-value"><a href="mailto:trademark@iponigeria.com">trademark@iponigeria.com</a><br/>080 3435 1514</div>
+                </div>
+                <div class="footer-contact-col">
+                    <div class="footer-contact-label">Patent &amp; Design Registry</div>
+                    <div class="footer-contact-value"><a href="mailto:patent.design@iponigeria.com">patent.design@iponigeria.com</a><br/>091 6357 0744</div>
+                </div>
+                <div class="footer-contact-col">
+                    <div class="footer-contact-label">Office Address</div>
+                    <div class="footer-contact-value">Block D, Old Secretariat<br/>Area 1, Garki, Abuja — Nigeria</div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                © {{CurrentYear}} IPO Nigeria — Intellectual Property Office of Nigeria. All rights reserved.
+                <div class="footer-links"><a href="https://www.iponigeria.com">Website</a><a href="https://www.iponigeria.com/faq">FAQs</a><a href="https://www.iponigeria.com/contact">Contact</a></div>
+            </div>
+        </div>
+    </div>
+</div>
 </body>
 </html>
  

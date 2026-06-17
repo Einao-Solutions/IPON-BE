@@ -106,7 +106,7 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
 
                         table.Cell().Element(Block).Column(c =>
                         {
-                            c.Item().Text("Payment rrr:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                            c.Item().Text("Payment ID:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
                             c.Item().Text(history.PaymentId).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                         table.Cell().Element(Block).Column(c =>
@@ -142,12 +142,12 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                         });
                         if (clerical != null)
                         {
-                            var excludedKeys = new[] { "id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved",  };
+                            // Add "AdditionalDescription" to excluded keys so it's not rendered as its own row
+                            var excludedKeys = new[] { "_id","id", "UpdateType", "filingdate", "paymentrrr", "isAmendment", "DateTreated", "Reason", "IsApproved", "OldAdditionalDescription", "AdditionalDescription" };
                             var clericalProps = clerical.GetType().GetProperties();
 
                             // Group Old/New pairs
                             var oldProps = clericalProps.Where(p => p.Name.StartsWith("Old") && !excludedKeys.Contains(p.Name, StringComparer.OrdinalIgnoreCase)).ToList();
-
                             foreach (var oldProp in oldProps)
                             {
                                 var newPropName = "New" + oldProp.Name.Substring(3);
@@ -165,6 +165,9 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                                 // Check if this is a URL property that should display as an image
                                 bool isImageUrl = oldProp.Name.EndsWith("Url", StringComparison.OrdinalIgnoreCase) &&
                                                   (oldProp.Name.Contains("Representation") || oldProp.Name.Contains("Attachment"));
+
+                                // Check if this is ClassDescription to also include AdditionalDescription
+                                bool isClassDescription = oldProp.Name.Equals("OldClassDescription", StringComparison.OrdinalIgnoreCase);
 
                                 table.Cell().Element(Block).Column(c =>
                                 {
@@ -185,6 +188,18 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                                     else
                                     {
                                         c.Item().Text(FormatValue(oldValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    }
+
+                                    // Append OldAdditionalDescription if this is ClassDescription
+                                    if (isClassDescription)
+                                    {
+                                        var oldAdditionalProp = clericalProps.FirstOrDefault(p => p.Name == "OldAdditionalDescription");
+                                        var oldAdditionalValue = oldAdditionalProp?.GetValue(clerical);
+                                        if (oldAdditionalValue != null)
+                                        {
+                                            c.Item().Text($"Old {FormatPropertyName("AdditionalDescription")}:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                            c.Item().Text(FormatValue(oldAdditionalValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                        }
                                     }
                                 });
 
@@ -207,6 +222,18 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                                     else
                                     {
                                         c.Item().Text(FormatValue(newValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                    }
+
+                                    // Append NewAdditionalDescription if this is ClassDescription
+                                    if (isClassDescription)
+                                    {
+                                        var newAdditionalProp = clericalProps.FirstOrDefault(p => p.Name == "NewAdditionalDescription");
+                                        var newAdditionalValue = newAdditionalProp?.GetValue(clerical);
+                                        if (newAdditionalValue != null)
+                                        {
+                                            //c.Item().Text($"New {FormatPropertyName("AdditionalDescription")}:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                                            c.Item().Text(FormatValue(newAdditionalValue) ?? "N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                        }
                                     }
                                 });
                             }
@@ -280,7 +307,7 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                             }
                             else
                             {
-                                c.Item().Text(model.TrademarkLogo).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                c.Item().Text(FormatValue(model.TrademarkLogo)).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             }
                         });
                         table.Cell().Element(Block).Column(c =>
@@ -302,7 +329,8 @@ public class ClericalUpdateAck(Filling model, byte[] image, string applicationId
                         table.Cell().ColumnSpan(2).Element(Block).Column(c =>
                         {
                             c.Item().Text("Description of Goods:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.TrademarkClassDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman).ClampLines(5);
+                            c.Item().Text(model.TrademarkClassDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(model?.AdditionalDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman).ClampLines(5);
                         });
                     });
 

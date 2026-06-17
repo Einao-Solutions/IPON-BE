@@ -7,13 +7,13 @@ using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
-using patentdesign.Services.Implementation;
-using patentdesign.Services.Interface;
 using patentdesign.Utils;
 using QuestPDF.Drawing;
 using QuestPDF.Infrastructure;
+using Serilog;
 using System.Security.Authentication;
 using System.Text;
 
@@ -23,9 +23,24 @@ var builder = WebApplication.CreateBuilder(args);
 // ------------------ Load .env ONLY in Development ------------------
 if (builder.Environment.IsDevelopment())
 {
-    DotNetEnv.Env.Load();
+    var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+    if (File.Exists(envPath))
+        DotNetEnv.Env.Load(envPath);
 }
+// ------------------ Serilog ------------------
+var logPath = builder.Configuration["PatentDesignDatabase:LogPath"] ?? @"C:\IpoApiLog";
 
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .WriteTo.Console()
+    .WriteTo.File(
+        Path.Combine(logPath, ".txt"),
+        rollingInterval: RollingInterval.Day,
+        outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 // ------------------ JWT Config ------------------
 var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
 var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "https://portal.iponigeria.com";
@@ -46,16 +61,45 @@ builder.Configuration["Jwt:Issuer"] = jwtIssuer;
 builder.Configuration["Jwt:Audience"] = jwtAudience;
 
 // ------------------ MongoDB Config ------------------
-var mongoConnectionString =
-    Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
-    ?? builder.Configuration["PatentDesignDatabase:ConnectionStringUp"];
+string? mongoConnectionString;
 
-if (string.IsNullOrWhiteSpace(mongoConnectionString))
+if (builder.Environment.IsDevelopment())
 {
-    throw new Exception("❌ MongoDB connection string is missing! Check environment variables or appsettings.");
+    mongoConnectionString = builder.Configuration["PatentDesignDatabase:ConnectionString"];
+    Log.Information("Using local MongoDB connection string for development.");
 }
+else
+{
+    mongoConnectionString =
+        Environment.GetEnvironmentVariable("MONGODB_CONNECTION_STRING")
+        ?? builder.Configuration["PatentDesignDatabase:ConnectionStringUp"];
 
+    // Guard against the unresolved ${...} placeholder
+    if (string.IsNullOrWhiteSpace(mongoConnectionString) ||
+        mongoConnectionString.StartsWith("${"))
+    {
+        throw new Exception("❌ MongoDB connection string is missing! Check environment variables.");
+    }
+}
+builder.Configuration["PatentDesignDatabase:ConnectionString"] = mongoConnectionString;
 builder.Configuration["PatentDesignDatabase:ConnectionStringUp"] = mongoConnectionString;
+// ------------------ Redis Cache Config ------------------
+var redisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING")
+    ?? builder.Configuration["Redis:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "patentdesign:";
+    });
+    Log.Information("Redis cache configured with instance name {InstanceName}", "patentdesign:");
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+    Log.Information("Redis connection string not found. Using in-memory cache.");
+}
 
 // ------------------ SMTP Overrides ------------------
 var smtpServer = Environment.GetEnvironmentVariable("SMTP_SERVER");
@@ -106,17 +150,48 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!)
             )
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    path.StartsWithSegments("/hubs/notifications"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 // ------------------ QuestPDF ------------------
 QuestPDF.Settings.License = LicenseType.Community;
-using var fontStream = File.OpenRead("assets/Certificate.otf");
+var fontPath = Path.Combine(AppContext.BaseDirectory, "assets", "Certificate.otf");
+using var fontStream = File.OpenRead(fontPath);
 FontManager.RegisterFont(fontStream);
 
-// ------------------ Mongo Client ------------------
-var mongoSettings = MongoClientSettings.FromUrl(new MongoUrl(mongoConnectionString));
-mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
+// ------------------ Mongo Client (single, shared) ------------------
+var mongoUrl = new MongoUrl(mongoConnectionString);
+var mongoSettings = MongoClientSettings.FromUrl(mongoUrl);
+if (!builder.Environment.IsDevelopment())
+{
+    mongoSettings.SslSettings = new SslSettings { EnabledSslProtocols = SslProtocols.Tls12 };
+}
+
 var mongoClient = new MongoClient(mongoSettings);
+var mongoDatabaseName = mongoUrl.DatabaseName
+    ?? builder.Configuration["PatentDesignDatabase:DatabaseName"]
+    ?? throw new InvalidOperationException("Mongo database name is not configured.");
+var mongoDatabase = mongoClient.GetDatabase(mongoDatabaseName);
+
+// Register once; every service injects IMongoDatabase instead of building its own client.
+builder.Services.AddSingleton<IMongoClient>(mongoClient);
+builder.Services.AddSingleton<IMongoDatabase>(mongoDatabase);
 
 // ------------------ Config Bindings ------------------
 builder.Services.Configure<PatentDesignDBSettings>(builder.Configuration.GetSection("PatentDesignDatabase"));
@@ -134,6 +209,9 @@ BsonSerializer.RegisterSerializer(typeof(TicketState), new EnumSerializer<Ticket
 BsonSerializer.RegisterSerializer(typeof(FormApplicationTypes), new EnumSerializer<FormApplicationTypes>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkType), new EnumSerializer<TradeMarkType>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(TradeMarkLogo), new EnumSerializer<TradeMarkLogo>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationCategory), new EnumSerializer<NotificationCategory>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationAudience), new EnumSerializer<NotificationAudience>(BsonType.String));
+BsonSerializer.RegisterSerializer(typeof(NotificationPriority), new EnumSerializer<NotificationPriority>(BsonType.String));
 
 // ------------------ Controllers & Swagger ------------------
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -141,14 +219,20 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
 });
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    c.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+});
 builder.Services.AddProblemDetails();
 
 // ------------------ Services ------------------
-builder.Services.AddSingleton<ILoggerService, LoggerService>();
+//builder.Services.AddSingleton<ILoggerService, LoggerService>();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddSingleton<OppositionService>();
-builder.Services.AddSingleton<FileServices>();
+builder.Services.AddSingleton<FilesServices>();
 builder.Services.AddSingleton<LettersServices>();
 builder.Services.AddSingleton<TicketServices>();
 builder.Services.AddSingleton<UsersService>();
@@ -159,9 +243,28 @@ builder.Services.AddSingleton<MigrationService>();
 builder.Services.AddSingleton<EmailServices>();
 builder.Services.AddSingleton<AuthServices>();
 builder.Services.AddSingleton<AdminServices>();
+builder.Services.AddSingleton<StatisticsService>();
+builder.Services.AddSingleton<PublicationServices>();
+builder.Services.AddSingleton<NotificationServices>();
+
+//------------------- Background Jobs ------------------
+//builder.Services.AddHostedService<PublishTrademarkJob>();
+builder.Services.AddHostedService<NotificationJob>();
+builder.Services.AddHostedService<OppositionDeadlineService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();
+
+// ------------------ One-off DB backfill ------------------
+try
+{
+    var oppSvc = app.Services.GetRequiredService<OppositionService>();
+    await oppSvc.BackfillOppositionCreatorIds();
+}
+catch (Exception ex)
+{
+    Log.Warning(ex, "Opposition backfill failed on startup \u2014 continuing");
+}
 
 // ------------------ Pipeline ------------------
 if (app.Environment.IsDevelopment())
@@ -170,6 +273,11 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                       | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+});
 
 app.UseHttpsRedirection();
 
@@ -181,5 +289,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();

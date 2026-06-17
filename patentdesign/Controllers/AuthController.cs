@@ -37,16 +37,27 @@ namespace patentdesign.Controllers
             }
             return Ok(new { message = "Transfer successful" });
         }
-        [HttpPost("reset-password")]
-        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto req)
+        [HttpPost("ResetPasswordRequest")]
+        public async Task<IActionResult> ResetPasswordRequest([FromQuery]string email)
         {
-            var result = await authServices.ResetPassword(req);
+            var result = await authServices.RequestPasswordReset(email);
+            if (!result)
+            {
+                return BadRequest("Password reset request failed");
+            }
+            return Ok(new { message = "Password reset requested" });
+        }
+        [HttpPost("ResetPassword")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
+        {
+            var result = await authServices.ResetPassword(dto);
             if (!result)
             {
                 return BadRequest("Password reset failed");
             }
             return Ok(new { message = "Password reset successful" });
         }
+
         [Authorize]
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto req)
@@ -58,5 +69,27 @@ namespace patentdesign.Controllers
             }
             return Ok(new { message = "Password changed successfully" });
         }
+        [Authorize]
+        [HttpPost("UpdateProfile")]
+        public async Task<IActionResult> UpdateUserProfileAsync([FromBody] ProfileDto req)
+        {
+            var res = await authServices.UpdateUserProfile(req);
+            if (!res)
+            {
+                return BadRequest("Failed to Update Profile");
+            }
+            return Ok(new { message = "Profile Updated Successfully" });
+        }
+        [HttpGet("GetUser")]
+        public async Task<IActionResult> GetUserById([FromQuery] string userId)
+        {
+            var res = await authServices.GetUser(userId);
+            if(res is null)
+            {
+                return NotFound("Failed to fetch User Details");
+            }
+            return Ok(res);
+        }
+        
     }
 }

@@ -30,7 +30,15 @@
         PermSec,
         Minister,
         Tech,
-        SuperAdmin
+        SuperAdmin,
+        EinaoFinance,
+        Pebec,
+        HeadOfUnit,
+        TrademarkStaff,
+        PatentStaff,
+        DesignStaff,
+        TrademarkSupport,
+        PatentDesignSupport
     }
     public enum NigerianStates
     {
@@ -91,4 +99,47 @@
         TrademarkType
     }
 
+    public enum EmailType
+    {
+ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, OppositionConfirmation, StatutoryDeclaration, WithdrawalNotification, WithdrawalApproved, WithdrawalRefused, WithdrawalApprovedApplicant, WithdrawalRefusedApplicant, RenewalEarlyReminder, RenewalDueNotice
+    }
+    public enum ApplicationUnits
+    {
+        Search,
+        Examination,
+        Publication,
+        Opposition,
+        Acceptance,
+        Certificate
+    }
+
+    public enum NotificationAudience
+    {
+        User,
+        System
+    }
+    public enum NotificationCategory
+    {
+        Application,
+        Payment,
+        CustomerSupport,
+        Security,
+        System,
+        Messaging,
+        Renewal,
+        StatusUpdate
+    }
+    public enum NotificationPriority
+    {
+        Low,
+        Medium,
+        High,
+        Critical
+    }
+    public enum NotificationTemplate
+    {
+        ApplicationUpdate,
+        PaymentUpdate,
+        StatusUpdate,
+    }
 }

@@ -1,3 +1,4 @@
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
@@ -6,7 +7,7 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs;
 
-public class RegisteredUserCert(Filling model, string url, byte[]? imageData, string applicationId): IDocument
+public class RegisteredUserCert(Filling model, string url, byte[]? imageData, string applicationId, Signatory signature): IDocument
 {
      private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -23,14 +24,14 @@ public class RegisteredUserCert(Filling model, string url, byte[]? imageData, st
         private void ComposeContent(IContainer container)
         {
             var regUser = model.RegisteredUsers?.FirstOrDefault(r=>r.Id == applicationId);
-            // var app = model.ApplicationHistory?.FirstOrDefault(a=>a.id == applicationId);
-            // container.PaddingVertical(5)
-            //     .Column(column =>
-            //     {
-            //         column.Item().AlignCenter().Text("Invalid applicant data").FontSize(16).FontColor(Colors.Red.Medium);
-            //     }
-            //     );
-            container.PaddingVertical(5).Column(column =>
+            var app = model.ApplicationHistory?.FirstOrDefault(a=>a.id == applicationId);
+        // container.PaddingVertical(5)
+        //     .Column(column =>
+        //     {
+        //         column.Item().AlignCenter().Text("Invalid applicant data").FontSize(16).FontColor(Colors.Red.Medium);
+        //     }
+        //     );
+        container.PaddingVertical(5).Column(column =>
             {
                 column.Item().Height(30);
                 column.Item().Height(70).Row(row =>
@@ -62,9 +63,9 @@ public class RegisteredUserCert(Filling model, string url, byte[]? imageData, st
                 {
                     if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
                         model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
-                        imageData?.Length > 0)
+                        PdfImageHelper.TryDecodeImage(imageData))
                     {
-                        row.RelativeItem().AlignCenter().Image(imageData).FitArea();
+                        row.RelativeItem().AlignCenter().Image(imageData!).FitArea();
                     }
                     else
                     {
@@ -88,9 +89,17 @@ public class RegisteredUserCert(Filling model, string url, byte[]? imageData, st
                     : date;
                 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                column.Item().Height(35).Image("assets/reg.png").FitArea();
-                column.Item().Height(20);
-                column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Height(5);
+                if (signature != null)
+                {
+                    column.Item().Height(35).Image(signature.Signature).FitArea();
+                }
+                else
+                {
+                    column.Item().Height(35).Image("assets/reg.png").FitArea();
+                }
+                column.Item().Height(5);
+                column.Item().Text(signature?.Name ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Federal Ministry of Industry, Trade and Investment.").SemiBold()

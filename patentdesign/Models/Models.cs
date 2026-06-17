@@ -9,6 +9,7 @@ using Org.BouncyCastle.Asn1.Cms;
 using patentdesign.Enums;
 
 namespace patentdesign.Models;
+[BsonIgnoreExtraElements]
 public class AppUser
 {
     [BsonId]
@@ -30,8 +31,41 @@ public class AppUser
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
+    public string? Name { get; set; }
+    public string? PasswordResetToken { get; set; }
+    public DateTime? PasswordResetTokenExpiry { get; set; }
+    public List<ApplicationInfo>? OtherApplications { get; set; } = new();
 }
 
+public record PublicationInfo
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? FileNumber { get; set; }
+    public DateTime? FilingDate { get; set; }
+    public DateTime PublicationDate { get; set; }
+    public DateTime? BatchPublishDate { get; set; }
+    public string? Comment { get; set; }
+    public string? StaffId { get; set; }
+    public string? StaffName { get; set; }
+    public bool IsBatchPublished { get; set; } = false;
+    public bool IsOpposed { get; set; } = false;
+    public List<Opposition>? Opposition { get; set; } = new();
+    public string? Title { get; set; }
+    public List<AttachmentType>? Attachments { get; set; }
+    public List<AttachmentType>? Images { get; set; }
+    public List<ApplicantInfo> Applicants { get; set; }
+    public CorrespondenceType Correspondence { get; set; }
+    public List<PriorityInfo>? PriorityInfo { get; set; }
+    public List<byte[]>? ImagesUrl { get; set; }
+    public byte[]? Representation { get; set; }
+    public List<PriorityInfo>? FirstPriorityInfo { get; set; }
+    public string? ClassDescription { get; set; }
+    public int? Class { get; set; }
+    public List<ApplicantInfo>? Inventors { get; set; }
+    public bool? IsManualPublication { get; set; } = false;
+    public string? BatchVolume { get; set; }
+}
 public record DesignForm
 {
     [Required] public ApplicantInfo ApplicantInfo { get; set; } = new();
@@ -61,6 +95,9 @@ public record PatentDesignDBSettings
     public string FinanceCollectionName { get; set; } = null!;
     public string AttachmentCollectionName { get; set; } = null!;
     public string OppositionCollectionName { get; set; } = null!;
+    public string CounterStatementsCollectionName { get; set; } = null!;
+    public string StatutoryDeclarationsCollectionName { get; set; } = null!;
+    public string? OppositionWithdrawalsCollectionName { get; set; } = "oppositionWithdrawals";
     public string UseSandbox { get; set; } = null!;
     public string LogPath { get; set; } = null!;
 
@@ -135,6 +172,8 @@ public record FileSummary
     public List<FileApplicationSummary> Summaries { get; set; }
     public FileTypes Type { get; set; }
     public int? TrademarkClass { get; set; }
+    public PatentTypes? PatentType { get; set; }
+    public DesignTypes? DesignType { get; set; }
 }
 
 public record FileApplicationSummary
@@ -192,6 +231,7 @@ public record Filling
     public string? TitleOfTradeMark {get;set;}
     public int?  TrademarkClass {get;set;}
     public string? TrademarkClassDescription { get; set; }
+    public string? AdditionalDescription { get; set; }
     public TradeMarkLogo? TrademarkLogo {get;set;}
     public TradeMarkType?  TrademarkType {get;set;}
     public string? TrademarkDisclaimer {get;set;}
@@ -213,6 +253,11 @@ public record Filling
     public DateTime? WithdrawalRequestDate { get; set; }
     public string? WithdrawalReason { get; set; }
     public List<Opposition>? Oppositions { get; set; } = [];
+    public DateOnly? ExpiryDate { get; set; }
+    public bool? IsExpired { get; set; } = false;
+    public bool? IsDueForRenewal { get; set; } = false;
+    public bool? IsRenewalEligible { get; set; } = false;
+    public DateTime? RenewalEligibleEndDate { get; set; }
 }
 
 public record ClericalUpdate
@@ -239,6 +284,8 @@ public record ClericalUpdate
     public string? NewFileClass { get; set; }
     public string? OldClassDescription { get; set; }
     public string? NewClassDescription { get; set; }
+    public string? OldAdditionalDescription { get; set; }
+    public string? NewAdditionalDescription {get; set; }
     public string? OldFileTitle { get; set; }
     public string? NewFileTitle { get; set; }
     public string? OldCorrespondenceName {get; set; }
@@ -318,6 +365,7 @@ public record ClericalUpdate
     public DesignTypes? NewDesignType { get; set; }
     public List<ApplicantInfo>? OldDesignCreators { get; set; }
     public List<ApplicantInfo>? NewDesignCreators { get; set; }
+    public List<ApplicantInfo>? OldInventors { get; set; }
     public List<string>? OldDesignCreatorNames { get; set; }
     public List<string>? NewDesignCreatorNames { get; set; }
     public List<string>? OldDesignCreatorPhones { get; set; }
@@ -330,7 +378,8 @@ public record ClericalUpdate
     public List<string>? NewDesignCreatorNationalities { get; set; }
     public List<string>? OldDesignAttachmentUrls { get; set; }
     public List<string>? NewDesignAttachmentUrls { get; set; }
-
+    public string? NewRepresentation { get; set; }
+    public string? OldRepresentation { get; set; }
 }
 
 public record Appeal
@@ -354,6 +403,8 @@ public record PostRegistrationApp
     public string? OldName { get; set; } = String.Empty;
     public string? Email { get; set; }
     public string? OldEmail { get; set; } = String.Empty;
+    public int? Class { get; set; }
+    public int? OldClass { get; set; }
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
     public string? OldAddress { get; set; } = String.Empty;
@@ -361,6 +412,8 @@ public record PostRegistrationApp
     public string? OldPhone { get; set; } = String.Empty;
     public string? Nationality { get; set; }
     public string? OldNationality { get; set; } = String.Empty;
+    public string? State { get; set; }
+    public string? City { get; set; }
     public string? documentUrl { get; set; }
     public string? document2Url { get; set; }
     public string? receiptUrl { get; set; }
@@ -369,7 +422,66 @@ public record PostRegistrationApp
     public string? acknowledgementUrl { get; set; }
     public string? message { get; set; }
     public string rrr {  get; set; }
+
+    // Explicit old assignor info for assignment record
+    public string? OldAssignorName { get; set; }
+    public string? OldAssignorEmail { get; set; }
+    public string? OldAssignorPhone { get; set; }
+    public string? OldAssignorAddress { get; set; }
+    public string? OldAssignorNationality { get; set; }
+    public string? OldAssignorState { get; set; }
+    public string? OldAssignorCity { get; set; }
+
+    // Explicit old licensee info for license record
+    public string? OldLicensorName { get; set; }
+    public string? OldLicensorEmail { get; set; }
+    public string? OldLicensorPhone { get; set; }
+    public string? OldLicensorAddress { get; set; }
+    public string? OldLicensorNationality { get; set; }
+    public string? OldLicensorState { get; set; }
+    public string? OldLicensorCity { get; set; }
+
+    // Old mortgagor (previous patent holder)
+    public string? OldMortgagorName { get; set; }
+    public string? OldMortgagorEmail { get; set; }
+    public string? OldMortgagorPhone { get; set; }
+    public string? OldMortgagorAddress { get; set; }
+    public string? OldMortgagorNationality { get; set; }
+    public string? OldMortgagorState { get; set; }
+    public string? OldMortgagorCity { get; set; }
+
+    // Old merger party (previous patent holder)
+    public string? OldMergerName { get; set; }
+    public string? OldMergerEmail { get; set; }
+    public string? OldMergerPhone { get; set; }
+    public string? OldMergerAddress { get; set; }
+    public string? OldMergerNationality { get; set; }
+    public string? OldMergerState { get; set; }
+    public string? OldMergerCity { get; set; }
+    public List<string>? RequestedAttachments { get; set; }
+
+    // Amendment identification
+    public string? AmendmentType { get; set; }
+    public bool IsAmendment { get; set; } = false;
+    public bool IsApproved { get; set; } = false;
+
+    // Simple field amendments (for single values)
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
+    public string? OldValue2 { get; set; }
+    public string? NewValue2 { get; set; }
+    public string? OldValue3 { get; set; }
+    public string? NewValue3 { get; set; }
+    public string? OldValue4 { get; set; }
+    public string? NewValue4 { get; set; }
+
+    // Complex field amendments (JSON serialized for lists/objects)
+    public string? OldDataJson { get; set; }
+    public string? NewDataJson { get; set; }
+    
+
 }
+
 public record Assignee
 {
     [BsonId]
@@ -440,7 +552,12 @@ public record ApplicationInfo
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
-    public List<ApplicantInfo>? Applicants { get; set; }
+    public List<ApplicantInfo>? Applicants { get; set; } 
+    public string? SignatoryName { get; set; }
+    public string? SignatureUrl { get; set; }
+    public byte[]? Signature { get; set; }
+    public string? SignatureId { get; set; }
+    public string? FileNumber { get; set; }
 }
 
 
@@ -475,7 +592,34 @@ public record PerformanceMarker
     public DesignTypes? designType { get; set; }
     public TradeMarkType? tradeMarkType { get; set; }
 }
-
+public record StaffPerformance
+{
+    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public ApplicationStatuses? BeforeStatus { get; set; }
+    public ApplicationStatuses? AfterStatus { get; set; }
+    public string? Reason { get; set; }
+    public DateTime? Date { get; set; }
+    public string? AppUserId { get; set; }
+    public Roles? OfficeUnit { get; set; }
+    public string? FileNumber { get; set; }
+    public FileTypes? FileType { get; set; }
+    
+}
+//public record Statistics
+//{
+//    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+//    public string? ApplicantCountry { get; set; }
+//    public string? ApplicantName { get; set; }
+//    public AccountType? AccountType { get; set; }
+//    public int? FileClass { get; set; }
+//    public DateTime? Date { get; set; }
+//    public FileTypes? Type { get; set; }
+//    public TradeMarkType? TradeMarkType { get; set; }
+//    public PatentTypes? PatentType { get; set; }
+//    public DesignTypes? DesignType { get; set; }
+//    public FormApplicationTypes? ApplicationType { get; set; }
+//}
 public enum PerformanceType {Staff,Application}
 
 public record OtherPaymentModel
@@ -729,15 +873,13 @@ public partial class DBRemitaPayment
    public string? PercentageUsed { get; set; }
 }
 
-
-
-
 public enum FormApplicationTypes
 {
     NewApplication, LicenseRenewal, DataUpdate, Recapture,
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
-    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification
+    PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
+    CounterStatement, StatutoryDeclaration
 }
 public enum ApplicationLetters
 {
@@ -766,7 +908,17 @@ public enum ApplicationLetters
     ChangeOfAddressReceipt, ChangeOfNameReceipt, ClericalUpdateReceipt, ClericalUpdateAck, NewTrademarkAppReceipt, StatusSearchReport, StatusSearchReceipt, AppealAck,
     PatentRenewalAcknowlegementLetter, PatentRenewalReceipt, PatentRenewalCertificate,
     PublicationStatusUpdateAcknowledgement, PublicationStatusUpdateReceipt, PublicationStatusUpdateApproval, PublicationStatusUpdateRefusal,
-    ChangeOfNameCert, ChangeOfAddressCert, WithdrawalRequestAcknowledgement, WithdrawalRequestReceipt, WithdrawalRequestApproval, WithdrawalRequestRefusal
+    ChangeOfNameCert, ChangeOfAddressCert, WithdrawalRequestAcknowledgement, WithdrawalRequestReceipt, WithdrawalRequestApproval, WithdrawalRequestRefusal,
+    PatentAssignmentAcknowlegement, PatentLicenseAcknowledgement, PatentMortgageAcknowledgement, PatentMergerAcknowledgement, PatentCtcAcknowledgement, PatentAmendmentAcknowledgement,
+    PatentAssignmentRefusalLetter, PatentLicenseRefusalLetter, PatentMortgageRefusalLetter, PatentMergerRefusalLetter, PatentCtcRefusalLetter, PatentAmendmentRefusalLetter,
+    PatentAssignmentReceipt, PatentLicenseReceipt, PatentMortgageReceipt, PatentMergerReceipt, PatentCtcReceipt, PatentAmendmentReceipt, DesignAssignmentAcknowledgement, DesignLicenseAcknowledgement,
+    DesignMortgageAcknowledgement, DesignMergerAcknowledgement, DesignCtcAcnowledgement, DesignAmendmentAcknowledgement, DesignAssignmentRefusalletter,
+    DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
+    DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
+    TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
+    StatutoryDeclarationAck
+
+
 }
 public class SearchInfo
 {
@@ -822,11 +974,11 @@ public record PriorityInfo
 
 public record UpdateMany
 {
-    public string reasons {get;set;}
-        public int newStatus {get;set;}
-    public string userId {get;set;}
-        public string userName {get;set;}
-    public List<string> files {get;set;}
+    public string? reasons {get;set;}
+    public int newStatus {get;set;}
+    public string? userId {get;set;}
+    public string? userName {get;set;}
+    public List<string>? files {get;set;}
 }
 
 public enum PatentBaseTypes 
@@ -837,38 +989,57 @@ public enum PatentBaseTypes
 
 public enum ApplicationStatuses
 {
-    Active, 
-    Inactive, 
-    AwaitingPayment, 
-    AwaitingSearch, 
-    AwaitingExaminer,
-    RejectedByExaminer,
-    Re_conduct,
-    FormalityFail,
-    KivSearch,
-    KivExaminer,
-    Approved,
-    Rejected,
-    None,
-    AutoApproved,
-    Publication,
-    Opposition,
-    AwaitingResponse, AwaitingOppositionStaff, AwaitingResolution,
-    Resolved, AwaitingCertification,AwaitingConfirmation, AwaitingSave,
-    AwaitingCertificateConfirmation,
-    Withdrawn, AwaitingCertificatePayment, 
-    AwaitingRecordalProcess, AppealRequest, AwaitingStatusUpdate, RequestWithdrawal, NewOpposition, AwaitingCounter, AwaitingApproval
+    Active = 0,
+    Inactive = 1,
+    AwaitingPayment = 2,
+    AwaitingSearch = 3,
+    AwaitingExaminer = 4,
+    RejectedByExaminer = 5,
+    Re_conduct = 6,
+    FormalityFail = 7,
+    KivSearch = 8,
+    KivExaminer = 9,
+    Approved = 10,
+    Rejected = 11,
+    None = 12,
+    AutoApproved = 13,
+    Publication = 14,
+    Opposition = 15,
+    AwaitingResponse = 16,
+    AwaitingOppositionStaff = 17,
+    AwaitingResolution = 18,
+    Resolved = 19,
+    AwaitingCertification = 20,
+    AwaitingConfirmation = 21,
+    AwaitingSave = 22,
+    AwaitingCertificateConfirmation = 23,
+    Withdrawn = 24,
+    AwaitingCertificatePayment = 25,
+    AwaitingRecordalProcess = 26,
+    AppealRequest = 27,
+    AwaitingStatusUpdate = 28,
+    RequestWithdrawal = 29,
+    NewOpposition = 30,
+    AwaitingCounter = 31,
+    AwaitingApproval = 32,
+    StatutoryDeclaration = 33,
+    AwaitingRenewalConfirmation = 34,
+    PendingRenewal = 35,
+    AwaitingOfficeProcess = 36,
+    Abandoned = 37,
+    WithdrawalRequested = 38,
+    WithdrawalApproved = 39
 }
 
 public record AssignmentCertificateType
 {
-    public string fileNumber { get; set; }
-    public string applicantName { get; set; }
-    public CorrespondenceType CorrespondenceType { get; set; }
-    public AssignmentType assignmentType { get; set; }
+    public string? fileNumber { get; set; }
+    public string? applicantName { get; set; }
+    public CorrespondenceType? CorrespondenceType { get; set; }
+    public AssignmentType? assignmentType { get; set; }
     public DateTime paymentDate { get; set; }
-    public string examinerName { get; set; }
-    public byte[] examinerSignature { get; set; }
+    public string? examinerName { get; set; }
+    public byte[]? examinerSignature { get; set; }
 }
 
 public class TradeFilterModel
@@ -897,8 +1068,10 @@ public class TradeFilterModel
 public enum PaymentTypes
 {
     Search, NewCreation, LicenseRenew, Update, Assignment, OppositionCreation,
-    Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateRenewal, ClericalUpdate,
-    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal
+    Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
+    StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
+PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
+CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
 }
 
 
@@ -1223,20 +1396,109 @@ public record PaymentInfo
     public string OppositionServiceFee { get; set; }
     public string OppositionServiceID { get; set; }
 
+    //Counter Statement
+    public string? CounterStatementCost { get; set; }
+    public string? CounterStatementServiceFee { get; set; }
+    public string? CounterStatementServiceID { get; set; }
+
+    //Statutory Declaration
+    public string? StatutoryDeclarationCost { get; set; }
+    public string? StatutoryDeclarationServiceFee { get; set; }
+    public string? StatutoryDeclarationServiceID { get; set; }
+
     //appeal
     public string AppealCost { get; set; }
     public string AppealServiceFee { get; set; }
     public string AppealServiceID { get; set; }
+
+    //Patent Assignment
+    public string? PatentAssignmentCost { get; set; }
+    public string? PatentAssignmentServiceFee { get; set; }
+    public string? PatentAssignmentServiceID { get; set; }
+
+    //Patent License
+    public string? PatentLicenseCost { get; set; }
+    public string? PatentLicenseServiceFee { get; set; }
+    public string? PatentLicenseServiceID { get; set; }
+
+    //Patent CTC
+    public string? PatentCtcCost { get; set; }
+    public string? PatentCtcServiceFee { get; set; }
+    public string? PatentCtcServiceID { get; set; }
+
+    //Patent Mortgage
+    public string? PatentMortgageCost { get; set; }
+    public string? PatentMortgageServiceFee { get; set; }
+    public string? PatentMortgageServiceID { get; set; }
+
+    //Patent Amendment
+    public string? PatentAmendmentCost { get; set; }
+    public string? PatentAmendmentServiceFee { get; set; }
+    public string? PatentAmendmentServiceID { get; set; }
+
+    //Patent Merger
+    public string? PatentMergerCost { get; set; }
+    public string? PatentMergerServiceFee { get; set; }
+    public string? PatentMergerServiceID { get; set; }
+
+    public string? DesignAssignmentCost { get; set; }
+    public string? DesignAssignmentServiceFee { get; set; }
+    public string? DesignAssignmentServiceID { get; set; }
+
+    public string? DesignLicenseCost { get; set; }
+    public string? DesignLicenseServiceFee { get; set; }
+    public string? DesignLicenseServiceID { get; set; }
+
+     public string? DesignMortgageCost { get; set; } 
+    public string? DesignMortgageServiceFee { get; set; }
+    public string? DesignMortgageServiceID { get; set; }
+
+     public string? DesignMergerCost { get; set; }
+    public string? DesignMergerServiceFee { get; set; }
+    public string? DesignMergerServiceID { get; set; }
+
+    public string? DesignCtcCost { get; set; }
+    public string? DesignCtcServiceFee { get; set; }
+    public string? DesignCtcServiceID { get; set; }
+
+    public string? TrademarkCtcCost { get; set; }
+    public string? TrademarkCtcServiceFee { get; set; }
+    public string? TrademarkCtcServiceID { get; set; }
+
+    public string? DesignAmendmentCost { get; set; }
+    public string? DesignAmendmentServiceFee { get; set; }
+    public string? DesignAmendmentServiceID { get; set; }
+
+    //TM Reclassification
+    public string? ReclassificationCost { get; set; }
+    public string? ReclassificationServiceFee { get; set; }
+    public string? ReclassificationServiceID { get; set; }
+
+    //File Restoration
+    public string? TrademarkRestorationCost { get; set; }
+    public string? TrademarkRestorationServiceFee { get; set; }
+    public string? TrademarkRestorationServiceId { get; set; }
+
+    //TM Amendment
+    public string? TrademarkAmendmentCost { get; set; }
+    public string? TrademarkAmendmentServiceFee { get; set; }
+    public string? TrademarkAmendmentServiceID { get; set; }
+
+    // Opposition Withdrawal
+    public string? OppositionWithdrawalCost { get; set; }
+    public string? OppositionWithdrawalServiceFee { get; set; }
+    public string? OppositionWithdrawalServiceID { get; set; }
 }
 
 public record PaymentRecord
 {
     [BsonId]
     public string Id { get; set; } =  Guid.NewGuid().ToString();
-    public string PaymentType { get; set; }
+    public string? PaymentType { get; set; }
     public DateTime Date { get; set; }
     public string? ApplicationId { get; set; }
-    public string FileId { get; set; }
+    public string? FileId { get; set; }
+    public string? FileType { get; set; }
     public RemitaResponseClass RemitaResponse { get; set; }
 }
 public record MarkInfo
@@ -1509,7 +1771,64 @@ public record Opposition
     public bool? ApplicantNotified { get; set; } = false;
     public DateTime? ApplicantNotifiedDate { get; set; }
     public DateTime? ResolvedDate { get; set; }
+    public string? UserId { get; set; }
     public bool? Paid { get; set; } = false;
+    public string? FileOwnerId { get; set; }
+    public bool? IsStaffOpposition = false;
+    public ApplicationStatuses? PreviousFileStatus { get; set; }
+    public string? Decision { get; set; }
+    public string? ResolutionStatement { get; set; }
+    public string? ResolvedBy { get; set; }
+    public string? ResolvedByUserId { get; set; }
+    public string? CreatorId { get; set; }
+    public List<CounterStatement>? CounterStatements { get; set; } = new();
+    public List<StatutoryDeclaration>? StatutoryDeclarations { get; set; } = new();
+}
+
+public record OppositionWithdrawal
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? OppositionId { get; set; }
+    public string? FileNumber { get; set; }
+    public string? FileId { get; set; }
+    public string? FileTitle { get; set; }
+    public string? Reason { get; set; }
+    public string? UserId { get; set; }
+    public List<string>? SupportingDocs { get; set; }
+    public string? PaymentId { get; set; }
+    public bool Paid { get; set; } = false;
+    public string? PaymentStatus { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; }
+}
+
+public record CounterStatement
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? OppositionId { get; set; }
+    public string? Text { get; set; }
+    public List<string>? Attachments { get; set; }
+    public string? PaymentId { get; set; }
+    public bool? Paid { get; set; } = false;
+    public string? UserId { get; set; }
+    public DateTime SubmittedDate { get; set; } = DateTime.Now;
+}
+
+public record StatutoryDeclaration
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? OppositionId { get; set; }
+    public string? Text { get; set; }
+    public List<string>? Attachments { get; set; }
+    public string? PaymentId { get; set; }
+    public bool? Paid { get; set; } = false;
+    public string? UserId { get; set; }
+    public string? Role { get; set; }
+    public ApplicationStatuses? ApplicationStatus { get; set; } = ApplicationStatuses.AwaitingPayment;
+    public DateTime SubmittedDate { get; set; } = DateTime.Now;
 }
 
 public class StatusChangeLog
@@ -1523,4 +1842,66 @@ public class StatusChangeLog
     public string ChangedById { get; set; }
     public DateTime DateChanged { get; set; } = DateTime.Now;
     public bool IsSuccessful { get; set; } = false;
+}
+
+public enum PatentAmendmentTypes
+{
+    CorrespondenceInformation = 0,
+    ApplicantName = 4,
+    ApplicantAddress = 5,
+    FileTitle = 7,
+    AddAndRemoveApplicant = 10,
+    EditInventors = 11,
+    PriorityInfo = 12
+}
+
+public enum DesignAmendmentTypes
+{
+    CorrespondenceInformation = 0,
+    ApplicantName = 4,
+    ApplicantAddress = 5,
+    DesignTitle = 7,
+    AddAndRemoveApplicant = 10,
+    PriorityInfo = 12,
+    DesignType = 13,
+    StatementOfNovelty = 14,
+    CreatorInformation = 15,
+    DesignAttachments = 16
+}
+
+public record SignatureInfo
+{
+    [BsonId]
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public byte[] SignatureData { get; set; }
+    public string? Designation { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public List<FormApplicationTypes> ApplicationTypes { get; set; } = new ();
+    public bool IsActive { get; set; } = true;
+}
+
+public class Notification
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public NotificationAudience Audience { get; set; }
+    public NotificationCategory Category { get; set; }
+    public NotificationPriority Priority { get; set; }
+    public string Title { get; set; }
+    public string Message { get; set; }
+    public string? RecipientId { get; set; }
+    public bool IsRead { get; set; }
+    public string? ActionUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ReadAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public bool IsActive { get; set; } = true;
+    public string? CreatedBy { get; set; }
+    public string? FileNumber { get; set; }
+    public FileTypes? FileType { get; set; }
+    public ApplicationStatuses? PreviousStatus { get; set; }
+    public ApplicationStatuses? NewStatus { get; set; }
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public string? ApplicationId { get; set; }
 }

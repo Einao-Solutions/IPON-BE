@@ -7,7 +7,7 @@ using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 namespace patentdesign.Controllers
 {
 
-    [Authorize]
+    //[Authorize]
     [ApiController]
     [Route("api/admin")]
     public class AdminController(AdminServices adminServices) : ControllerBase
@@ -20,18 +20,23 @@ namespace patentdesign.Controllers
             {
                 return Ok(result);
             }
-            return BadRequest(new {message = "Failed to change status"});
+
+            return BadRequest(new { message = "Failed to change status" });
         }
+
         [HttpPost("CreateApplicationHistory")]
-        public async Task<IActionResult> CreateApplicationHistory([FromBody] ApplicationHistoryDto applicationHistoryDto)
+        public async Task<IActionResult> CreateApplicationHistory(
+            [FromBody] ApplicationHistoryDto applicationHistoryDto)
         {
             var result = await adminServices.CreateApplicationHistory(applicationHistoryDto);
             if (result)
             {
                 return Ok(result);
             }
-            return BadRequest(new {message = "Failed to create application history"});
+
+            return BadRequest(new { message = "Failed to create application history" });
         }
+
         [HttpPatch("ApplicationHistory")]
         public async Task<IActionResult> UpdateApplicationHistory([FromBody] UpdateApplicationHistoryDto dto)
         {
@@ -39,5 +44,38 @@ namespace patentdesign.Controllers
             if (updated) return Ok(updated);
             return NotFound(new { message = "Application history not updated" });
         }
+
+        [HttpPost("SendAnnouncement")]
+        public async Task<IActionResult> SendAnnouncement([FromBody] AnnouncementMailDto dto)
+        {
+            var mail = await adminServices.SendAnnouncementMail(dto);
+            if (!mail) return BadRequest(new { message = "Failed to Send mail" });
+            return Ok(new { message = "Bulk Email Sent" });
+        }
+
+        [HttpPost("ResetPassword")]
+        public async Task<IActionResult> ResetUserPassword(string email)
+        {
+            var reset = await adminServices.ResetUserPassword(email);
+            if (!reset) return BadRequest(new { message = "Failed to Reset Password" });
+            return Ok(new { message = "Reset Password" });
+        }
+
+        [HttpPost("UploadSignature")]
+        public async Task<IActionResult> UploadSignature([FromForm] SignatoryDto dto)
+        {
+            var result = await adminServices.UploadSignature(dto);
+            if (result) return Ok(new { message = "Signature Uploaded" });
+            return BadRequest(new { message = "Failed to Upload Signature" });
+        }
+
+        [HttpGet("GetUserByEmail")]
+        public async Task<IActionResult> GetUserByEmail([FromQuery] string email)
+        {
+            var user = await adminServices.GetUserByEmail(email);
+            if (user == null) return BadRequest(new{message = "User not found"});
+            return Ok(user);
+        }
+
     }
 }

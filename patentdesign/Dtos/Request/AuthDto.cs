@@ -10,6 +10,8 @@ namespace patentdesign.Dtos.Request
         public string FirstName { get; set; }
         public string LastName { get; set; }
         public string Email { get; set; } 
+        public string? BusinessName { get; set; }
+        public int AccountType { get; set; }
         public string Phone { get; set; }
         public string Password { get; set; } 
     }
@@ -37,7 +39,8 @@ namespace patentdesign.Dtos.Request
         public string? PhoneNumber { get; set; }
         public List<Roles>? UserRoles { get; set; }
         public AccountType? AccountType { get; set; }
-        public DateTime CreatedAt { get; set; } 
+        public DateTime? CreatedAt { get; set; } 
+        public DateTime? LastUpdatedAt {  get; set; }
     }
     public class ChangePasswordDto
     {
@@ -50,5 +53,23 @@ namespace patentdesign.Dtos.Request
     public class ResetPasswordDto
     {
         public string Email { get; set; }
+        public string Token { get; set; }
+        public string NewPassword { get; set; }
     }
+
+    public class ProfileDto
+    {
+        public string? UserId { get; set; }
+        public string? FirstName { get; set; } 
+        public string? LastName { get; set; }
+        public string? Name { get; set; }
+        public string? Email { get; set; }
+        public string? PhoneNumber { get; set; }
+        public string? Address { get; set; } 
+        public string? Nationality { get; set; } 
+        public NigerianStates? State { get; set; } = NigerianStates.None;
+        public AccountType? AccountType { get; set; }
+        public List<Roles>? UserRoles { get; set; }
+    }
+
 }

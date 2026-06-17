@@ -48,3 +48,24 @@ public class UpdateApplicationHistoryDto
     public string? PaymentId { get; set; }
     public string? CertificatePaymentId { get; set; }
 }
+
+public class AnnouncementMailDto
+{
+    public string? Subject { get; set; }
+    public string? Message { get; set; }
+}
+
+public class SignatoryDto
+{
+    public string? Name { get; set; }
+    public string? Designation { get; set; }
+    public IFormFile? Signature { get; set; }
+    public List<FormApplicationTypes> ApplicationTypes { get; set; }
+}
+
+public class Signatory
+{
+    public string? Id { get; set; }
+    public string? Name { get; set; }
+    public byte[] Signature { get; set; }
+}

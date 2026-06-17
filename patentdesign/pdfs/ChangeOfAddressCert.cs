@@ -1,3 +1,4 @@
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
@@ -6,7 +7,7 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs;
 
-public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, string applicationId): IDocument
+public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, string applicationId, Signatory signature): IDocument
 {
       private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -23,8 +24,10 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
         private void ComposeContent(IContainer container)
         {
             var app = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
+            var appHistory = model.ApplicationHistory?.FirstOrDefault(a => a.id == applicationId);
+            var application = model.ApplicationHistory?.FirstOrDefault(a => a.id == applicationId);
             var applicants = model.applicants.FirstOrDefault();
-            if (app == null) throw new Exception("Application not found");
+            if (app == null) throw new KeyNotFoundException("Application not found");
             container.PaddingVertical(5).Column(column =>
             {
                 column.Item().Height(30);
@@ -52,9 +55,9 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                 {
                     if (model.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device &&
                         model.Attachments?.FirstOrDefault(e => e.name == "representation") != null &&
-                        imageData?.Length > 0)
+                        PdfImageHelper.TryDecodeImage(imageData))
                     {
-                        row.RelativeItem().AlignCenter().Image(imageData).FitArea();
+                        row.RelativeItem().AlignCenter().Image(imageData!).FitArea();
                     }
                     else
                     {
@@ -119,9 +122,17 @@ public class ChangeOfAddressCert(Filling model, string url, byte[]? imageData, s
                 column.Item().Height(50);
 
                 column.Item().Text($"Sealed at my direction, \n{formattedDate}").SemiBold().FontFamily(Fonts.TimesNewRoman);
-                column.Item().Height(30).Image("assets/reg.png").FitArea();
-                column.Item().Height(10);
-                column.Item().Text("Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
+                column.Item().Height(5);
+                if (signature != null)
+                {
+                    column.Item().Height(35).Image(signature.Signature).FitArea();
+                }
+                else
+                {
+                    column.Item().Height(35).Image("assets/reg.png").FitArea();
+                }
+                column.Item().Height(5);
+                column.Item().Text(signature?.Name ?? "Abubakar Abdullahi").FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("For Registrar,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);
                 column.Item().Text("Federal Ministry of Industry, Trade and Investment.").SemiBold()

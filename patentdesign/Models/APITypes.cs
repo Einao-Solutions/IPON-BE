@@ -80,7 +80,9 @@ namespace patentdesign.Enums;
         public string? address { get; set; }
         public string? number { get; set; }
         public string? email { get; set; }
-        
+        public string? oppositionId { get; set; }
+        public string? reason { get; set; }
+        public Filling? file { get; set; }
     }
 
     public record OppResReq
@@ -218,7 +220,15 @@ namespace patentdesign.Enums;
         public int? TradeMarkClass { get; set; }
         public RemitaResponseClass? remitaResonse { get; set; }
     }
-     
+    public record PayxResponse
+    {
+        public string? PaymentId { get; set; }
+        public string? PayerName { get; set; }
+        public string? PayerEmail { get; set; }
+        public string? PayerPhone { get; set; }
+        public DateTime? PaymentDate { get; set; }
+    
+    }
     public record RemitaResponseClass
     {
         public double? amount { get; set; }
@@ -317,6 +327,7 @@ namespace patentdesign.Enums;
         public string Id { get; set; }
         public string ContentType { get; set; }
         public byte[] Data { get; set; }
+        public string? Name { get; set; }
     }
 
     public record Attch

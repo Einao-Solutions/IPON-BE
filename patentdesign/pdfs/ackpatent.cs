@@ -75,7 +75,6 @@ namespace patentdesign
                     ("Filing date:",      F(model.ApplicationHistory?.FirstOrDefault()?.ApplicationDate)),
                     ("Payment RRR:",      F(model.ApplicationHistory?.FirstOrDefault()?.PaymentId)),
                     ("File number:",      F(model.FileId)),
-                  //  ("Payment ID:",       F(model.ApplicationHistory?.FirstOrDefault()?.PaymentId)),
                     ("Fee title:",        F(model.ApplicationHistory?.FirstOrDefault()?.ApplicationType)),
                 });
 
