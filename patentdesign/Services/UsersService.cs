@@ -33,24 +33,35 @@ public class UsersService
         _log = log;
     }
     
-    public async Task<List<AppUser>> SearchUsersByNameId(string text)
+    public async Task<List<AppUser>> SearchUsersByNameId(string nameId = null, string email = null)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        var hasNameId = !string.IsNullOrWhiteSpace(nameId);
+        var hasEmail = !string.IsNullOrWhiteSpace(email);
+
+        if (!hasNameId && !hasEmail)
             return new List<AppUser>();
 
-        // Escape user input so special regex chars don't break matching
-        var escaped = Regex.Escape(text);
+        var clauses = new List<FilterDefinition<AppUser>>();
 
-        var filter = Builders<AppUser>.Filter.Or(
-            Builders<AppUser>.Filter.Regex(f => f.FirstName, new BsonRegularExpression(escaped, "i")),
-            Builders<AppUser>.Filter.Regex(f => f.LastName, new BsonRegularExpression(escaped, "i")),
-            Builders<AppUser>.Filter.Regex(f => f.CreatorId, new BsonRegularExpression(escaped, "i")),
-            Builders<AppUser>.Filter.Regex(f => f.Id, new BsonRegularExpression(escaped, "i"))
-        );
+        if (hasNameId)
+        {
+            var escaped = Regex.Escape(nameId);
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.FirstName,  new BsonRegularExpression(escaped, "i")));
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.LastName,   new BsonRegularExpression(escaped, "i")));
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.CreatorId,  new BsonRegularExpression(escaped, "i")));
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.Id,         new BsonRegularExpression(escaped, "i")));
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.Email,      new BsonRegularExpression(escaped, "i")));
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.Name,       new BsonRegularExpression(escaped, "i")));
+        }
 
-        Console.WriteLine("Search filter: " + filter.ToJson());
+        if (hasEmail)
+        {
+            var escapedEmail = Regex.Escape(email);
+            clauses.Add(Builders<AppUser>.Filter.Regex(f => f.Email, new BsonRegularExpression(escapedEmail, "i")));
+        }
+
+        var filter = Builders<AppUser>.Filter.Or(clauses);
         var result = await _userCollection.Find(filter).ToListAsync();
-        Console.WriteLine("Search result count: " + result.Count);
         return result;
     }
     

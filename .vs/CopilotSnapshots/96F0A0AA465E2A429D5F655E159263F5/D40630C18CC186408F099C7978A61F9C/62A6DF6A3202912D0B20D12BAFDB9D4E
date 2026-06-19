@@ -342,6 +342,7 @@ namespace patentdesign.Services
                 }
             };
         }
+<<<<<<< HEAD
 
         public async Task SendOppositionNotificationsAsync(string fileOwnerId, string opposerUserId, string fileNumber, string fileTitle, string opposerName, string oppositionId = "")
         {
@@ -496,5 +497,8 @@ namespace patentdesign.Services
                 });
             }
         }
+=======
+        
+>>>>>>> fa253810d40bd01debfd6dc3ebd5b825888aae32
     }
 }

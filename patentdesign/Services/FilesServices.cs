@@ -5954,6 +5954,7 @@ public class FilesServices
                 TradeMarkClass = f.TrademarkClass,
                 TrademarkType = f.TrademarkType,
                 FileApplicant = f.applicants[0].Name ?? string.Empty,
+                Applicants = f.applicants,
                 FilingDate = f.FilingDate.ToString() ?? f.ApplicationHistory[0].ApplicationDate.ToString(),
                 TradeMarkLogo = f.TrademarkLogo,
                 FileStatus = f.FileStatus,
@@ -5992,6 +5993,69 @@ public class FilesServices
 
         return result;
     }
+
+    public async Task<(bool success, string message)> ChangeOfAgent(string fileId, string userId, IFormFile? powerOfAttorney)
+    {
+        try
+        {
+            var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+            if (file == null)
+                return (false, "File not found.");
+
+            var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            if (user == null)
+                return (false, "User not found.");
+
+            // Build new correspondence from the user's profile
+            var newCorrespondence = new CorrespondenceType
+            {
+                id   = user.Id,
+                name = user.Name ?? $"{user.FirstName} {user.LastName}".Trim(),
+                email   = user.Email,
+                phone   = user.PhoneNumber,
+                address = user.Address,
+                Nationality = user.Nationality,
+                state   = user.State?.ToString()
+            };
+
+            // Upload power of attorney if provided
+            string? poaUrl = null;
+            if (powerOfAttorney != null && powerOfAttorney.Length > 0)
+            {
+                using var ms = new MemoryStream();
+                await powerOfAttorney.CopyToAsync(ms);
+                var ext      = Path.GetExtension(powerOfAttorney.FileName);
+                var fileName = Path.GetRandomFileName().Split('.')[0] + ext;
+
+                await _attachmentCollection.InsertOneAsync(new AttachmentInfo
+                {
+                    Id          = fileName,
+                    ContentType = powerOfAttorney.ContentType,
+                    Data        = ms.ToArray()
+                });
+
+                poaUrl = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={fileName}";
+            }
+
+            // Update the file's correspondence and creator account
+            var update = Builders<Filling>.Update
+                .Set(f => f.Correspondence, newCorrespondence)
+                .Set(f => f.CreatorAccount, user.Id);
+
+            await _fillingCollection.UpdateOneAsync(f => f.FileId == fileId, update);
+
+            _log.LogInformation("ChangeOfAgent completed for FileId {FileId}. POA attached: {HasPoa}",
+                fileId, poaUrl != null);
+
+            return (true, "Agent changed successfully.");
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error in ChangeOfAgent");
+            return (false, "An error occurred while processing the request.");
+        }
+    }
+
     public async Task<bool> ApproveChangeDataRecordal(TreatRecordalDto recordalApp)
     {
         try
