@@ -1,4 +1,5 @@
 ﻿using patentdesign.Models;
+using patentdesign.Utils;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -105,7 +106,7 @@ namespace patentdesign.pdfs
                         table.Cell().Element(Block).Column(c =>
                         {
                             c.Item().Text("File Status:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.FileStatus.ToString()).FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(model.FileStatus.ToDisplayName()).FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
                         });
                     });
 
@@ -324,8 +325,8 @@ namespace patentdesign.pdfs
                             foreach (var app in model.ApplicationHistory)
                             {
                                 table.Cell().Element(Block).Text(app.ApplicationDate.ToString("dd MMMM, yyyy")).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
-                                table.Cell().Element(Block).Text(app.ApplicationType.ToString() ?? "").FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
-                                table.Cell().Element(Block).Text(app.CurrentStatus.ToString() ?? "").FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
+                                table.Cell().Element(Block).Text(app.ApplicationType.ToDisplayName() ?? "").FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
+                                table.Cell().Element(Block).Text(app.CurrentStatus.ToDisplayName() ?? "").FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman);
                             }
                         }
                         else

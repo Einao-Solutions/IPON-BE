@@ -36,16 +36,18 @@ public class OppositionService
     private MongoClient _mongoClient;
     private EmailServices _emailServices;
     private PaymentService _paymentServices;
+    private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     // private string attachmentBaseUrl = "http://localhost:5044";
     private IMongoDatabase db;
     private IMongoDatabase pdDb;
-    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices fileServices, EmailServices emailServices, ILogger<OppositionService> log, PaymentService paymentServices)
+    public OppositionService(IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices fileServices, EmailServices emailServices, ILogger<OppositionService> log, PaymentService paymentServices, NotificationServices notificationServices)
     {
         _remitaPaymentUtils = remitaPaymentUtils;
         _fileServices = fileServices;
         _emailServices = emailServices;
+        _notificationServices = notificationServices;
         var s = patentDesignDbSettings.Value;
 
         // Initialize MongoClient and databases
@@ -202,6 +204,24 @@ public class OppositionService
             };
             await _oppositionCollection.InsertOneAsync(oppose);
             _log.LogInformation($"New Opposition {oppose.FileNumber} saved");
+
+            // Send in-app notifications to file owner and opposer
+            try
+            {
+                var fileTitle = oppose.FileTitle ?? oppose.FileNumber;
+                await _notificationServices.SendOppositionNotificationsAsync(
+                    fileOwnerId: oppose.FileOwnerId,
+                    opposerUserId: oppose.UserId,
+                    fileNumber: oppose.FileNumber,
+                    fileTitle: fileTitle,
+                    opposerName: oppose.Name,
+                    oppositionId: oppose.id
+                );
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Failed to send opposition notifications — non-critical");
+            }
 
             return oppose.id;
         }
@@ -399,6 +419,31 @@ public class OppositionService
             catch (Exception emailEx)
             {
                 _log.LogError(emailEx, "Failed to send opposition confirmation email — proceeding anyway");
+            }
+
+            // Send in-app notifications to both the opposer and the file owner
+            try
+            {
+                var fileForNotify = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+                string notifyTitle = fileForNotify?.Type switch
+                {
+                    FileTypes.Design => fileForNotify.TitleOfDesign,
+                    FileTypes.Patent => fileForNotify.TitleOfInvention,
+                    _ => fileForNotify?.TitleOfTradeMark
+                };
+                await _notificationServices.SendOppositionNotificationsAsync(
+                    fileOwnerId: opp.FileOwnerId,
+                    opposerUserId: opp.UserId,
+                    fileNumber: opp.FileNumber,
+                    fileTitle: notifyTitle,
+                    opposerName: opp.Name,
+                    oppositionId: opp.id
+                );
+                _log.LogInformation($"In-app notifications sent for opposition {opp.id}");
+            }
+            catch (Exception notifEx)
+            {
+                _log.LogWarning(notifEx, "Failed to send in-app notifications — proceeding anyway");
             }
 
             _log.LogInformation($"Opposition with payment ID {paymentId} has been marked as paid and applicant notified");
@@ -1000,6 +1045,29 @@ public class OppositionService
                 _log.LogError(emailEx, "Failed to send counter statement notification email — proceeding anyway");
             }
 
+            // Send in-app notifications
+            try
+            {
+                var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+                string fileTitle = file?.Type switch
+                {
+                    FileTypes.Design => file.TitleOfDesign,
+                    FileTypes.Patent => file.TitleOfInvention,
+                    _ => file?.TitleOfTradeMark
+                };
+                await _notificationServices.SendCounterStatementNotificationsAsync(
+                    opposerUserId: opp.UserId,
+                    fileOwnerId: opp.FileOwnerId,
+                    fileNumber: opp.FileNumber,
+                    fileTitle: fileTitle,
+                    oppositionId: opp.id
+                );
+            }
+            catch (Exception notifyEx)
+            {
+                _log.LogWarning(notifyEx, "Failed to send counter statement in-app notifications — non-critical");
+            }
+
             _log.LogInformation($"Counter statement payment confirmed. File {opp.FileNumber} moved to StatutoryDeclaration");
             return (true, "Counter statement payment confirmed and file status updated");
         }
@@ -1372,7 +1440,7 @@ public class OppositionService
                             DateFiled = DateTime.Now.ToString("dd MMMM yyyy")
                         }
                     });
-                    _log.LogInformation($"Statutory declaration notification sent to applicant {applicantEmail}");
+                    _log.LogInformation("Statutory declaration notification sent to applicant");
                 }
 
                 // Notify opposer
@@ -1402,6 +1470,30 @@ public class OppositionService
             catch (Exception emailEx)
             {
                 _log.LogError(emailEx, "Failed to send statutory declaration notification email — proceeding anyway");
+            }
+
+            // Send in-app notifications
+            try
+            {
+                var fileForNotify = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+                string notifyTitle = fileForNotify?.Type switch
+                {
+                    FileTypes.Design => fileForNotify.TitleOfDesign,
+                    FileTypes.Patent => fileForNotify.TitleOfInvention,
+                    _ => fileForNotify?.TitleOfTradeMark
+                };
+                await _notificationServices.SendStatutoryDeclarationNotificationsAsync(
+                    fileOwnerId: opp.FileOwnerId,
+                    opposerUserId: opp.UserId,
+                    fileNumber: opp.FileNumber,
+                    fileTitle: notifyTitle,
+                    oppositionId: opp.id,
+                    filerRole: sd.Role ?? "opposer"
+                );
+            }
+            catch (Exception notifyEx)
+            {
+                _log.LogWarning(notifyEx, "Failed to send statutory declaration in-app notifications — non-critical");
             }
 
             _log.LogInformation($"Statutory declaration payment confirmed for opposition {opp.id}");
@@ -2110,14 +2202,37 @@ public class OppositionService
                                     WithdrawalDate = DateTime.Now.ToString("dd MMMM yyyy")
                                 }
                             });
-                            _log.LogInformation($"Withdrawal notification sent to applicant {applicantEmail}");
-                        }
-                    }
-                }
-                catch (Exception notifyEx)
-                {
-                    _log.LogWarning(notifyEx, "Failed to notify applicant of withdrawal — proceeding anyway");
-                }
+                                    _log.LogInformation("Withdrawal notification sent to applicant");
+                                    }
+                                }
+                            }
+                            catch (Exception notifyEx)
+                            {
+                                _log.LogWarning(notifyEx, "Failed to notify applicant of withdrawal — proceeding anyway");
+                            }
+
+                            // Send in-app notifications
+                            try
+                            {
+                                var fileForNotify = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
+                                string notifyTitle = fileForNotify?.Type switch
+                                {
+                                    FileTypes.Design => fileForNotify.TitleOfDesign,
+                                    FileTypes.Patent => fileForNotify.TitleOfInvention,
+                                    _ => fileForNotify?.TitleOfTradeMark
+                                };
+                                await _notificationServices.SendWithdrawalNotificationsAsync(
+                                    fileOwnerId: opp.FileOwnerId,
+                                    opposerUserId: opp.UserId,
+                                    fileNumber: opp.FileNumber,
+                                    fileTitle: notifyTitle,
+                                    oppositionId: opp.id
+                                );
+                            }
+                            catch (Exception notifyEx)
+                            {
+                                _log.LogWarning(notifyEx, "Failed to send withdrawal in-app notifications — non-critical");
+                            }
             }
 
             _log.LogInformation($"Opposition Withdrawal payment confirmed for paymentId {paymentId}");

@@ -53,6 +53,10 @@ namespace patentdesign.Services
                 CreatedBy = dto.CreatedBy,
                 FileNumber = dto?.FileNumber,
                 ActionUrl = dto?.ActionUrl,
+                PreviousStatus = dto?.PreviousStatus,
+                NewStatus = dto?.NewStatus,
+                FileType = dto?.FileType,
+                ApplicationId = dto?.ApplicationId
             };
 
             if (notification.Audience == NotificationAudience.User && string.IsNullOrWhiteSpace(notification.RecipientId))
@@ -212,6 +216,7 @@ namespace patentdesign.Services
                 }
 
                 var notificationDto = BuildRenewalNotificationDto(file, recipient, expiryDate.Value, daysUntilExpiry == 0);
+                await MarkFileRenewalEligibleAsync(file.Id);
 
                 var wasSent = await HasRenewalReminderBeenSentAsync(file.FileId, recipient, notificationDto.Title);
                 if (wasSent)
@@ -239,6 +244,24 @@ namespace patentdesign.Services
             return sentCount;
 
         }
+
+        private async Task MarkFileRenewalEligibleAsync(string? fileId)
+        {
+            if (string.IsNullOrWhiteSpace(fileId))
+            {
+                return;
+            }
+
+            var filter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Id, fileId),
+                Builders<Filling>.Filter.Ne(x => x.IsRenewalEligible, true));
+
+            await _files.UpdateOneAsync(
+                filter,
+                Builders<Filling>.Update.Set(x => x.IsRenewalEligible, true));
+        }
+
+
         private async Task<bool> HasRenewalReminderBeenSentAsync(string fileNumber, string recipientId, string title)
         {
             var sentFilter = Builders<Notification>.Filter.And(
@@ -283,6 +306,8 @@ namespace patentdesign.Services
         }
         private static CreateNotificationDto BuildRenewalNotificationDto(Filling file, string recipient, DateOnly expiryDate, bool isExpiryDay)
         {
+            file.IsRenewalEligible = true;
+
             return new CreateNotificationDto
             {
                 Audience = NotificationAudience.User,
@@ -316,6 +341,160 @@ namespace patentdesign.Services
                     IsExpiryDay = isExpiryDay
                 }
             };
+        }
+
+        public async Task SendOppositionNotificationsAsync(string fileOwnerId, string opposerUserId, string fileNumber, string fileTitle, string opposerName, string oppositionId = "")
+        {
+            // Notify file owner — their file has been opposed
+            if (!string.IsNullOrWhiteSpace(fileOwnerId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = fileOwnerId,
+                    Title = "Your Application Has Been Opposed",
+                    Message = $"An opposition has been filed against your application with File Number {fileNumber} ({fileTitle}) by {opposerName}. Click the link to file a Counter Statement.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.High,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?step=counterstatement&fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+
+            // Notify opposer — confirmation that their opposition was submitted
+            if (!string.IsNullOrWhiteSpace(opposerUserId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = opposerUserId,
+                    Title = "Opposition Filed Successfully",
+                    Message = $"Your opposition against application {fileNumber} ({fileTitle}) has been successfully submitted and is now under review.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.Medium,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?step=counterstatement&fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+        }
+
+        public async Task SendCounterStatementNotificationsAsync(string opposerUserId, string fileOwnerId, string fileNumber, string fileTitle, string oppositionId)
+        {
+            // Notify opposer — file owner has responded with a counter statement
+            if (!string.IsNullOrWhiteSpace(opposerUserId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = opposerUserId,
+                    Title = "Counter Statement Filed Against Your Opposition",
+                    Message = $"The owner of application {fileNumber} ({fileTitle}) has filed a Counter Statement in response to your opposition. Click the link to view and file a Statutory Declaration.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.High,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?step=statutorydeclaration&role=opposer&fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+
+            // Notify file owner — confirmation their counter statement was received
+            if (!string.IsNullOrWhiteSpace(fileOwnerId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = fileOwnerId,
+                    Title = "Counter Statement Submitted Successfully",
+                    Message = $"Your Counter Statement for application {fileNumber} ({fileTitle}) has been successfully submitted and the opposer has been notified.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.Medium,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?step=statutorydeclaration&role=applicant&fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+        }
+
+        public async Task SendStatutoryDeclarationNotificationsAsync(string fileOwnerId, string opposerUserId, string fileNumber, string fileTitle, string oppositionId, string filerRole)
+        {
+            var filerIsOpposer = string.Equals(filerRole, "opposer", StringComparison.OrdinalIgnoreCase);
+            var filerLabel = filerIsOpposer ? "Opposer" : "Applicant";
+
+            // Notify the OTHER party
+            var recipientId = filerIsOpposer ? fileOwnerId : opposerUserId;
+            var recipientRole = filerIsOpposer ? "applicant" : "opposer";
+            if (!string.IsNullOrWhiteSpace(recipientId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = recipientId,
+                    Title = "Statutory Declaration Filed",
+                    Message = $"A Statutory Declaration has been filed by the {filerLabel} for application {fileNumber} ({fileTitle}). The matter is now awaiting office processing.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.High,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?step=statutorydeclaration&role={recipientRole}&fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+
+            // Notify the filer — confirmation
+            var filerId = filerIsOpposer ? opposerUserId : fileOwnerId;
+            if (!string.IsNullOrWhiteSpace(filerId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = filerId,
+                    Title = "Statutory Declaration Submitted Successfully",
+                    Message = $"Your Statutory Declaration for application {fileNumber} ({fileTitle}) has been successfully submitted and is now awaiting office processing.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.Medium,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?step=statutorydeclaration&role={Uri.EscapeDataString(filerRole ?? "opposer")}&fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+        }
+
+        public async Task SendWithdrawalNotificationsAsync(string fileOwnerId, string opposerUserId, string fileNumber, string fileTitle, string oppositionId)
+        {
+            // Notify file owner — the opposition against their file has been withdrawn
+            if (!string.IsNullOrWhiteSpace(fileOwnerId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = fileOwnerId,
+                    Title = "Opposition Withdrawal Request Submitted",
+                    Message = $"The opposer has submitted a withdrawal request for the opposition against your application {fileNumber} ({fileTitle}). The request is now pending review by the Registry.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.High,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
+
+            // Notify opposer — confirmation their withdrawal request was received
+            if (!string.IsNullOrWhiteSpace(opposerUserId))
+            {
+                await CreateNotificationAsync(new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    RecipientId = opposerUserId,
+                    Title = "Opposition Withdrawal Request Submitted",
+                    Message = $"Your withdrawal request for the opposition against application {fileNumber} ({fileTitle}) has been submitted and is pending review by the Registry.",
+                    Category = NotificationCategory.Opposition,
+                    Priority = NotificationPriority.Medium,
+                    CreatedBy = "System",
+                    FileNumber = fileNumber,
+                    ActionUrl = $"https://portal.iponigeria.com/opposition?fileNumber={Uri.EscapeDataString(fileNumber)}&oppositionId={Uri.EscapeDataString(oppositionId)}"
+                });
+            }
         }
     }
 }

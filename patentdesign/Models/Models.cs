@@ -256,6 +256,8 @@ public record Filling
     public DateOnly? ExpiryDate { get; set; }
     public bool? IsExpired { get; set; } = false;
     public bool? IsDueForRenewal { get; set; } = false;
+    public bool? IsRenewalEligible { get; set; } = false;
+    public DateTime? RenewalEligibleEndDate { get; set; }
 }
 
 public record ClericalUpdate
@@ -877,7 +879,7 @@ public enum FormApplicationTypes
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
     PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
-    CounterStatement, StatutoryDeclaration
+    CounterStatement, StatutoryDeclaration, ChangeOfAgent
 }
 public enum ApplicationLetters
 {
@@ -1938,4 +1940,8 @@ public class Notification
     public string? CreatedBy { get; set; }
     public string? FileNumber { get; set; }
     public FileTypes? FileType { get; set; }
+    public ApplicationStatuses? PreviousStatus { get; set; }
+    public ApplicationStatuses? NewStatus { get; set; }
+    public FormApplicationTypes? ApplicationType { get; set; }
+    public string? ApplicationId { get; set; }
 }

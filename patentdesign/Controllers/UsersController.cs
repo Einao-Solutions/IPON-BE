@@ -44,9 +44,9 @@ public class UsersController(UsersService usersService) :ControllerBase
     //}
 
     [HttpGet("SearchNameId")]
-    public async Task<IActionResult> SearchNameId([FromQuery] string nameId)
+    public async Task<IActionResult> SearchNameId([FromQuery] string? nameId, [FromQuery] string? email)
     {
-        var value = await usersService.SearchUsersByNameId(nameId);
+        var value = await usersService.SearchUsersByNameId(nameId, email);
         return Ok(value);
     }
     [HttpPost("LoadUsers")]

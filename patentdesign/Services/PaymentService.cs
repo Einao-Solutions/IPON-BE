@@ -2,7 +2,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Enums;
 using patentdesign.Models;
@@ -182,7 +184,7 @@ public class PaymentService
         }
         else if (rrr.Length > 24)
         {
-            var payx = await VerifyPayx(rrr.Substring(0, 15));
+            var payx = await VerifyPayx(rrr);
             if (payx is null)
             {
                 _log.LogError("Payx not found");
@@ -221,7 +223,56 @@ public class PaymentService
         _log.LogInformation($"Verifying payx Id: {paymentId}...");
         try
         {
-            var payment = await _payxWallet.Find(p => p.transID == paymentId).FirstOrDefaultAsync();
+            var normalizedPaymentId = paymentId?.Trim();
+            if (string.IsNullOrWhiteSpace(normalizedPaymentId))
+            {
+                _log.LogError("Payment id is empty");
+                return null;
+            }
+
+            var lookupIds = new List<string> { normalizedPaymentId };
+            var firstToken = normalizedPaymentId.Split('-', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
+            if (!string.IsNullOrWhiteSpace(firstToken))
+            {
+                lookupIds.Add(firstToken);
+            }
+
+            foreach (var id in lookupIds.ToList())
+            {
+                if (id.Length >= 15)
+                {
+                    lookupIds.Add(id[..15]);
+                }
+            }
+
+            lookupIds = lookupIds.Distinct().ToList();
+
+            var exactFilter = Builders<XpayTwallet>.Filter.Or(
+                Builders<XpayTwallet>.Filter.In(p => p.transID, lookupIds),
+                Builders<XpayTwallet>.Filter.In(p => p.ref_no, lookupIds)
+            );
+
+            var payment = await _payxWallet.Find(exactFilter).FirstOrDefaultAsync();
+
+            if (payment == null)
+            {
+                var regexFilters = lookupIds
+                    .SelectMany(id => new[]
+                    {
+                        Builders<XpayTwallet>.Filter.Regex(
+                            p => p.transID,
+                            new BsonRegularExpression(Regex.Escape(id), "i")),
+                        Builders<XpayTwallet>.Filter.Regex(
+                            p => p.ref_no,
+                            new BsonRegularExpression(Regex.Escape(id), "i"))
+                    })
+                    .ToList();
+
+                payment = await _payxWallet
+                    .Find(Builders<XpayTwallet>.Filter.Or(regexFilters))
+                    .FirstOrDefaultAsync();
+            }
+
             if (payment == null)
             {
                 _log.LogError("Payment not found");

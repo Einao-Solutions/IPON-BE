@@ -1,4 +1,5 @@
 using patentdesign.Models;
+using patentdesign.Utils;
 using QRCoder;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -252,7 +253,7 @@ namespace patentdesign.pdfs
                                 table.Cell().Padding(4).Text("Application Type").Bold();
                                 table.Cell().Padding(4).Text("Fresh Application");
                                 table.Cell().Padding(4).Text("Current Status").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToString());
+                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToDisplayName());
                                 table.Cell().Padding(4).Text("Payment ID").Bold();
                                 table.Cell().Padding(4).Text(applicationInfo.PaymentId);
                                 if (applicationInfo.CertificatePaymentId != null)
@@ -275,7 +276,7 @@ namespace patentdesign.pdfs
                                 table.Cell().Padding(4).Text("Application Type").Bold();
                                 table.Cell().Padding(4).Text("Renewal Application");
                                 table.Cell().Padding(4).Text("Current Status").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToString());
+                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToDisplayName());
                                 table.Cell().Padding(4).Text("Payment ID").Bold();
                                 table.Cell().Padding(4).Text(applicationInfo.PaymentId);
                             });
@@ -293,7 +294,7 @@ namespace patentdesign.pdfs
                                 table.Cell().Padding(4).Text("Application Type").Bold();
                                 table.Cell().Padding(4).Text("Data Update Application");
                                 table.Cell().Padding(4).Text("Current Status").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToString());
+                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToDisplayName());
                                 if (applicationInfo.PaymentId != null)
                                 {
                                     table.Cell().Padding(4).Text("Payment ID").Bold();
@@ -321,7 +322,7 @@ namespace patentdesign.pdfs
                                 table.Cell().Padding(4).Text("Application Type").Bold();
                                 table.Cell().Padding(4).Text("Ownership Change");
                                 table.Cell().Padding(4).Text("Current Status").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToString());
+                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToDisplayName());
                                 table.Cell().Padding(4).Text("Previous owner").Bold();
                                 table.Cell().Padding(4).Text(applicationInfo.StatusHistory[0].Message);
                             });
@@ -339,7 +340,7 @@ namespace patentdesign.pdfs
                                 table.Cell().Padding(4).Text("Application Type").Bold();
                                 table.Cell().Padding(4).Text("Assignment Application");
                                 table.Cell().Padding(4).Text("Current Status").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToString());
+                                table.Cell().Padding(4).Text(applicationInfo.CurrentStatus.ToDisplayName());
                                 table.Cell().Padding(4).Text("Assignee Name").Bold();
                                 table.Cell().Padding(4).Text(applicationInfo.Assignment.assigneeName);
                                 table.Cell().Padding(4).Text("Assignee Address").Bold();

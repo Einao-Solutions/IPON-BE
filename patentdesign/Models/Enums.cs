@@ -112,20 +112,6 @@ ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, Opposit
         Acceptance,
         Certificate
     }
-    public enum AnnouncementType
-    {
-        General,
-        PatentDesignRegistry,
-        TrademarkRegistry,
-        Technical,
-    }
-    public enum AnnouncementSeverity
-    {
-        Low,
-        Medium,
-        High,
-        Critical
-    }
 
     public enum NotificationAudience
     {
@@ -140,7 +126,9 @@ ResetPassword, Opposition, StatusUpdate, Announcement, CounterStatement, Opposit
         Security,
         System,
         Messaging,
-        Renewal
+        Renewal,
+        StatusUpdate,
+        Opposition
     }
     public enum NotificationPriority
     {
