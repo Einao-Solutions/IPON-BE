@@ -51,7 +51,7 @@ public class PaymentController(PaymentService paymentService) : ControllerBase
         return Ok(true);
     }
     [HttpGet("Check")]
-    public async Task<ActionResult> AddPayment([FromQuery]string id )
+    public async Task<ActionResult> CheckPayment([FromQuery]string id )
     {
         var result=await paymentService.CheckPayment(id);
         return Ok(result);
