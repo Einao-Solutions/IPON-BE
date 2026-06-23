@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Drawing;
@@ -9,7 +10,7 @@ using static System.Net.Mime.MediaTypeNames;
 
 namespace patentdesign.pdfs
 {
-    public class NewTrademarkCertificate(Filling model, string url, byte[]? imageData = null) : IDocument
+    public class NewTrademarkCertificate(Filling model, string url, byte[]? imageData = null, Signatory signature = null) : IDocument
     {
         private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -124,9 +125,16 @@ namespace patentdesign.pdfs
                     row.Spacing(50);
                     row.RelativeItem().AlignRight().Column(c =>
                     {
-                        c.Item().Height(35).Image("assets/trademark_registrar_sig.png").FitArea();
+                        if (signature != null)
+                        {
+                            c.Item().Height(35).Image(signature.Signature).FitArea();
+                        }
+                        else
+                        {
+                            c.Item().Height(35).Image("assets/trademark_registrar_sig.png").FitArea();
+                        }
                         c.Item().Height(20);
-                        c.Item().Text("Shafiu Adamu Yauri").FontFamily(Fonts.TimesNewRoman);
+                        c.Item().Text(signature?.Name ?? "Shafiu Adamu Yauri").FontFamily(Fonts.TimesNewRoman);
                         c.Item().Text("Registrar Of Trademarks").SemiBold().FontFamily(Fonts.TimesNewRoman);
                     });
                 });
