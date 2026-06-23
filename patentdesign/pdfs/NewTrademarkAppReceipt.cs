@@ -57,7 +57,7 @@ public class NewTrademarkAppReceipt(Filling model, string appId):IDocument
                     //Payment Information Section
                     column.Item().Table(table =>
                     {
-                        var app = model.PostRegApplications?.Find(a => a.Id == appId);
+                        var app = model.ApplicationHistory?.Find(a => a.id == appId);
                         Console.WriteLine(app);
                         table.ColumnsDefinition(columns =>
                         {
@@ -67,15 +67,15 @@ public class NewTrademarkAppReceipt(Filling model, string appId):IDocument
                         table.Cell().ColumnSpan(2).Element(HeaderElement).Text("PAYMENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Filing Date:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(app?.FilingDate).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(app?.ApplicationDate.ToString("dd MMMM, yyyy")).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Payment rrr:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(app?.rrr).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(app?.PaymentId).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("File Number:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(app?.FileNumber).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(model.FileId).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Amount Paid:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
