@@ -1113,17 +1113,6 @@ public record TicketCreator
     public string Id { get; set; }
 }
 
-//public record TicketSummary
-//{
-//    public string TicketId { get; set; }
-//    public string Title { get; set; }
-//    public  TicketState Status { get; set; } 
-//    public  TicketCreator Creator { get; set; }
-//    public DateTime DateCreated { get; set; }
-//    public DateTime LastInteraction { get; set; }
-//    public ResolveInfo? Resolution { get; set; }=null;
-//}
-
 public record TicketSummary
 {
     public string TicketId { get; set; }
@@ -1140,18 +1129,6 @@ public record TicketSummary
     public ResolveInfo? Resolution { get; set; } = null;
 }
 
-//public record TicketInfo
-//{
-//    public string id { get; set; } = Guid.NewGuid().ToString();
-//    public string Title { get; set; }
-//    public string creatorId { get; set; }
-//    public string creatorName { get; set; }
-//    public List<TicketCorrespondence> Correspondences { get; set; }
-//    public  TicketState Status { get; set; }
-//    public ResolveInfo? resolution { get; set; }
-//    public DateTime Created { get; set; }=  DateTime.Now;
-//    public List<AffectedFile>? AffectedFiles { get; set; }
-//}
 public record TicketInfo
 {
     public string id { get; set; } = Guid.NewGuid().ToString();
