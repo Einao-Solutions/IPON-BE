@@ -103,6 +103,7 @@ namespace patentdesign.pdfs
         }
         private void ComposeFooter(IContainer container)
         {
+            var ann = signature.Name == "Anne Titi Adeleye";
             container.Column(c => 
             {
                 c.Item().AlignBottom().Row(row =>
@@ -136,7 +137,7 @@ namespace patentdesign.pdfs
                             c.Item().Height(35).Image("assets/trademark_registrar_sig.png").FitArea();
                         }
                         c.Item().Text(signature?.Name ?? "Shafiu Adamu Yauri").FontFamily(Fonts.TimesNewRoman);
-                        c.Item().Text("Registrar Of Trademarks").SemiBold().FontFamily(Fonts.TimesNewRoman);
+                        c.Item().Text(ann ? "Ag. Registrar of Trademarks" : "Registrar Of Trademarks").SemiBold().FontFamily(Fonts.TimesNewRoman);
                     });
                 });
                 c.Item().Height(10);
