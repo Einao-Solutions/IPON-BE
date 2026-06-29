@@ -47,7 +47,85 @@ public class LettersServices
     private static IMongoCollection<SignatureInfo> _signatures;
     private MongoClient _mongoClient;
     private PaymentUtils _remitaPaymentUtils;
-    
+
+    // Host used to rebuild stored attachment URLs that point at an unreachable
+    // origin (e.g. a developer's localhost). Mirrors the value other services
+    // (FilesServices, AssignmentService, OppositionService, PaymentService,
+    // UsersService, AdminServices) currently have hard-coded as their active
+    // base URL. Centralising it here is intentional: the goal is to NOT change
+    // the upload path right now, only to make the render path self-healing.
+    private const string AttachmentBaseUrl = "https://integration.iponigeria.com";
+
+    /// <summary>
+    /// Downloads the bytes for a stored attachment URL. If the direct download
+    /// fails AND the URL is a "/api/files/getAttachment?fileId=..." link, the
+    /// host portion is swapped for <see cref="AttachmentBaseUrl"/> and a single
+    /// retry is performed. This recovers records whose URLs were persisted
+    /// against a host that is unreachable from the current environment (for
+    /// example a developer-machine localhost URL viewed from dev/production).
+    /// Returns <c>null</c> if the image cannot be obtained from either URL.
+    /// </summary>
+    private static async Task<byte[]?> DownloadAttachmentBytesAsync(string url, string fileIdForLog)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        using var http = new HttpClient();
+        try
+        {
+            var bytes = await http.GetByteArrayAsync(url);
+            if (bytes != null && bytes.Length > 0)
+            {
+                Console.WriteLine($"[{fileIdForLog}] Successfully loaded attachment from: {url}");
+                return bytes;
+            }
+            Console.WriteLine($"[{fileIdForLog}] Warning: attachment URL returned empty data: {url}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{fileIdForLog}] Primary download failed for {url}: {ex.Message}");
+        }
+
+        // Self-heal: if the stored URL is a getAttachment link, retry against
+        // the current environment's base URL. This handles records whose host
+        // was baked in on another machine (commonly http://localhost:5044).
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
+            return null;
+
+        var path = parsed.AbsolutePath ?? string.Empty;
+        if (path.IndexOf("/api/files/getAttachment", StringComparison.OrdinalIgnoreCase) < 0)
+            return null;
+
+        if (!Uri.TryCreate(AttachmentBaseUrl, UriKind.Absolute, out var fallbackBase))
+            return null;
+
+        // Already pointing at the right host - no useful retry possible.
+        if (string.Equals(parsed.Host, fallbackBase.Host, StringComparison.OrdinalIgnoreCase) &&
+            parsed.Port == fallbackBase.Port &&
+            string.Equals(parsed.Scheme, fallbackBase.Scheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var rehosted = $"{AttachmentBaseUrl.TrimEnd('/')}{parsed.PathAndQuery}";
+        try
+        {
+            var bytes = await http.GetByteArrayAsync(rehosted);
+            if (bytes != null && bytes.Length > 0)
+            {
+                Console.WriteLine($"[{fileIdForLog}] Self-heal succeeded: original={url} retried={rehosted}");
+                return bytes;
+            }
+            Console.WriteLine($"[{fileIdForLog}] Self-heal returned empty data for: {rehosted}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{fileIdForLog}] Self-heal failed for {rehosted}: {ex.Message}");
+        }
+
+        return null;
+    }
+
     public async Task<Dictionary<string, object>> GenerateLetter(string? fileId = null,
         ApplicationLetters? letterType = null,
         string? applicationId = null, string? oppositionId = null)
@@ -1638,22 +1716,14 @@ public class LettersServices
                         continue;
                     }
 
-                    try
+                    var imgBytes = await DownloadAttachmentBytesAsync(url, file.FileId);
+                    if (imgBytes is { Length: > 0 })
                     {
-                        var imgBytes = await (new HttpClient()).GetByteArrayAsync(url);
-                        if (imgBytes?.Length > 0)
-                        {
-                            images.Add(imgBytes);
-                            Console.WriteLine($"[{file.FileId}] Successfully loaded design image from: {url}");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"[{file.FileId}] Warning: Design image URL returned empty data: {url}");
-                        }
+                        images.Add(imgBytes);
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        Console.WriteLine($"[{file.FileId}] ERROR: Failed to load design image from URL: {url}. Error: {ex.Message}");
+                        Console.WriteLine($"[{file.FileId}] Design image could not be retrieved (after self-heal attempt) for URL: {url}");
                     }
                 }
             }
