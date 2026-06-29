@@ -258,6 +258,14 @@ public record Filling
     public bool? IsDueForRenewal { get; set; } = false;
     public bool? IsRenewalEligible { get; set; } = false;
     public DateTime? RenewalEligibleEndDate { get; set; }
+    public List<FileTicketRef> Tickets { get; set; } = [];
+}
+
+public record FileTicketRef
+{
+    public string TicketId { get; set; }
+    public string TicketNumber { get; set; }
+    public DateTime Created { get; set; } = DateTime.Now;
 }
 
 public record ClericalUpdate
@@ -606,20 +614,7 @@ public record StaffPerformance
     public FileTypes? FileType { get; set; }
     
 }
-//public record Statistics
-//{
-//    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
-//    public string? ApplicantCountry { get; set; }
-//    public string? ApplicantName { get; set; }
-//    public AccountType? AccountType { get; set; }
-//    public int? FileClass { get; set; }
-//    public DateTime? Date { get; set; }
-//    public FileTypes? Type { get; set; }
-//    public TradeMarkType? TradeMarkType { get; set; }
-//    public PatentTypes? PatentType { get; set; }
-//    public DesignTypes? DesignType { get; set; }
-//    public FormApplicationTypes? ApplicationType { get; set; }
-//}
+
 public enum PerformanceType {Staff,Application}
 
 public record OtherPaymentModel
@@ -1113,22 +1108,11 @@ public record TicketCreator
     public string Id { get; set; }
 }
 
-//public record TicketSummary
-//{
-//    public string TicketId { get; set; }
-//    public string Title { get; set; }
-//    public  TicketState Status { get; set; } 
-//    public  TicketCreator Creator { get; set; }
-//    public DateTime DateCreated { get; set; }
-//    public DateTime LastInteraction { get; set; }
-//    public ResolveInfo? Resolution { get; set; }=null;
-//}
-
 public record TicketSummary
 {
-    public string TicketId { get; set; }
+    public string? TicketId { get; set; }
     public string? TicketNumber { get; set; }
-    public string Title { get; set; }
+    public string? Title { get; set; }
     public TicketState Status { get; set; }
     public TicketCategory? Category { get; set; }
     public TicketType? TicketType { get; set; }
@@ -1138,27 +1122,20 @@ public record TicketSummary
     public DateTime DateCreated { get; set; }
     public DateTime LastInteraction { get; set; }
     public ResolveInfo? Resolution { get; set; } = null;
+    public ApplicationType? ApplicationType { get; set; }
+    public int? RecordalType { get; set; }
+    public bool RaisedByRegistryStaff { get; set; }
+    public TicketCategory? RegistryCategory { get; set; }
+    public string? FileNumber { get; set; }
 }
 
-//public record TicketInfo
-//{
-//    public string id { get; set; } = Guid.NewGuid().ToString();
-//    public string Title { get; set; }
-//    public string creatorId { get; set; }
-//    public string creatorName { get; set; }
-//    public List<TicketCorrespondence> Correspondences { get; set; }
-//    public  TicketState Status { get; set; }
-//    public ResolveInfo? resolution { get; set; }
-//    public DateTime Created { get; set; }=  DateTime.Now;
-//    public List<AffectedFile>? AffectedFiles { get; set; }
-//}
 public record TicketInfo
 {
     public string id { get; set; } = Guid.NewGuid().ToString();
     public string? TicketNumber { get; set; }
-    public string Title { get; set; }
-    public string creatorId { get; set; }
-    public string creatorName { get; set; }
+    public string? Title { get; set; }
+    public string? creatorId { get; set; }
+    public string? creatorName { get; set; }
     public TicketCategory? Category { get; set; }
     public TicketType? TicketType { get; set; }
     public ApplicationType? ApplicationType { get; set; }
@@ -1170,30 +1147,31 @@ public record TicketInfo
     public string? EscalatedById { get; set; }
     public string? EscalatedByName { get; set; }
     public bool RaisedByRegistryStaff { get; set; } = false;
-    public List<TicketCorrespondence> Correspondences { get; set; }
+    public List<TicketCorrespondence>? Correspondences { get; set; }
     public TicketState Status { get; set; }
     public ResolveInfo? resolution { get; set; }
     public DateTime Created { get; set; } = DateTime.Now;
     public List<AffectedFile>? AffectedFiles { get; set; }
+    public TicketCategory? RegistryCategory { get; set; }
 }
 
 public record AffectedFile
 {
-    public string id { get; set; }
-    public string fileNumber { get; set; }
+    public string? id { get; set; }
+    public string? fileNumber { get; set; }
 }
 
 public record ResolveInfo
 {
     public DateTime Date { get; set; } = DateTime.Now;
-    public string StaffId { get; set; }
-    public string StaffName { get; set; }
+    public string? StaffId { get; set; }
+    public string? StaffName { get; set; }
 }
 
 public  record TicketCorrespondence
 {
     public string id { get; set; } = Guid.NewGuid().ToString();
-    public string Message { get; set; }
+    public string? Message { get; set; }
     public string? Attachment { get; set; }
     public string SenderId { get; set; }
     public string SenderName { get; set; }
