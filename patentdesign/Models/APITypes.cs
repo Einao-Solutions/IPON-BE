@@ -16,15 +16,6 @@ namespace patentdesign.Enums;
         public List<string> ticketId { get; set; }
     }
 
-//public record TicketsSummariesType
-//{
-//    public int? amount { get; set; }
-//    public int? startIndex { get; set; }
-//    public string? creatorId { get; set; }
-//    public string? title { get; set; }
-//    public TicketState? status { get; set; }
-//}
-
     public record TicketsSummariesType
     {
         public int? amount { get; set; }
@@ -40,7 +31,8 @@ namespace patentdesign.Enums;
         public ApplicationType? applicationType { get; set; }
         public DateTime? startDate { get; set; }
         public DateTime? endDate { get; set; }
-    }
+        public TicketCategory? registryCategory { get; set; }
+}
 
     public record AssReq
     {

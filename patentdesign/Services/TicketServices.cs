@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
@@ -14,24 +16,68 @@ public class TicketServices
     private PaymentUtils _remitaPaymentUtils;
     private MongoClient _mongoClient;
     private static IMongoCollection<TicketInfo> _ticketsCollection;
-    public TicketServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings)
-    {
-        _ticketsCollection = db.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
-    }
-    //public async Task CreateTicketAsync(TicketInfo ticket)
-    //{
-    //    await _ticketsCollection.InsertOneAsync(ticket);
-    //}
+    private readonly IMongoCollection<Filling>? _fillingCollection;
+    private readonly ILogger<TicketServices> _logger;
 
+    #region Constructor
+    public TicketServices(
+        IMongoDatabase db,
+        IOptions<PatentDesignDBSettings> patentDesignDbSettings,
+        ILogger<TicketServices> logger)
+    {
+        _logger = logger;
+        var s = patentDesignDbSettings.Value;
+        _ticketsCollection = db.GetCollection<TicketInfo>(patentDesignDbSettings.Value.TicketCollectionName);
+        if (!string.IsNullOrWhiteSpace(s.FilesCollectionName))
+        {
+            _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        }
+
+        _logger.LogInformation("TicketServices initialized. TicketCollection: {TicketCollection}, FilesCollectionConfigured: {FilesCollectionConfigured}",
+            patentDesignDbSettings.Value.TicketCollectionName,
+            !string.IsNullOrWhiteSpace(s.FilesCollectionName));
+    }
+    #endregion
+
+    #region Ticket lifecycle
     public async Task CreateTicketAsync(TicketInfo ticket)
     {
+        _logger.LogInformation("Creating ticket for CreatorId: {CreatorId}, FileNumber: {FileNumber}", ticket.creatorId, ticket.FileNumber);
+
         var count = await _ticketsCollection.CountDocumentsAsync(FilterDefinition<TicketInfo>.Empty);
         ticket.TicketNumber = $"TKT-{(count + 1):D5}";
         await _ticketsCollection.InsertOneAsync(ticket);
+
+        _logger.LogInformation("Ticket created with Id: {TicketId}, TicketNumber: {TicketNumber}", ticket.id, ticket.TicketNumber);
+
+        if (!string.IsNullOrWhiteSpace(ticket.FileNumber))
+        {
+            var fileNumber = ticket.FileNumber.Trim();
+
+            _logger.LogInformation("Linking ticket {TicketId} to file {FileNumber}", ticket.id, fileNumber);
+
+            await _fillingCollection.UpdateOneAsync(
+                x => x.FileId == fileNumber,
+                Builders<Filling>.Update.Push(x => x.Tickets, new FileTicketRef
+                {
+                    TicketId = ticket.id,
+                    TicketNumber = ticket.TicketNumber,
+                    Created = ticket.Created
+                })
+            );
+
+            _logger.LogInformation("Ticket {TicketId} linked to file {FileNumber}", ticket.id, fileNumber);
+        }
+        else
+        {
+            _logger.LogInformation("Ticket {TicketId} has no file number. Skipping file linkage.", ticket.id);
+        }
     }
 
     public async Task<bool> CloseTicketsAsync(ResolveTicketType res)
     {
+        _logger.LogInformation("Closing tickets. Count: {Count}", res.ticketId?.Count ?? 0);
+
         var filter = Builders<TicketInfo>.Filter.In(f => f.id, res.ticketId);
         List<UpdateDefinition<TicketInfo>> updates =
         [
@@ -40,24 +86,26 @@ public class TicketServices
         ];
         var result=await _ticketsCollection.UpdateManyAsync<TicketInfo>((x=>res.ticketId.Contains(x.id)),
             Builders<TicketInfo>.Update.Combine(updates));
+
+        _logger.LogInformation("Close tickets completed. Acknowledged: {Acknowledged}, Matched: {Matched}, Modified: {Modified}",
+            result.IsAcknowledged,
+            result.MatchedCount,
+            result.ModifiedCount);
+
         return result.IsAcknowledged;
     }
     
-    public async Task DeleteTicketAsync(){}
+    public async Task DeleteTicketAsync()
+    {
+        _logger.LogInformation("DeleteTicketAsync called. No implementation available.");
+    }
+    #endregion
 
-    //public async Task<TicketInfo?> AddMessageAsync(NewCorrespondenceType correspondence)
-    //{
-    //    var filter = Builders<TicketInfo>.Filter.Eq(f => f.id, correspondence.ticketId);
-    //    List<UpdateDefinition<TicketInfo>> updates = [
-    //        Builders<TicketInfo>.Update.Push(f=>f.Correspondences, correspondence.correspondence),
-    //        Builders<TicketInfo>.Update.Set(f=>f.Status, correspondence.newStatus),
-    //    ];
-    //    var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
-    //    var result=await _ticketsCollection.FindOneAndUpdateAsync<TicketInfo>(filter, Builders<TicketInfo>.Update.Combine(updates), options);
-    //    return result;
-    //}
+    #region Ticket communication
     public async Task<TicketInfo> AddMessageAsync(NewCorrespondenceType correspondence)
     {
+        _logger.LogInformation("Adding message to ticket {TicketId} with new status {NewStatus}", correspondence.ticketId, correspondence.newStatus);
+
         correspondence.correspondence.DateAdded = DateTime.UtcNow;
 
         var filter = Builders<TicketInfo>.Filter.Eq(f => f.id, correspondence.ticketId);
@@ -66,43 +114,36 @@ public class TicketServices
         Builders<TicketInfo>.Update.Set(f => f.Status, correspondence.newStatus),
     ];
         var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
-        return await _ticketsCollection.FindOneAndUpdateAsync(filter, Builders<TicketInfo>.Update.Combine(updates), options);
-    }
+        var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, Builders<TicketInfo>.Update.Combine(updates), options);
 
+        _logger.LogInformation("Add message completed for ticket {TicketId}. Found: {Found}", correspondence.ticketId, result != null);
+
+        return result;
+    }
+    #endregion
+
+    #region Ticket retrieval and reporting
     public async Task<TicketInfo> GetTicketAsync(string id)
     {
-        return await _ticketsCollection.Find(x => x.id == id).FirstOrDefaultAsync();
-    }
+        _logger.LogInformation("Fetching ticket by Id: {TicketId}", id);
 
-    //public async Task<List<TicketSummary>> GetTicketsSummariesAsync(TicketsSummariesType info)
-    //{
-    //    var filter = Builders<TicketInfo>.Filter;
-    //    var creatorFilter = info.creatorId == "null" ? filter.Empty : filter.Eq(x => x.creatorId, info.creatorId);
-    //    var statusFilter = info.status == null ? filter.Empty : filter.Eq(x => x.Status, info.status);
-    //    var titleFilter = info.title == null
-    //        ? filter.Empty
-    //        : filter.Regex(f => f.Title, new BsonRegularExpression(info.title, "i"));
-    //    var projection = Builders<TicketInfo>.Projection.Expression(x => new TicketSummary()
-    //    {
-    //        Status = x.Status,
-    //        Title = x.Title,
-    //        Creator =
-    //            new TicketCreator()
-    //            {
-    //                Name = x.creatorName,
-    //                Id = x.creatorId,
-    //            },
-    //        LastInteraction = x.Correspondences.Last().DateAdded,
-    //        TicketId = x.id,
-    //        Resolution = x.resolution
-    //    });
-    //    var tickets=await _ticketsCollection.Find(Builders<TicketInfo>.Filter.And([creatorFilter, statusFilter, titleFilter])).Project(projection)
-    //        .Skip(info.startIndex??0).Limit(info.amount).ToListAsync();
-    //    return tickets;
-    //}
+        var result = await _ticketsCollection.Find(x => x.id == id).FirstOrDefaultAsync();
+
+        _logger.LogInformation("Fetch ticket completed for Id: {TicketId}. Found: {Found}", id, result != null);
+
+        return result;
+    }
 
     public async Task<List<TicketSummary>> GetTicketsSummariesAsync(TicketsSummariesType info)
     {
+        _logger.LogInformation("Fetching ticket summaries. CreatorId: {CreatorId}, Status: {Status}, Category: {Category}, RegistryCategory: {RegistryCategory}, StartIndex: {StartIndex}, Amount: {Amount}",
+            info.creatorId,
+            info.status,
+            info.category,
+            info.registryCategory,
+            info.startIndex,
+            info.amount);
+
         var filter = Builders<TicketInfo>.Filter;
 
         var creatorFilter = info.creatorId == "null" ? filter.Empty : filter.Eq(x => x.creatorId, info.creatorId);
@@ -111,6 +152,9 @@ public class TicketServices
             ? filter.Empty
             : filter.Regex(f => f.Title, new BsonRegularExpression(info.title, "i"));
         var categoryFilter = info.category == null ? filter.Empty : filter.Eq(x => x.Category, info.category);
+        var registryCategoryFilter = info.registryCategory == null
+            ? filter.Empty
+            : filter.Eq(x => x.RegistryCategory, info.registryCategory);
         var escalatedFilter = info.isEscalated == null ? filter.Empty : filter.Eq(x => x.IsEscalated, info.isEscalated.Value);
         var registryStaffFilter = info.raisedByRegistryStaff == null ? filter.Empty : filter.Eq(x => x.RaisedByRegistryStaff, info.raisedByRegistryStaff.Value);
         var ticketNumberFilter = info.ticketNumber == null
@@ -125,7 +169,8 @@ public class TicketServices
 
         var combined = filter.And(
             creatorFilter, statusFilter, titleFilter,
-            categoryFilter, escalatedFilter, registryStaffFilter,
+            categoryFilter, registryCategoryFilter,
+            escalatedFilter, registryStaffFilter,
             ticketNumberFilter, fileNumberFilter, appTypeFilter,
             startDateFilter, endDateFilter
         );
@@ -135,12 +180,19 @@ public class TicketServices
             Status = x.Status,
             Title = x.Title,
             Creator = new TicketCreator { Name = x.creatorName, Id = x.creatorId },
-            LastInteraction = x.Correspondences.Last().DateAdded,
+            LastInteraction = x.Correspondences.Any()
+                ? x.Correspondences.Last().DateAdded
+                : x.Created,
             DateCreated = x.Created,
             TicketId = x.id,
             TicketNumber = x.TicketNumber,
             Category = x.Category,
-            TicketType = x.TicketType,       
+            RegistryCategory = x.RegistryCategory,
+            TicketType = x.TicketType,
+            ApplicationType = x.ApplicationType,
+            RecordalType = x.RecordalType,
+            FileNumber = x.FileNumber,
+            RaisedByRegistryStaff = x.RaisedByRegistryStaff,
             IsEscalated = x.IsEscalated,
             EscalatedFromCategory = x.EscalatedFromCategory,
             Resolution = x.resolution
@@ -150,70 +202,77 @@ public class TicketServices
             .Find(combined)
             .Project(projection)
             .Skip(info.startIndex ?? 0)
-            .Limit(info.amount)
+            .Limit(info.amount ?? 50)
             .ToListAsync();
+
+        _logger.LogInformation("Ticket summaries fetched. Count: {Count}", tickets.Count);
 
         return tickets;
     }
 
-    //public async Task<TicketStatsReturnType> TicketStats(string? creatorId)
-    //{
-    //  var iscreator = 
-    //      creatorId == null
-    //          ? Builders<TicketInfo>.Filter.Empty
-    //          : Builders<TicketInfo>.Filter.Eq(x=>x.creatorId, creatorId);
-    //  var creatorDocs=_ticketsCollection.CountDocuments(iscreator);
-    //  var awaitinStaff =
-    //      _ticketsCollection.CountDocuments(Builders<TicketInfo>.Filter.And(
-    //          [
-    //              Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.AwaitingStaff),
-    //              iscreator
-    //          ]
-    //          ));
-    //  var awaitingUser =
-    //      _ticketsCollection.CountDocuments(
-    //          Builders<TicketInfo>.Filter.And(
-    //              [
-    //                  Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.AwaitingUser),
-    //                  iscreator
-    //              ]
-    //          ));
-    //  var closed =
-    //      _ticketsCollection.CountDocuments(
-    //          Builders<TicketInfo>.Filter.And(
-    //              [
-    //                  Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.Closed),
-    //                  iscreator
-    //              ]
-    //          )
-    //  );
-    //  var result=new TicketStatsReturnType()
-    //  {
-    //      total= creatorDocs, staff= awaitinStaff, user= awaitingUser, closed=closed
-
-    //  };
-    //  return result;
-    //}
-
-    public async Task<TicketStatsReturnType> TicketStats(string? creatorId, int? category = null)
+    public async Task<TicketStatsReturnType> TicketStats(
+        string? creatorId,
+        int? category = null,
+        int? registryCategory = null,
+        bool? raisedByRegistryStaff = null)
     {
-        var baseFilter = creatorId == null
-            ? Builders<TicketInfo>.Filter.Empty
-            : Builders<TicketInfo>.Filter.Eq(x => x.creatorId, creatorId);
+        _logger.LogInformation("Calculating ticket stats. CreatorId: {CreatorId}, Category: {Category}, RegistryCategory: {RegistryCategory}, RaisedByRegistryStaff: {RaisedByRegistryStaff}",
+            creatorId,
+            category,
+            registryCategory,
+            raisedByRegistryStaff);
+
+        var filter = Builders<TicketInfo>.Filter;
+        var baseFilter = filter.Empty;
+
+        if (!string.IsNullOrWhiteSpace(creatorId))
+        {
+            baseFilter = filter.And(
+                baseFilter,
+                filter.Eq(x => x.creatorId, creatorId)
+            );
+        }
 
         if (category.HasValue)
-            baseFilter = Builders<TicketInfo>.Filter.And(
+        {
+            baseFilter = filter.And(
                 baseFilter,
-                Builders<TicketInfo>.Filter.Eq(x => x.Category, (TicketCategory)category.Value)
+                filter.Eq(x => x.Category, (TicketCategory)category.Value)
             );
+        }
 
-        var total = _ticketsCollection.CountDocuments(baseFilter);
-        var awaitingStaff = _ticketsCollection.CountDocuments(Builders<TicketInfo>.Filter.And(
-            baseFilter, Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.AwaitingStaff)));
-        var awaitingUser = _ticketsCollection.CountDocuments(Builders<TicketInfo>.Filter.And(
-            baseFilter, Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.AwaitingUser)));
-        var closed = _ticketsCollection.CountDocuments(Builders<TicketInfo>.Filter.And(
-            baseFilter, Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.Closed)));
+        if (registryCategory.HasValue)
+        {
+            baseFilter = filter.And(
+                baseFilter,
+                filter.Eq(x => x.RegistryCategory, (TicketCategory)registryCategory.Value)
+            );
+        }
+
+        if (raisedByRegistryStaff.HasValue)
+        {
+            baseFilter = filter.And(
+                baseFilter,
+                filter.Eq(x => x.RaisedByRegistryStaff, raisedByRegistryStaff.Value)
+            );
+        }
+
+        var total = await _ticketsCollection.CountDocumentsAsync(baseFilter);
+
+        var awaitingStaff = await _ticketsCollection.CountDocumentsAsync(filter.And(
+            baseFilter,
+            filter.Eq(x => x.Status, TicketState.AwaitingStaff)
+        ));
+
+        var awaitingUser = await _ticketsCollection.CountDocumentsAsync(filter.And(
+            baseFilter,
+            filter.Eq(x => x.Status, TicketState.AwaitingUser)
+        ));
+
+        var closed = await _ticketsCollection.CountDocumentsAsync(filter.And(
+            baseFilter,
+            filter.Eq(x => x.Status, TicketState.Closed)
+        ));
 
         return new TicketStatsReturnType
         {
@@ -223,11 +282,22 @@ public class TicketServices
             closed = closed
         };
     }
+    #endregion
 
+    #region Ticket escalation
     public async Task<TicketInfo> EscalateTicketAsync(EscalateTicketRequest request)
     {
+        _logger.LogInformation("Escalating ticket {TicketId} to category {EscalateToCategory} by {EscalatedById}",
+            request.TicketId,
+            request.EscalateToCategory,
+            request.EscalatedById);
+
         var ticket = await _ticketsCollection.Find(x => x.id == request.TicketId).FirstOrDefaultAsync();
-        if (ticket == null) return null;
+        if (ticket == null)
+        {
+            _logger.LogWarning("Escalation failed. Ticket not found: {TicketId}", request.TicketId);
+            return null;
+        }
 
         var systemMsg = new TicketCorrespondence
         {
@@ -248,7 +318,106 @@ public class TicketServices
         Builders<TicketInfo>.Update.Push(f => f.Correspondences, systemMsg),
     ];
         var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
-        return await _ticketsCollection.FindOneAndUpdateAsync(
+        var result = await _ticketsCollection.FindOneAndUpdateAsync(
             filter, Builders<TicketInfo>.Update.Combine(updates), options);
+
+        _logger.LogInformation("Escalation completed for ticket {TicketId}. Updated: {Updated}", request.TicketId, result != null);
+
+        return result;
     }
+    #endregion
+
+    #region Ticket search
+    public async Task<List<TicketSummary>> SearchTicketsAsync(TicketSearchRequest request)
+    {
+        _logger.LogInformation("Searching tickets. TicketNumber: {TicketNumber}, FileNumber: {FileNumber}, IsTech: {IsTech}, RequesterId: {RequesterId}, SupportRegistryCategory: {SupportRegistryCategory}",
+            request.ticketNumber,
+            request.fileNumber,
+            request.isTech,
+            request.requesterId,
+            request.supportRegistryCategory);
+
+        var filter = Builders<TicketInfo>.Filter;
+
+        var searchFilter = filter.Empty;
+
+        if (!string.IsNullOrWhiteSpace(request.ticketNumber))
+        {
+            searchFilter = filter.Regex(
+                x => x.TicketNumber,
+                new BsonRegularExpression(request.ticketNumber.Trim(), "i")
+            );
+        }
+        else if (!string.IsNullOrWhiteSpace(request.fileNumber))
+        {
+            searchFilter = filter.Regex(
+                x => x.FileNumber,
+                new BsonRegularExpression(request.fileNumber.Trim(), "i")
+            );
+        }
+
+        var accessFilter = filter.Empty;
+
+        if (request.isTech)
+        {
+            accessFilter = filter.Empty;
+        }
+        else if (request.supportRegistryCategory.HasValue)
+        {
+            var normalRegistryTickets = filter.Eq(
+                x => x.Category,
+                request.supportRegistryCategory.Value
+            );
+
+            var registryTechnicalTickets = filter.And(
+                filter.Eq(x => x.Category, TicketCategory.TechnicalSupport),
+                filter.Eq(x => x.RegistryCategory, request.supportRegistryCategory.Value),
+                filter.Eq(x => x.RaisedByRegistryStaff, true)
+            );
+
+            accessFilter = filter.Or(normalRegistryTickets, registryTechnicalTickets);
+        }
+        else
+        {
+            accessFilter = filter.Eq(x => x.creatorId, request.requesterId);
+        }
+
+        var combined = filter.And(searchFilter, accessFilter);
+
+        var projection = Builders<TicketInfo>.Projection.Expression(x => new TicketSummary
+        {
+            Status = x.Status,
+            Title = x.Title,
+            Creator = new TicketCreator { Name = x.creatorName, Id = x.creatorId },
+            LastInteraction = x.Correspondences.Any()
+                ? x.Correspondences.Last().DateAdded
+                : x.Created,
+            DateCreated = x.Created,
+            TicketId = x.id,
+            TicketNumber = x.TicketNumber,
+            Category = x.Category,
+            RegistryCategory = x.RegistryCategory,
+            TicketType = x.TicketType,
+            ApplicationType = x.ApplicationType,
+            RecordalType = x.RecordalType,
+            FileNumber = x.FileNumber,
+            RaisedByRegistryStaff = x.RaisedByRegistryStaff,
+            IsEscalated = x.IsEscalated,
+            EscalatedFromCategory = x.EscalatedFromCategory,
+            Resolution = x.resolution
+        });
+
+        var results = await _ticketsCollection
+            .Find(combined)
+            .Project(projection)
+            .SortByDescending(x => x.Created)
+            .Limit(100)
+            .ToListAsync();
+
+        _logger.LogInformation("Ticket search completed. Result count: {Count}", results.Count);
+
+        return results;
+    }
+    #endregion
+
 }
