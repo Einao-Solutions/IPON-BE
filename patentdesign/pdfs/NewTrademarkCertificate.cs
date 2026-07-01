@@ -103,7 +103,8 @@ namespace patentdesign.pdfs
         }
         private void ComposeFooter(IContainer container)
         {
-            var ann = signature.Name == "Anne Titi Adeleye";
+            var ann = string.Equals(signature?.Name, "Anne Titi Adeleye", StringComparison.Ordinal);
+            if (!ann) return;
             container.Column(c => 
             {
                 c.Item().AlignBottom().Row(row =>
