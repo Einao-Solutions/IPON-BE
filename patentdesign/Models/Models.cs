@@ -1153,6 +1153,7 @@ public record TicketInfo
     public DateTime Created { get; set; } = DateTime.Now;
     public List<AffectedFile>? AffectedFiles { get; set; }
     public TicketCategory? RegistryCategory { get; set; }
+    public string? AccountEmail { get; set; }
 }
 
 public record AffectedFile
