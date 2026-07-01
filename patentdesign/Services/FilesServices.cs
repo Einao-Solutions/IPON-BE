@@ -3505,16 +3505,143 @@ public class FilesServices
         };
     }
 
-    public async Task<Filling?> ReAssign(ReAssignType data)
+    // Content types accepted for the Change-of-Agent Power of Attorney document.
+    private static readonly HashSet<string> _reAssignPoaAllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "image/jpeg",
+        "image/png",
+    };
+
+    // 10 MB cap on decoded POA bytes.
+    private const long ReAssignPoaMaxBytes = 10L * 1024L * 1024L;
+
+    // Association type used to tag the stored POA on the file's attachments list
+    // and on the AttachmentInfo metadata.
+    private const string ReAssignPoaAssociationType = "ChangeOfAgentPOA";
+
+    /// <summary>
+    /// Result envelope for <see cref="ReAssign(ReAssignType)"/>. When <paramref name="ok"/> is false
+    /// and <paramref name="isValidationError"/> is true, the caller should surface a 400. When
+    /// <paramref name="ok"/> is false and <paramref name="isValidationError"/> is false, the caller
+    /// should surface a 404 (file missing) or 500 (unexpected).
+    /// </summary>
+    public record ReAssignResult(bool ok, string? error, bool isValidationError, Filling? file);
+
+    public async Task<ReAssignResult> ReAssign(ReAssignType data)
     {
         try
         {
-            Console.WriteLine($"[ReAssign] Attempting to reassign fileId: {data.fileId}");
+            Console.WriteLine($"[ReAssign] Attempting to reassign fileId: {data?.fileId}");
 
+            // ---- Validation --------------------------------------------------------------------
+            if (data == null)
+            {
+                return new ReAssignResult(false, "Request body is required.", true, null);
+            }
+
+            if (string.IsNullOrWhiteSpace(data.fileId))
+            {
+                return new ReAssignResult(false, "fileId is required.", true, null);
+            }
+
+            if (string.IsNullOrWhiteSpace(data.newOwner))
+            {
+                return new ReAssignResult(false, "newOwner is required.", true, null);
+            }
+
+            if (data.newCorrespondence == null || data.oldCorrespondence == null)
+            {
+                return new ReAssignResult(false, "Old and new correspondence details are required.", true, null);
+            }
+
+            var poa = data.poa;
+            if (poa == null)
+            {
+                return new ReAssignResult(false, "Power of Attorney document is required.", true, null);
+            }
+
+            if (string.IsNullOrWhiteSpace(poa.fileName))
+            {
+                return new ReAssignResult(false, "Power of Attorney fileName is required.", true, null);
+            }
+
+            if (string.IsNullOrWhiteSpace(poa.contentType))
+            {
+                return new ReAssignResult(false, "Power of Attorney contentType is required.", true, null);
+            }
+
+            if (poa.data == null || poa.data.Length == 0)
+            {
+                return new ReAssignResult(false, "Power of Attorney data is required.", true, null);
+            }
+
+            if (!_reAssignPoaAllowedContentTypes.Contains(poa.contentType))
+            {
+                return new ReAssignResult(
+                    false,
+                    "Power of Attorney contentType must be one of: application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, image/jpeg, image/png.",
+                    true,
+                    null);
+            }
+
+            if (poa.data.LongLength > ReAssignPoaMaxBytes)
+            {
+                return new ReAssignResult(
+                    false,
+                    $"Power of Attorney file exceeds the maximum allowed size of {ReAssignPoaMaxBytes / (1024 * 1024)} MB.",
+                    true,
+                    null);
+            }
+
+            // Confirm the target file exists before we allocate an attachment record.
+            var existing = await _fillingCollection
+                .Find(x => x.FileId == data.fileId)
+                .FirstOrDefaultAsync();
+            if (existing == null)
+            {
+                Console.WriteLine($"[ReAssign] No document found with fileId: {data.fileId}");
+                return new ReAssignResult(false, $"File with fileId '{data.fileId}' was not found.", false, null);
+            }
+
+            // ---- Persist the POA using the shared attachment pipeline --------------------------
+            var sanitizedOriginalName = SanitizePoaFileName(poa.fileName);
+            var extension = Path.GetExtension(sanitizedOriginalName);
+            if (string.IsNullOrEmpty(extension))
+            {
+                extension = GetExtensionFromContentType(poa.contentType);
+            }
+
+            var trustedFileName = Path.GetFileNameWithoutExtension(Path.GetRandomFileName()) + extension;
+            var uploadedAt = DateTime.UtcNow;
+
+            await _attachmentCollection.InsertOneAsync(new AttachmentInfo
+            {
+                Id = trustedFileName,
+                ContentType = poa.contentType,
+                Data = poa.data,
+                Name = sanitizedOriginalName,
+                Size = poa.data.LongLength,
+                UploadedByUserId = data.userId,
+                UploadedAtUtc = uploadedAt,
+                AssociatedFileId = data.fileId,
+                AssociationType = ReAssignPoaAssociationType,
+            });
+
+            var poaUrl = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
+
+            // ---- Update the Filling: owner, correspondence, attachments list, audit trail -----
             var filter = Builders<Filling>.Filter.Eq(x => x.FileId, data.fileId);
-            var update = Builders<Filling>.Update.Combine([
+            var update = Builders<Filling>.Update.Combine(
                 Builders<Filling>.Update.Set(x => x.CreatorAccount, data.newOwner),
                 Builders<Filling>.Update.Set(x => x.Correspondence, data.newCorrespondence),
+                Builders<Filling>.Update.Push(x => x.Attachments, new AttachmentType
+                {
+                    name = ReAssignPoaAssociationType,
+                    url = new List<string> { poaUrl }
+                }),
                 Builders<Filling>.Update.Push(x => x.ApplicationHistory, new ApplicationInfo()
                 {
                     ApplicationType = FormApplicationTypes.Ownership,
@@ -3532,11 +3659,12 @@ public class FilesServices
                             Message =
                                 $"Correspondence information changed from: \n Name:{data.oldCorrespondence.name}, Address:{data.oldCorrespondence.address}, " +
                                 $"State:{data.oldCorrespondence.state}, number: {data.oldCorrespondence.phone}, email: {data.oldCorrespondence.email} \n to" +
-                                $" \n Name:{data.newCorrespondence.name}, Address:{data.newCorrespondence.address}, State:{data.newCorrespondence.state}, number: {data.newCorrespondence.phone}, email: {data.newCorrespondence.email}. \n previous owner: {data.oldName} with id: {data.oldId}"
+                                $" \n Name:{data.newCorrespondence.name}, Address:{data.newCorrespondence.address}, State:{data.newCorrespondence.state}, number: {data.newCorrespondence.phone}, email: {data.newCorrespondence.email}. \n previous owner: {data.oldName} with id: {data.oldId}." +
+                                $" \n Power of Attorney document attached: id={trustedFileName}, url={poaUrl}"
                         }
                     ]
                 })
-            ]);
+            );
 
             var options = new FindOneAndUpdateOptions<Filling>
             {
@@ -3547,20 +3675,49 @@ public class FilesServices
 
             if (result == null)
             {
-                Console.WriteLine($"[ReAssign] No document found with fileId: {data.fileId} or update failed.");
+                Console.WriteLine($"[ReAssign] Update failed for fileId: {data.fileId} after POA upload.");
+                return new ReAssignResult(false, "Failed to update the file.", false, null);
             }
-            else
-            {
-                Console.WriteLine($"[ReAssign] Update successful for fileId: {data.fileId}");
-            }
-            return result;
+
+            Console.WriteLine($"[ReAssign] Update successful for fileId: {data.fileId}, POA id: {trustedFileName}");
+            return new ReAssignResult(true, null, false, result);
+        }
+        catch (FormatException fex)
+        {
+            Console.WriteLine($"[ReAssign] Invalid base64 POA data for fileId: {data?.fileId}. Exception: {fex.Message}");
+            return new ReAssignResult(false, "Power of Attorney data is not valid base64.", true, null);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ReAssign] Error occurred while updating fileId: {data.fileId}. Exception: {ex.Message}");
-            return null;
+            Console.WriteLine($"[ReAssign] Error occurred while updating fileId: {data?.fileId}. Exception: {ex.Message}");
+            return new ReAssignResult(false, "An unexpected error occurred while processing the request.", false, null);
         }
     }
+
+    private static string SanitizePoaFileName(string fileName)
+    {
+        // Strip any path components and normalize invalid characters, then cap length.
+        var name = Path.GetFileName(fileName ?? string.Empty);
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '_');
+        }
+        // Also collapse path separators that may have slipped through on cross-platform input.
+        name = name.Replace('/', '_').Replace('\\', '_');
+        const int maxLen = 128;
+        if (name.Length > maxLen)
+        {
+            var ext = Path.GetExtension(name);
+            var stem = Path.GetFileNameWithoutExtension(name);
+            if (stem.Length > maxLen - ext.Length)
+            {
+                stem = stem.Substring(0, Math.Max(1, maxLen - ext.Length));
+            }
+            name = stem + ext;
+        }
+        return string.IsNullOrWhiteSpace(name) ? "poa" : name;
+    }
+
 
 
     private async Task<string?> saveAck(OtherPaymentModel data)

@@ -176,6 +176,10 @@ namespace patentdesign.Enums;
         public  string? oldName {get;set;}
         public  CorrespondenceType? newCorrespondence {get;set;}
         public  CorrespondenceType? oldCorrespondence {get;set;}
+        // Power of Attorney document uploaded from the Change of Agent flow.
+        // Uses the shared TT upload shape ({ fileName, contentType, data }); System.Text.Json
+        // deserializes the base64-encoded "data" string into byte[] automatically.
+        public TT? poa { get; set; }
     }
 
     public record GetUsersRequest
@@ -345,6 +349,12 @@ namespace patentdesign.Enums;
         public string ContentType { get; set; }
         public byte[] Data { get; set; }
         public string? Name { get; set; }
+        // Optional metadata (backwards-compatible, populated by newer upload flows).
+        public long? Size { get; set; }
+        public string? UploadedByUserId { get; set; }
+        public DateTime? UploadedAtUtc { get; set; }
+        public string? AssociatedFileId { get; set; }
+        public string? AssociationType { get; set; }
     }
 
     public record Attch

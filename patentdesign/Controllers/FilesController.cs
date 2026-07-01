@@ -354,10 +354,25 @@ public class FilesController(FilesServices fileService) : ControllerBase
     }
 
     [HttpPost("ReAssign")]
-    public async Task<ActionResult<string>> ReAssign([FromBody] ReAssignType data)
+    public async Task<IActionResult> ReAssign([FromBody] ReAssignType data)
     {
         var result = await fileService.ReAssign(data);
-        return Ok(result);
+        if (result.ok)
+        {
+            return Ok(result.file);
+        }
+
+        if (result.isValidationError)
+        {
+            return BadRequest(new { message = result.error ?? "Invalid request." });
+        }
+
+        if (result.file == null && result.error != null && result.error.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound(new { message = result.error });
+        }
+
+        return StatusCode(500, new { message = result.error ?? "An unexpected error occurred." });
     }
 
     [HttpPost("DeletePending")]
