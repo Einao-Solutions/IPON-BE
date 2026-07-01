@@ -157,8 +157,8 @@ namespace patentdesign.pdfs
             using (QRCodeData qrCodeData = qrGenerator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q))
             using (PngByteQRCode qrCode = new PngByteQRCode(qrCodeData))
             {
-                byte[] qrCodeImage = qrCode.GetGraphic(20);
-                container.Image(qrCodeImage).FitArea();
+                byte[] qrCodeImage = qrCode.GetGraphic(10);
+                container.Height(50).Width(50).Image(qrCodeImage).FitArea();
             }
         }
     }
