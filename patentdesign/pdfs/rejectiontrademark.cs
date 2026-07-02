@@ -201,13 +201,9 @@ namespace patentdesign
                     column.Item().Height(40);
 
                     // Notification Message 
-                    column.Item().AlignCenter().Text("THIS IS TO NOTIFY YOU THAT YOUR APPLICATION HAS BEEN")
-                        .FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold().FontColor(Colors.Green.Darken3);
-                    column.Item().AlignCenter().Text("OPPOSED BY THE EXAMINING OFFICER. YOU HAVE 30 DAYS TO")
-                        .FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold().FontColor(Colors.Green.Darken3);
-                    column.Item().AlignCenter().Text("FILE AN APPEAL TO THE REGISTRAR OF TRADEMARKS.")
-                        .FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold().FontColor(Colors.Green.Darken3);
-
+                    column.Item().AlignCenter().Text("THIS IS TO NOTIFY YOU THAT YOUR APPLICATION HAS BEEN REFUSED")
+                        .FontFamily(Fonts.TimesNewRoman).FontSize(10).Bold().FontColor(Colors.Red.Darken3);
+                    
                     //// QR Code at the bottom
                     //column.Item().Height(50);
                     //column.Item().AlignCenter().Height(100).Element(GetQrCode);

@@ -1,4 +1,5 @@
 ﻿using Amazon.Util.Internal.PlatformServices;
+using System.Text.Json.Serialization;
 using patentdesign.Enums;
 using patentdesign.Models;
 
@@ -9,6 +10,7 @@ namespace patentdesign.Dtos.Request
         public string FileId { get; set; } = null!;
         public string? UpdatedBy { get; set; } 
         public ApplicationStatuses? FileStatus { get; set; }
+        [JsonPropertyName("applicationHistory")]
         public List<Models.ApplicationInfo> ApplicationHistory { get; set; }
         public FileTypes? Type { get; set; }
         public string? FileOrigin {  get; set; }

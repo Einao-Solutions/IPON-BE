@@ -98,7 +98,9 @@ public class FilesServices
         try
         {
             _log.LogDebug("Fetching file by Id {FileId}", id);
-            return await _fillingCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+            var file = await _fillingCollection.Find(x => x.Id == id).FirstOrDefaultAsync();
+            NormalizeOwnershipHistory(file);
+            return file;
         }
         catch (Exception ex)
         {
@@ -3359,10 +3361,17 @@ public class FilesServices
     {
         if (requestType == "file")
         {
-            return _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
+            var file = _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
+            NormalizeOwnershipHistory(file);
+            return file;
         }
         var result = _fillingCollection.Find(d => d.Id == fileId)
             .Project(d => d.ApplicationHistory.FirstOrDefault(f => f.id == applicationId)).FirstOrDefault();
+        if (result != null && result.ApplicationType == FormApplicationTypes.Ownership)
+        {
+            result.OldValue = CoerceOwnershipValue(result.OldValue);
+            result.NewValue = CoerceOwnershipValue(result.NewValue);
+        }
         return result;
     }
 
@@ -3632,6 +3641,83 @@ public class FilesServices
 
             var poaUrl = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
 
+            // ---- Resolve the new agent's full name from the users store -----------------------
+            AppUser? newUser = null;
+            if (!string.IsNullOrWhiteSpace(data.newOwner))
+            {
+                newUser = await _userCollection
+                    .Find(u => u.CreatorId == data.newOwner)
+                    .FirstOrDefaultAsync();
+            }
+            var resolvedNewName = !string.IsNullOrWhiteSpace(newUser?.Name)
+                ? newUser!.Name
+                : (newUser != null
+                    ? $"{newUser.FirstName} {newUser.LastName}".Trim()
+                    : null);
+            if (string.IsNullOrWhiteSpace(resolvedNewName))
+            {
+                resolvedNewName = data.newCorrespondence?.name ?? string.Empty;
+            }
+
+            // ---- Resolve the previous agent's full name (fallback to user store / correspondence)
+            var oldOwnerId = !string.IsNullOrWhiteSpace(data.oldId) ? data.oldId : existing.CreatorAccount;
+            AppUser? oldUser = null;
+            if (!string.IsNullOrWhiteSpace(oldOwnerId))
+            {
+                oldUser = await _userCollection
+                    .Find(u => u.CreatorId == oldOwnerId)
+                    .FirstOrDefaultAsync();
+            }
+            var resolvedOldName = !string.IsNullOrWhiteSpace(data.oldName)
+                ? data.oldName
+                : (!string.IsNullOrWhiteSpace(oldUser?.Name)
+                    ? oldUser!.Name
+                    : (oldUser != null
+                        ? $"{oldUser.FirstName} {oldUser.LastName}".Trim()
+                        : null));
+            if (string.IsNullOrWhiteSpace(resolvedOldName))
+            {
+                resolvedOldName = data.oldCorrespondence?.name ?? string.Empty;
+            }
+
+            // ---- Structured oldValue / newValue objects for the FE ---------------------------
+            var oldValue = new Dictionary<string, object?>
+            {
+                ["id"] = !string.IsNullOrWhiteSpace(data.oldId) ? data.oldId : oldOwnerId,
+                ["name"] = resolvedOldName,
+                ["correspondence"] = new Dictionary<string, object?>
+                {
+                    ["name"] = data.oldCorrespondence?.name,
+                    ["email"] = data.oldCorrespondence?.email,
+                    ["phone"] = data.oldCorrespondence?.phone,
+                    ["address"] = data.oldCorrespondence?.address,
+                    ["state"] = data.oldCorrespondence?.state,
+                },
+            };
+
+            var newValue = new Dictionary<string, object?>
+            {
+                ["id"] = data.newOwner,
+                ["name"] = resolvedNewName,
+                ["correspondence"] = new Dictionary<string, object?>
+                {
+                    ["name"] = data.newCorrespondence?.name,
+                    ["email"] = data.newCorrespondence?.email,
+                    ["phone"] = data.newCorrespondence?.phone,
+                    ["address"] = data.newCorrespondence?.address,
+                    ["state"] = data.newCorrespondence?.state,
+                },
+                ["poa"] = new Dictionary<string, object?>
+                {
+                    ["fileName"] = sanitizedOriginalName,
+                    ["contentType"] = poa.contentType,
+                    ["url"] = poaUrl,
+                },
+            };
+
+            // Preserve existing file status for the new history row.
+            var currentStatus = existing.FileStatus;
+
             // ---- Update the Filling: owner, correspondence, attachments list, audit trail -----
             var filter = Builders<Filling>.Filter.Eq(x => x.FileId, data.fileId);
             var update = Builders<Filling>.Update.Combine(
@@ -3645,22 +3731,24 @@ public class FilesServices
                 Builders<Filling>.Update.Push(x => x.ApplicationHistory, new ApplicationInfo()
                 {
                     ApplicationType = FormApplicationTypes.Ownership,
-                    ApplicationDate = DateTime.Now,
-                    CurrentStatus = ApplicationStatuses.AutoApproved,
+                    ApplicationDate = DateTime.UtcNow,
+                    CurrentStatus = currentStatus,
+                    PaymentId = null,
+                    FieldToChange = "ownership",
+                    OldValue = oldValue,
+                    NewValue = newValue,
                     StatusHistory =
                     [
                         new ApplicationHistory()
                         {
-                            Date = DateTime.Now,
+                            Date = DateTime.UtcNow,
                             beforeStatus = ApplicationStatuses.AwaitingConfirmation,
-                            afterStatus = ApplicationStatuses.AutoApproved,
+                            afterStatus = currentStatus,
                             User = data.userName,
                             UserId = data?.userId,
                             Message =
-                                $"Correspondence information changed from: \n Name:{data.oldCorrespondence.name}, Address:{data.oldCorrespondence.address}, " +
-                                $"State:{data.oldCorrespondence.state}, number: {data.oldCorrespondence.phone}, email: {data.oldCorrespondence.email} \n to" +
-                                $" \n Name:{data.newCorrespondence.name}, Address:{data.newCorrespondence.address}, State:{data.newCorrespondence.state}, number: {data.newCorrespondence.phone}, email: {data.newCorrespondence.email}. \n previous owner: {data.oldName} with id: {data.oldId}." +
-                                $" \n Power of Attorney document attached: id={trustedFileName}, url={poaUrl}"
+                                $"Ownership transferred from {data?.oldName} (id: {data?.oldId}) to {resolvedNewName} (id: {data?.newOwner}). " +
+                                $"Correspondence updated. Power of Attorney document attached: id={trustedFileName}, url={poaUrl}."
                         }
                     ]
                 })
@@ -3678,6 +3766,18 @@ public class FilesServices
                 Console.WriteLine($"[ReAssign] Update failed for fileId: {data.fileId} after POA upload.");
                 return new ReAssignResult(false, "Failed to update the file.", false, null);
             }
+
+            NormalizeOwnershipHistory(result);
+
+            _log.LogInformation(
+                "Ownership transferred from {OldName} ({OldId}) to {NewName} ({NewOwner}) on file {FileId} by {UserName} ({UserId})",
+                data.oldName,
+                data.oldId,
+                resolvedNewName,
+                data.newOwner,
+                data.fileId,
+                data.userName,
+                data.userId);
 
             Console.WriteLine($"[ReAssign] Update successful for fileId: {data.fileId}, POA id: {trustedFileName}");
             return new ReAssignResult(true, null, false, result);
@@ -3717,6 +3817,307 @@ public class FilesServices
         }
         return string.IsNullOrWhiteSpace(name) ? "poa" : name;
     }
+
+    // Ensures every Ownership ApplicationHistory entry exposes oldValue/newValue as objects
+    // with at minimum a `name` field. Legacy documents that stored these as plain strings
+    // are lazily projected to { name: <string> } so the FE can render them uniformly.
+    // Even older rows (with only StatusHistory[0].Message populated) are reconstructed
+    // by parsing the audit message that the old ReAssign flow wrote.
+    private static void NormalizeOwnershipHistory(Filling? file)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        // Collect POA attachment URLs (added by the ChangeOfAgent flow) so we can
+        // attach one to each legacy ownership row when the message doesn't carry a URL.
+        var poaAttachmentUrls = file.Attachments?
+            .Where(a => a != null
+                        && !string.IsNullOrWhiteSpace(a.name)
+                        && a.name!.IndexOf("ChangeOfAgentPOA", StringComparison.OrdinalIgnoreCase) >= 0
+                        && a.url != null)
+            .SelectMany(a => a.url!)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .ToList() ?? new List<string>();
+        var poaAttachmentIndex = 0;
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            if (entry == null || entry.ApplicationType != FormApplicationTypes.Ownership) continue;
+
+            entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+            entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+
+            var hasOld = HasName(entry.OldValue);
+            var hasNew = HasName(entry.NewValue);
+            if (hasOld && hasNew) continue;
+
+            // Try to reconstruct from the legacy audit message.
+            var message = entry.StatusHistory?
+                .Select(s => s?.Message)
+                .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m));
+            if (string.IsNullOrWhiteSpace(message)) continue;
+
+            var (oldParsed, newParsed) = ParseLegacyOwnershipMessage(message!);
+
+            if (!hasOld && oldParsed != null) entry.OldValue = oldParsed;
+            if (!hasNew && newParsed != null)
+            {
+                // Attach the next available POA URL as a fallback if the parser didn't find one.
+                if (newParsed.TryGetValue("poa", out var poaObj) && poaObj is Dictionary<string, object?> poaDict)
+                {
+                    if (poaDict.TryGetValue("url", out var urlVal) && (urlVal == null || (urlVal is string us && string.IsNullOrWhiteSpace(us))))
+                    {
+                        if (poaAttachmentIndex < poaAttachmentUrls.Count)
+                            poaDict["url"] = poaAttachmentUrls[poaAttachmentIndex++];
+                    }
+                }
+                else if (poaAttachmentIndex < poaAttachmentUrls.Count)
+                {
+                    newParsed["poa"] = new Dictionary<string, object?>
+                    {
+                        ["url"] = poaAttachmentUrls[poaAttachmentIndex++]
+                    };
+                }
+                entry.NewValue = newParsed;
+            }
+        }
+    }
+
+    private static bool HasName(object? value)
+    {
+        if (value is Dictionary<string, object?> dict &&
+            dict.TryGetValue("name", out var n) &&
+            n is string s &&
+            !string.IsNullOrWhiteSpace(s))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private static (Dictionary<string, object?>? old, Dictionary<string, object?>? @new) ParseLegacyOwnershipMessage(string message)
+    {
+        // Legacy message shape (single-line or multi-line):
+        //   Correspondence information changed from:
+        //    Name:{...}, Address:{...}, State:{...}, number: {...}, email: {...}
+        //    to
+        //    Name:{...}, Address:{...}, State:{...}, number: {...}, email: {...}.
+        //    previous owner: {oldName} with id: {oldId}.
+        //    Power of Attorney document attached: id={fileId}, url={url}
+        try
+        {
+            // Split into "from" and "to" halves. Support both "\n to" and " to " separators.
+            var normalized = message.Replace("\r", " ").Replace("\n", " ");
+
+            var fromIdx = normalized.IndexOf("changed from", StringComparison.OrdinalIgnoreCase);
+            var toIdx = normalized.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
+            string oldPart, newPart;
+            if (fromIdx >= 0 && toIdx > fromIdx)
+            {
+                oldPart = normalized.Substring(fromIdx, toIdx - fromIdx);
+                newPart = normalized.Substring(toIdx + 4);
+            }
+            else
+            {
+                // If we can't split, treat entire text as the "new" side and skip old.
+                oldPart = string.Empty;
+                newPart = normalized;
+            }
+
+            var oldCorr = ParseCorrespondence(oldPart);
+            var newCorr = ParseCorrespondence(newPart);
+
+            var previousOwnerName = ExtractBetween(newPart, "previous owner:", " with id:")
+                ?? ExtractBetween(normalized, "previous owner:", " with id:");
+            var previousOwnerId = ExtractBetween(newPart, "with id:", ".")
+                ?? ExtractBetween(normalized, "with id:", ".");
+            var poaUrl = ExtractBetween(newPart, "url=", null)
+                ?? ExtractBetween(normalized, "url=", null);
+            var poaFileId = ExtractBetween(newPart, "id=", ",")
+                ?? ExtractBetween(normalized, "Power of Attorney document attached: id=", ",");
+
+            // If the extracted previous owner value is missing or looks like an internal id
+            // (guid/objectid/hex), prefer the human-readable correspondence name instead.
+            var oldCorrespondenceName = oldCorr != null && oldCorr.TryGetValue("name", out var ocn)
+                ? ocn as string
+                : null;
+            var resolvedOldName = string.IsNullOrWhiteSpace(previousOwnerName) || LooksLikeIdentifier(previousOwnerName)
+                ? (!string.IsNullOrWhiteSpace(oldCorrespondenceName) ? oldCorrespondenceName : previousOwnerName?.Trim())
+                : previousOwnerName!.Trim();
+
+            Dictionary<string, object?>? oldValue = null;
+            if (!string.IsNullOrWhiteSpace(resolvedOldName) || !string.IsNullOrWhiteSpace(previousOwnerId) || oldCorr != null)
+            {
+                oldValue = new Dictionary<string, object?>
+                {
+                    ["id"] = string.IsNullOrWhiteSpace(previousOwnerId) ? null : previousOwnerId!.Trim(),
+                    ["name"] = resolvedOldName,
+                    ["correspondence"] = oldCorr,
+                };
+            }
+
+            Dictionary<string, object?>? newValue = null;
+            if (newCorr != null || !string.IsNullOrWhiteSpace(poaUrl))
+            {
+                newValue = new Dictionary<string, object?>
+                {
+                    ["id"] = null,
+                    ["name"] = newCorr != null && newCorr.TryGetValue("name", out var nname) ? nname : null,
+                    ["correspondence"] = newCorr,
+                };
+                if (!string.IsNullOrWhiteSpace(poaUrl) || !string.IsNullOrWhiteSpace(poaFileId))
+                {
+                    newValue["poa"] = new Dictionary<string, object?>
+                    {
+                        ["fileName"] = string.IsNullOrWhiteSpace(poaFileId) ? null : poaFileId!.Trim(),
+                        ["url"] = string.IsNullOrWhiteSpace(poaUrl) ? null : poaUrl!.Trim(),
+                    };
+                }
+            }
+
+            return (oldValue, newValue);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private static Dictionary<string, object?>? ParseCorrespondence(string segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment)) return null;
+
+        string? name = ExtractBetween(segment, "Name:", ",");
+        string? address = ExtractBetween(segment, "Address:", ",");
+        string? state = ExtractBetween(segment, "State:", ",");
+        string? phone = ExtractBetween(segment, "number:", ",");
+        // email may be followed by "." or end-of-segment; try both terminators.
+        string? email = ExtractBetween(segment, "email:", ".")
+                        ?? ExtractBetween(segment, "email:", null);
+
+        if (string.IsNullOrWhiteSpace(name)
+            && string.IsNullOrWhiteSpace(address)
+            && string.IsNullOrWhiteSpace(email)
+            && string.IsNullOrWhiteSpace(phone)
+            && string.IsNullOrWhiteSpace(state))
+        {
+            return null;
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["name"] = string.IsNullOrWhiteSpace(name) ? null : name!.Trim(),
+            ["email"] = string.IsNullOrWhiteSpace(email) ? null : email!.Trim(),
+            ["phone"] = string.IsNullOrWhiteSpace(phone) ? null : phone!.Trim(),
+            ["address"] = string.IsNullOrWhiteSpace(address) ? null : address!.Trim(),
+            ["state"] = string.IsNullOrWhiteSpace(state) ? null : state!.Trim(),
+        };
+    }
+
+    private static string? ExtractBetween(string source, string startToken, string? endToken)
+    {
+        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(startToken)) return null;
+        var start = source.IndexOf(startToken, StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return null;
+        start += startToken.Length;
+        if (start >= source.Length) return null;
+
+        int end;
+        if (string.IsNullOrEmpty(endToken))
+        {
+            end = source.Length;
+        }
+        else
+        {
+            end = source.IndexOf(endToken, start, StringComparison.OrdinalIgnoreCase);
+            if (end < 0) end = source.Length;
+        }
+
+        var value = source.Substring(start, end - start).Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    // Detects strings that look like an internal identifier rather than a human name:
+    //   - Mongo ObjectId (24 hex chars)
+    //   - GUID (with or without dashes / braces)
+    //   - Pure numeric strings
+    // Used so we prefer a readable correspondence name over a raw id in the FE payload.
+    private static bool LooksLikeIdentifier(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var trimmed = value.Trim().Trim('{', '}');
+        if (trimmed.Length == 0) return false;
+
+        if (Guid.TryParse(trimmed, out _)) return true;
+
+        if (trimmed.Length == 24 && trimmed.All(Uri.IsHexDigit)) return true;
+
+        if (trimmed.All(char.IsDigit)) return true;
+
+        // Contains no whitespace and no vowels? Likely opaque token, not a name.
+        if (!trimmed.Any(char.IsWhiteSpace)
+            && trimmed.Length >= 16
+            && !trimmed.Any(c => "aeiouAEIOU".IndexOf(c) >= 0))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void NormalizeOwnershipHistory(IEnumerable<Filling>? files)
+    {
+        if (files == null) return;
+        foreach (var f in files) NormalizeOwnershipHistory(f);
+    }
+
+    private static object? CoerceOwnershipValue(object? raw)
+    {
+        if (raw == null) return null;
+
+        // Legacy string entry: wrap as { name: <string> } so the FE can render it.
+        if (raw is string s)
+        {
+            return new Dictionary<string, object?> { ["name"] = s };
+        }
+
+        // MongoDB may deserialize object fields as BsonDocument; expose it as a plain
+        // dictionary so System.Text.Json produces standard JSON for the FE.
+        if (raw is MongoDB.Bson.BsonDocument bson)
+        {
+            return BsonToDictionary(bson);
+        }
+
+        return raw;
+    }
+
+    private static Dictionary<string, object?> BsonToDictionary(MongoDB.Bson.BsonDocument doc)
+    {
+        var dict = new Dictionary<string, object?>();
+        foreach (var element in doc.Elements)
+        {
+            dict[element.Name] = BsonValueToClr(element.Value);
+        }
+        return dict;
+    }
+
+    private static object? BsonValueToClr(MongoDB.Bson.BsonValue value)
+    {
+        if (value == null || value.IsBsonNull) return null;
+        return value.BsonType switch
+        {
+            MongoDB.Bson.BsonType.Document => BsonToDictionary(value.AsBsonDocument),
+            MongoDB.Bson.BsonType.Array => value.AsBsonArray.Select(BsonValueToClr).ToList(),
+            MongoDB.Bson.BsonType.String => value.AsString,
+            MongoDB.Bson.BsonType.Boolean => value.AsBoolean,
+            MongoDB.Bson.BsonType.Int32 => value.AsInt32,
+            MongoDB.Bson.BsonType.Int64 => value.AsInt64,
+            MongoDB.Bson.BsonType.Double => value.AsDouble,
+            MongoDB.Bson.BsonType.DateTime => value.ToUniversalTime(),
+            MongoDB.Bson.BsonType.ObjectId => value.AsObjectId.ToString(),
+            _ => value.ToString()
+        };
+    }
+
 
 
 
@@ -8546,12 +8947,14 @@ public class FilesServices
             );
 
             var filling = await _fillingCollection.Find(filter).FirstOrDefaultAsync();
+            if (filling == null) return null;
+
+            NormalizeOwnershipHistory(filling);
+
             var designs = filling.Attachments?
                      .Where(a => a.name == "designs")
                      .SelectMany(a => a.url)
                      .ToList();
-
-            if (filling == null) return null;
 
             var dto = new FileUpdateDto
             {

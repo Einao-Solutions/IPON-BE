@@ -304,9 +304,9 @@ namespace patentdesign.pdfs
                                 table.Cell().Padding(4).Text("Field to change").Bold();
                                 table.Cell().Padding(4).Text(applicationInfo.FieldToChange);
                                 table.Cell().Padding(4).Text("Old Value").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.OldValue);
+                                table.Cell().Padding(4).Text(applicationInfo.OldValue?.ToString() ?? "");
                                 table.Cell().Padding(4).Text("New Value").Bold();
-                                table.Cell().Padding(4).Text(applicationInfo.NewValue);
+                                table.Cell().Padding(4).Text(applicationInfo.NewValue?.ToString() ?? "");
                             });
                         }
 
