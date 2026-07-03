@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.Contracts;
 using System.Net.Mail;
+using System.Text.Json.Serialization;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
@@ -227,6 +228,7 @@ public record Filling
     public List<ApplicantInfo> DesignCreators { get; set; } = new();
     public List<AttachmentType> Attachments { get; set; } = new();
     public Dictionary<string, ApplicationStatuses> FieldStatus { get; set; } = [];
+    [JsonPropertyName("applicationHistory")]
     public List<ApplicationInfo>? ApplicationHistory { get; set; }
     public string? TitleOfTradeMark {get;set;}
     public int?  TrademarkClass {get;set;}
@@ -542,20 +544,29 @@ public record Counters
 
 public record ApplicationInfo
 {
+    [JsonPropertyName("id")]
     public string id { get; set; } = Guid.NewGuid().ToString();
+    [JsonPropertyName("applicationType")]
     public FormApplicationTypes ApplicationType { get; set; }
+    [JsonPropertyName("currentStatus")]
     public ApplicationStatuses CurrentStatus { get; set; }
     public DateOnly? ExpiryDate { get; set; }
+    [JsonPropertyName("paymentId")]
     public string? PaymentId { get; set; }
     public string? CertificatePaymentId { get; set; }
 
+    [JsonPropertyName("applicationDate")]
     public DateTime ApplicationDate { get; set; }=DateTime.Now;
     public string? LicenseType { get; set; }
-    public string? OldValue { get; set; }
-    public string? NewValue { get; set; }
+    [JsonPropertyName("oldValue")]
+    public object? OldValue { get; set; }
+    [JsonPropertyName("newValue")]
+    public object? NewValue { get; set; }
+    [JsonPropertyName("fieldToChange")]
     public string? FieldToChange { get; set; }
     [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
     public Dictionary<string, List<string>>? Letters { get; set; } = [];
+    [JsonPropertyName("statusHistory")]
     public List<ApplicationHistory> StatusHistory { get; set; } = [];
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
     public AssignmentType? Assignment { get; set; }
@@ -1600,6 +1611,7 @@ public record ClaimRequests
     public List<ApplicantInfo>? DesignCreators { get; set; } = new();
     public List<AttachmentType>? Attachments { get; set; } = new();
     public Dictionary<string, ApplicationStatuses>? FieldStatus { get; set; } = [];
+    [JsonPropertyName("applicationHistory")]
     public List<ApplicationInfo>? ApplicationHistory { get; set; }
     public string? TitleOfTradeMark {get;set;}
     public int?  TrademarkClass {get;set;}

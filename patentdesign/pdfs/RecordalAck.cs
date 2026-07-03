@@ -52,8 +52,8 @@ public void Compose(IDocumentContainer container)
                                  x.id == ApplicationId);
 
         var fieldToChange = recordalData?.FieldToChange ?? "field";
-        var oldValue = recordalData?.OldValue ?? "N/A";
-        var newValue = recordalData?.NewValue ?? "N/A";
+        var oldValue = recordalData?.OldValue?.ToString() ?? "N/A";
+        var newValue = recordalData?.NewValue?.ToString() ?? "N/A";
 
         string formattedOldValue = ExtractAllProperties(oldValue);
         string formattedNewValue = ExtractAllProperties(newValue);
