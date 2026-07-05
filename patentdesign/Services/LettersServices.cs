@@ -1972,6 +1972,11 @@ public class LettersServices
             throw new ArgumentException("Application history is missing", nameof(fileData));
         if (fileData.Attachments == null)
             throw new ArgumentException("Attachments are missing", nameof(fileData));
+
+        var historyEntry = fileData.ApplicationHistory.FirstOrDefault();
+        var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
+        var signature = GetSignature(signId);
+
         if (fileData.Type == FileTypes.TradeMark &&
             fileData.Attachments.FirstOrDefault(x => x.name == "representation") != null)
         {
@@ -1986,10 +1991,10 @@ public class LettersServices
             }
         }
         var data = fileData.Type == FileTypes.Design
-            ? new DesignCertificate(fileData, fileData.ApplicationHistory[0].ExpiryDate.ToString()).GeneratePdf()
+            ? new DesignCertificate(fileData, fileData.ApplicationHistory[0].ExpiryDate.ToString(), signature).GeneratePdf()
             : fileData.Type == FileTypes.TradeMark
-                ? new NewTrademarkCertificate(fileData,$"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", imageData).GeneratePdf()
-                : new ApprovedCertificate(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}").GeneratePdf();
+                ? new NewTrademarkCertificate(fileData,$"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", imageData, signature).GeneratePdf()
+                : new ApprovedCertificate(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", signature).GeneratePdf();
         return ReturnDocument(data);
     }
     

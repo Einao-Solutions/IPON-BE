@@ -1,3 +1,4 @@
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Fluent;
@@ -6,7 +7,7 @@ using QuestPDF.Infrastructure;
 
 namespace Tfunctions.pdfs
 {
-    public class ApprovedCertificate(Filling model, string url) : IDocument
+    public class ApprovedCertificate(Filling model, string url, Signatory signature = null) : IDocument
     {
         private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -114,7 +115,12 @@ namespace Tfunctions.pdfs
                 {
                     row.ConstantItem(400).AlignRight().Column(col =>
                     {
-                        col.Item().Text("Jane Igwe").FontSize(9);
+                        if (signature != null)
+                        {
+                            col.Item().Height(35).Image(signature.Signature).FitArea();
+                        }
+
+                        col.Item().Text(signature?.Name ?? "Jane Igwe").FontSize(9);
                         col.Item().Text("Registrar of Patent and Des").FontSize(9);
                     });
                 });
