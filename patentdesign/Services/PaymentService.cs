@@ -182,7 +182,7 @@ public class PaymentService
             // check via order_id
             return await _remitaPaymentUtils.GetDetailsByOrderId(rrr);
         }
-        else if (rrr.Length > 24)
+        else if (rrr.Length > 13 || rrr.Contains("-"))
         {
             var payx = await VerifyPayx(rrr);
             if (payx is null)
