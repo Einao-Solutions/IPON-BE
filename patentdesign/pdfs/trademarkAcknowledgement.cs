@@ -193,7 +193,7 @@ namespace patentdesign
                                         imageBytes = imageStream.ToArray();
                                     }
 
-                                    c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
+                                    c.Item().Height(80).AlignCenter().Image(imageBytes).FitArea();
                                 }
                                 catch
                                 {
