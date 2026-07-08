@@ -92,9 +92,10 @@ namespace patentdesign
                     //Payment Information Section
                     column.Item().Table(table =>
                     {
-                        var date = receipt.Date ?? "";
-                        // var amount = receipt.Amount != null ? Convert.ToInt64(receipt.Amount).ToString("N0") : "-";
-
+                        var date = model.FilingDate;
+                        var paymentDateText = date.HasValue
+                            ? date.Value.ToString("dd MMMM, yyyy")
+                            : "-";
                         table.ColumnsDefinition(columns =>
                         {
                             columns.RelativeColumn();
@@ -104,7 +105,7 @@ namespace patentdesign
                         table.Cell().ColumnSpan(2).Element(HeaderElement).Text("PAYMENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("Payment Date:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(DateTime.TryParse(date, out var parsedDate) ? parsedDate.ToString("dd MMMM, yyyy") : date).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(paymentDateText).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
 
                         table.Cell().Element(Block).Column(c => {
@@ -192,7 +193,7 @@ namespace patentdesign
                                         imageBytes = imageStream.ToArray();
                                     }
 
-                                    c.Item().Height(100).AlignCenter().Image(imageBytes).FitArea();
+                                    c.Item().Height(80).AlignCenter().Image(imageBytes).FitArea();
                                 }
                                 catch
                                 {
