@@ -243,22 +243,30 @@ public class LettersServices
                 return await RenewalAcknowledgment(patRenewalFileAck, applicationId, patPaydate);
             case ApplicationLetters.RenewalAck:
                 var renewalFileAck = _fillingCollection.Find(t => t.FileId == fileId).FirstOrDefault();
+                if (renewalFileAck == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
                 var appl = renewalFileAck.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
                 if (appl == null)
                 {
                     Console.WriteLine("Application history not found for the provided ID");
                     return null;
                 }
-                var ogpayment = await _remitaPaymentUtils.GetDetailsByRRR(appl.PaymentId);
+                var ogpayment = await GetPaymentData(renewalFileAck.Comment, appl.PaymentId);
                 if (ogpayment == null)
                 {
-                    Console.WriteLine("Payment data is null");
-                    return null;
+                    Console.WriteLine($"[{renewalFileAck.FileId}] Warning: Payment data not found for {appl.PaymentId}. Continuing with fallback date.");
                 }
 
                 Console.WriteLine(ogpayment);
                 DateTime paydate;
-                DateTime.TryParse(ogpayment.paymentDate, out paydate);
+                DateTime.TryParse(ogpayment?.paymentDate, out paydate);
+                if (paydate == default)
+                {
+                    paydate = DateTime.Now;
+                }
                 Console.WriteLine(paydate);
                 return await RenewalAcknowledgment(renewalFileAck, applicationId, paydate);
             case ApplicationLetters.MergerAck:
