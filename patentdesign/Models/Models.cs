@@ -174,6 +174,7 @@ public record FileSummary
     public int? TrademarkClass { get; set; }
     public PatentTypes? PatentType { get; set; }
     public DesignTypes? DesignType { get; set; }
+    public DateTime? FilingDate { get; set; }
 }
 
 public record FileApplicationSummary

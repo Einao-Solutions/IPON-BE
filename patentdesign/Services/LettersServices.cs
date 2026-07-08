@@ -287,23 +287,25 @@ public class LettersServices
                 return await ChangeOfNameReceipt(changeOfName, applicationId);
             case ApplicationLetters.RenewalCertificate:
                 var file = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
+                if (file == null)
+                {
+                    Console.WriteLine("File not found");
+                    return null;
+                }
+
                 var application = file.ApplicationHistory.FirstOrDefault(x => x.id == applicationId);
                 if (application == null)
                 {
                     Console.WriteLine("Application history not found for the provided ID");
                     return null;
                 }
-                var payment = await _remitaPaymentUtils.GetDetailsByRRR(application.PaymentId);
+
+                var payment = await GetPaymentData(file.Comment, application.PaymentId);
                 if (payment == null)
                 {
-                    Console.WriteLine("Payment data is null");
-                    return null;
+                    Console.WriteLine($"[{file.FileId}] Warning: Payment data not found for {application.PaymentId}. Continuing.");
                 }
 
-                Console.WriteLine(payment);
-                DateTime date;
-                DateTime.TryParse(payment.paymentDate, out date);
-                Console.WriteLine(date);
                 return await RenewalCertificate(file, applicationId);
             case ApplicationLetters.PatentRenewalCertificate:
                 var patFile = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
@@ -322,8 +324,8 @@ public class LettersServices
 
                 Console.WriteLine(paymentdet);
                 DateTime patdate;
-                DateTime.TryParse(paymentdet.paymentDate, out date);
-                Console.WriteLine(date);
+                DateTime.TryParse(paymentdet.paymentDate, out patdate);
+                Console.WriteLine(patdate);
                 return await RenewalCertificate(patFile, applicationId);
             case ApplicationLetters.RecordalReceipt:
                 var recordalFileData = _fillingCollection.Find(x => x.Id == fileId).FirstOrDefault();
