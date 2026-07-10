@@ -8804,7 +8804,7 @@ public class FilesServices
         {
             Console.WriteLine("appeal: " + req);
             var file = await _fillingCollection.Find(f => f.FileId == req.FileNumber).FirstOrDefaultAsync();
-            if (file == null) throw new Exception("File not found");
+            if (file == null || file.FileStatus == ApplicationStatuses.Rejected) throw new Exception("File not found");
             var user = await _userCollection.Find(u => u.Id == req.UserId).FirstOrDefaultAsync();
             if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
             var appeal = file.Appeals?.FirstOrDefault(a => a.Id == req.ApplicationId);
