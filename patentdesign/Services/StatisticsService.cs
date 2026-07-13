@@ -356,6 +356,216 @@ public class StatisticsService
         return result;
     }
 
+    public async Task<StaffPerformanceComparisonDataDto> GetStaffPerformanceComparisonAsync(StaffPerformanceComparisonRequestDto request)
+    {
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        if (!request.UnitId.HasValue)
+        {
+            throw new ArgumentException("Missing required parameter: unitId");
+        }
+
+        var unitMapping = GetUnitMapping(request.RegistryType, request.UnitId.Value);
+        var periodResults = new List<StaffPerformanceDataDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+            var periodType = range.Label;
+            var periodValue = range.Label;
+            var year = range.StartDate.Year;
+
+            var fileType = ParseRegistryType(request.RegistryType);
+            var baseFilter = Builders<StaffPerformance>.Filter.And(
+                Builders<StaffPerformance>.Filter.Eq(x => x.FileType, fileType),
+                Builders<StaffPerformance>.Filter.Eq(x => x.OfficeUnit, unitMapping.Role),
+                Builders<StaffPerformance>.Filter.Gte(x => x.Date, range.StartDate),
+                Builders<StaffPerformance>.Filter.Lte(x => x.Date, range.EndDate)
+            );
+
+            var assignedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildAssignedFilter(unitMapping.RuleType));
+            var treatedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildTreatedFilter(fileType, unitMapping.RuleType));
+
+            var assignedCounts = await _workflowCollection.Aggregate()
+                .Match(assignedFilter)
+                .Group(x => x.AppUserId, g => new { StaffId = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var treatedCounts = await _workflowCollection.Aggregate()
+                .Match(treatedFilter)
+                .Group(x => x.AppUserId, g => new { StaffId = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var totalAssigned = assignedCounts.Sum(x => x.Count);
+            var totalTreated = treatedCounts.Sum(x => x.Count);
+
+            var staffIds = assignedCounts.Select(x => x.StaffId)
+                .Concat(treatedCounts.Select(x => x.StaffId))
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct()
+                .ToList();
+
+            var users = staffIds.Count == 0
+                ? []
+                : await _userCollection.Find(Builders<AppUser>.Filter.And(
+                    Builders<AppUser>.Filter.Eq(x => x.AccountType, AccountType.Officer),
+                    Builders<AppUser>.Filter.Or(
+                        Builders<AppUser>.Filter.In(x => x.Id, staffIds),
+                        Builders<AppUser>.Filter.In(x => x.CreatorId, staffIds)
+                    ))).ToListAsync();
+
+            var userLookup = BuildUserLookup(users);
+            var officerIds = userLookup.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var assignedLookup = assignedCounts.ToDictionary(x => x.StaffId ?? string.Empty, x => x.Count);
+            var treatedLookup = treatedCounts.ToDictionary(x => x.StaffId ?? string.Empty, x => x.Count);
+
+            var staffPerformance = staffIds
+                .Where(id => officerIds.Contains(id))
+                .Select(id =>
+                {
+                    assignedLookup.TryGetValue(id, out var assigned);
+                    treatedLookup.TryGetValue(id, out var treated);
+                    userLookup.TryGetValue(id, out var user);
+
+                    var percentage = totalAssigned == 0 ? 0 : Math.Round(treated * 100d / totalAssigned, 1);
+                    var contribution = totalTreated == 0 ? 0 : Math.Round(treated * 100d / totalTreated, 1);
+
+                    return new StaffPerformanceEntryDto
+                    {
+                        StaffId = id,
+                        StaffName = user == null ? string.Empty : (!string.IsNullOrWhiteSpace(user.Name)
+                            ? user.Name.Trim()
+                            : $"{user.FirstName} {user.LastName}".Trim()),
+                        StaffEmail = user?.Email ?? string.Empty,
+                        TotalAssigned = totalAssigned,
+                        TotalTreated = treated,
+                        Percentage = percentage,
+                        ContributionToUnit = contribution
+                    };
+                })
+                .OrderByDescending(x => x.TotalTreated)
+                .ToList();
+
+            periodResults.Add(new StaffPerformanceDataDto
+            {
+                UnitId = unitMapping.UnitId,
+                UnitName = unitMapping.UnitName,
+                RegistryType = request.RegistryType,
+                Period = new PeriodDto
+                {
+                    Type = periodType,
+                    Value = periodValue,
+                    Year = year
+                },
+                Summary = new StaffPerformanceSummaryDto
+                {
+                    TotalAssigned = totalAssigned,
+                    TotalTreated = totalTreated,
+                    TreatmentRate = totalAssigned == 0 ? 0 : Math.Round(totalTreated * 100d / totalAssigned, 1)
+                },
+                StaffPerformance = staffPerformance
+            });
+        }
+
+        return new StaffPerformanceComparisonDataDto
+        {
+            RegistryType = request.RegistryType,
+            UnitId = unitMapping.UnitId,
+            UnitName = unitMapping.UnitName,
+            Periods = periodResults
+        };
+    }
+
+    public async Task<UnitPerformanceComparisonDataDto> GetUnitPerformanceComparisonAsync(UnitPerformanceComparisonRequestDto request)
+    {
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.RegistryType))
+        {
+            throw new ArgumentException("Missing required parameter: registryType");
+        }
+
+        var periodResults = new List<UnitPerformanceDataDto>();
+        var fileType = ParseRegistryType(request.RegistryType);
+        var unitMappings = GetUnitMappings(request.RegistryType);
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+            var unitResults = new List<UnitPerformanceEntryDto>();
+            var totalAssigned = 0;
+            var totalTreated = 0;
+
+            foreach (var unit in unitMappings)
+            {
+                var baseFilter = Builders<StaffPerformance>.Filter.And(
+                    Builders<StaffPerformance>.Filter.Eq(x => x.FileType, fileType),
+                    Builders<StaffPerformance>.Filter.Eq(x => x.OfficeUnit, unit.Role),
+                    Builders<StaffPerformance>.Filter.Gte(x => x.Date, range.StartDate),
+                    Builders<StaffPerformance>.Filter.Lte(x => x.Date, range.EndDate)
+                );
+
+                var assignedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildAssignedFilter(unit.RuleType));
+                var treatedFilter = Builders<StaffPerformance>.Filter.And(baseFilter, BuildTreatedFilter(fileType, unit.RuleType));
+
+                var assignedCount = await _workflowCollection.CountDocumentsAsync(assignedFilter);
+                var treatedCount = await _workflowCollection.CountDocumentsAsync(treatedFilter);
+                var staffCount = await _workflowCollection.DistinctAsync(x => x.AppUserId, baseFilter);
+                var staffCountValue = (await staffCount.ToListAsync()).Count;
+
+                totalAssigned += (int)assignedCount;
+                totalTreated += (int)treatedCount;
+
+                unitResults.Add(new UnitPerformanceEntryDto
+                {
+                    UnitId = unit.UnitId,
+                    UnitName = unit.UnitName,
+                    TotalAssigned = (int)assignedCount,
+                    TotalTreated = (int)treatedCount,
+                    TreatmentRate = assignedCount == 0 ? 0 : Math.Round(treatedCount * 100d / assignedCount, 1),
+                    StaffCount = staffCountValue,
+                    AvgPerStaff = staffCountValue == 0 ? 0 : Math.Round(treatedCount / (double)staffCountValue, 1)
+                });
+            }
+
+            periodResults.Add(new UnitPerformanceDataDto
+            {
+                RegistryType = request.RegistryType,
+                Period = new PeriodDto
+                {
+                    Type = range.Label,
+                    Value = range.Label,
+                    Year = range.StartDate.Year
+                },
+                Overview = new UnitPerformanceOverviewDto
+                {
+                    TotalUnits = unitResults.Count,
+                    TotalAssigned = totalAssigned,
+                    TotalTreated = totalTreated,
+                    OverallRate = totalAssigned == 0 ? 0 : Math.Round(totalTreated * 100d / totalAssigned, 1)
+                },
+                Units = unitResults.OrderBy(x => x.UnitId).ToList()
+            });
+        }
+
+        return new UnitPerformanceComparisonDataDto
+        {
+            RegistryType = request.RegistryType,
+            Periods = periodResults
+        };
+    }
+
     #endregion
 
     #region Finance Statistics
