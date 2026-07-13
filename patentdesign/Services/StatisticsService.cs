@@ -563,6 +563,13 @@ public class StatisticsService
                 TotalFiles = files.Count
             };
 
+            periodResult.ApplicationTypes = BuildBreakdown(
+                files
+                    .SelectMany(file => file.ApplicationHistory ?? [])
+                    .Where(history => history.ApplicationDate >= range.StartDate && history.ApplicationDate <= range.EndDate)
+                    .Select(history => history.ApplicationType.ToString())
+            );
+
             switch (fileType)
             {
                 case FileTypes.TradeMark:

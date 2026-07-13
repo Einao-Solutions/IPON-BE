@@ -124,6 +124,7 @@ public class OperationalPeriodResultDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public int TotalFiles { get; set; }
+    public List<OperationalBreakdownItemDto> ApplicationTypes { get; set; } = [];
     public List<OperationalBreakdownItemDto> TrademarkClasses { get; set; } = [];
     public List<OperationalBreakdownItemDto> TradeMarkTypes { get; set; } = [];
     public List<OperationalBreakdownItemDto> DesignTypes { get; set; } = [];
