@@ -57,11 +57,14 @@ stages:
               script: |
                 Import-Module WebAdministration
 
-                $appPool = "BackEnd"
+                $appPool = "testbackend.iponigeria.com(domain)(4.0)(pool)"
 
                 $envVars = @{
                     MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
                     JWT_KEY                   = "$(JWT_KEY)"
+                    SMTP_SERVER               = "$(SMTP_SERVER)"
+                    SMTP_USERNAME             = "$(SMTP_USERNAME)"
+                    SMTP_PASSWORD             = "$(SMTP_PASSWORD)"
                 }
 
                 Write-Host "Clearing existing environment variables for App Pool: $appPool"
@@ -84,9 +87,9 @@ stages:
               script: |
                 Import-Module WebAdministration
                 
-                $appPool = "BackEnd"
+                $appPool = "testbackend.iponigeria.com(domain)(4.0)(pool)"
                 $source = "$(Pipeline.Workspace)\backend\*"
-                $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
+                $destination = "C:\inetpub\vhosts\iponigeria.com\testbackend.iponigeria.com"
                 
                 Write-Host "Stopping App Pool: $appPool"
                 if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {
