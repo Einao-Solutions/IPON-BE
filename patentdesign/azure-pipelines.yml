@@ -62,9 +62,6 @@ stages:
                 $envVars = @{
                     MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
                     JWT_KEY                   = "$(JWT_KEY)"
-                    SMTP_SERVER               = "$(SMTP_SERVER)"
-                    SMTP_USERNAME             = "$(SMTP_USERNAME)"
-                    SMTP_PASSWORD             = "$(SMTP_PASSWORD)"
                 }
 
                 Write-Host "Clearing existing environment variables for App Pool: $appPool"
