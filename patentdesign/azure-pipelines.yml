@@ -57,7 +57,7 @@ stages:
               script: |
                 Import-Module WebAdministration
 
-                $appPool = "testbackend.iponigeria.com(domain)(4.0)(pool)"
+                $appPool = "testbackend.iponigeria.com(domain)(pool)"
 
                 $envVars = @{
                     MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
@@ -84,7 +84,7 @@ stages:
               script: |
                 Import-Module WebAdministration
                 
-                $appPool = "testbackend.iponigeria.com(domain)(4.0)(pool)"
+                $appPool = "testbackend.iponigeria.com(domain)(pool)"
                 $source = "$(Pipeline.Workspace)\backend\*"
                 $destination = "C:\inetpub\vhosts\iponigeria.com\testbackend.iponigeria.com"
                 
