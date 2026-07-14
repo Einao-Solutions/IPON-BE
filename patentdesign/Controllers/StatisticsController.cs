@@ -140,6 +140,69 @@ public class StatisticsController(StatisticsService statisticsService) : Control
     }
 
     /// <summary>
+    /// Compares staff performance statistics across one or more periods for a specific unit.
+    /// </summary>
+    /// <param name="request">Comparison request containing registry type, unit id, and period filters.</param>
+    /// <returns>Staff performance summaries and staff breakdown per period.</returns>
+    [HttpPost("statistics/performance/staff/compare")]
+    public async Task<IActionResult> GetStaffPerformanceComparison([FromBody] StaffPerformanceComparisonRequestDto? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.RegistryType))
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: registryType" });
+        }
+
+        if (!request?.UnitId.HasValue ?? true)
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: unitId" });
+        }
+
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: periods" });
+        }
+
+        try
+        {
+            var data = await statisticsService.GetStaffPerformanceComparisonAsync(request);
+            return Ok(new { success = true, data });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Compares unit performance statistics across one or more periods.
+    /// </summary>
+    /// <param name="request">Comparison request containing registry type and period filters.</param>
+    /// <returns>Unit performance overviews and unit breakdown per period.</returns>
+    [HttpPost("statistics/performance/units/compare")]
+    public async Task<IActionResult> GetUnitPerformanceComparison([FromBody] UnitPerformanceComparisonRequestDto? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.RegistryType))
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: registryType" });
+        }
+
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: periods" });
+        }
+
+        try
+        {
+            var data = await statisticsService.GetUnitPerformanceComparisonAsync(request);
+            return Ok(new { success = true, data });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Gets the list of processing units for a registry type.
     /// </summary>
     /// <param name="registryType">Registry type (TradeMark, Patent, or Design).</param>
