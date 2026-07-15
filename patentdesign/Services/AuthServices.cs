@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Ocsp;
@@ -121,17 +122,26 @@ namespace patentdesign.Services
         {
             try
             {
-                _log.LogInformation("Login attempt for {Email}", req.Email);
-                var user = await _users.Find(u => u.Email == req.Email).FirstOrDefaultAsync();
+                var email = req.Email?.Trim();
+                if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(req.Password))
+                {
+                    _log.LogWarning("Login failed — missing email or password");
+                    return null;
+                }
+
+                _log.LogInformation("Login attempt for {Email}", email);
+                var escapedEmail = Regex.Escape(email);
+                var emailFilter = Builders<AppUser>.Filter.Regex(u => u.Email, new BsonRegularExpression($"^{escapedEmail}$", "i"));
+                var user = await _users.Find(emailFilter).FirstOrDefaultAsync();
                 if (user == null)
                 {
-                    _log.LogWarning("Login failed — user {Email} not found", req.Email);
+                    _log.LogWarning("Login failed — user {Email} not found", email);
                     return null;
                 }
                 var validPassword = BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash);
                 if (!validPassword)
                 {
-                    _log.LogWarning("Login failed — invalid password for {Email}", req.Email);
+                    _log.LogWarning("Login failed — invalid password for {Email}", email);
                     return null;
                 }
                 LoggedInUserDto dto = new LoggedInUserDto
@@ -154,7 +164,7 @@ namespace patentdesign.Services
                     Token = token,
                     User = dto
                 };
-                _log.LogInformation("User {Email} logged in successfully", req.Email);
+                _log.LogInformation("User {Email} logged in successfully", email);
                 return authUser;
             }
             catch (Exception ex)
