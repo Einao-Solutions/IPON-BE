@@ -13958,11 +13958,29 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var user = await _userCollection
        .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
        .FirstOrDefaultAsync();
-        var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
-        var applicant = file.applicants.FirstOrDefault();
+        if (user is null)
+        {
+            _log.LogError("User not found for restoration request");
+            throw new KeyNotFoundException("User not found");
+        }
+
+        var userName = !string.IsNullOrWhiteSpace(user.Name)
+            ? user.Name
+            : $"{user.FirstName} {user.LastName}".Trim();
+
+        var applicant = file.applicants?.FirstOrDefault();
+        if (applicant is null)
+        {
+            _log.LogError("No applicant data found for restoration request");
+            throw new InvalidOperationException("File has no applicant data");
+        }
+
+        var applicantName = applicant.Name ?? string.Empty;
+        var applicantEmail = applicant.Email ?? string.Empty;
+        var applicantPhone = applicant.Phone ?? string.Empty;
         var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
         var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            "Payment for Trademark File Restoration", applicant.Name, applicant.Email, applicant.Phone);
+            "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
         if (rrr is null)
         {
             _log.LogError("Failed to Generate RRR");
@@ -13997,7 +14015,7 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         _log.LogInformation("Restoration application created and awaiting payment.");
         var restore = new RestorationDto
         {
-            Applicant = applicant.Name,
+            Applicant = applicantName,
             FileNumber = fileId,
             PaymentId = rrr,
             FileStatus = file.FileStatus,
@@ -14008,7 +14026,7 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
     catch (Exception e)
     {
         _log.LogError(e, "Failed to create restoration application");
-        throw e;
+        throw;
     }
     }
 
