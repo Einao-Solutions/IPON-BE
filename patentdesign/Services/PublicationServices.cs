@@ -254,6 +254,57 @@ namespace patentdesign.Services
 
             return new PaginatedPublicationResponse { Result = result, Count = count };
         }
+        public async Task<bool> TreatManualBatch(TreatBatchDto dto)
+        {
+            try
+            {
+                _log.LogInformation("Treating manual batch for file number: {FileNumber}", dto.FileNumber);
+                var file = await _files.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
+                if (file is null)
+                {
+                    _log.LogError("File with number {FileNumber} not found. Cannot treat manual batch.", dto.FileNumber);
+                    throw new KeyNotFoundException("File not found");
+                }
+                var app = file.ApplicationHistory?.FirstOrDefault(a => a.id == dto.ApplicationId);
+                if (app is null || app.CurrentStatus != ApplicationStatuses.BatchedManualPublication)
+                {
+                    _log.LogError("Application with ID {ApplicationId} not found or not in BatchedManualPublication status for file {FileNumber}.", dto.ApplicationId, dto.FileNumber);
+                    throw new InvalidOperationException("Application not found or not in the correct status");
+                }
+                var staff = await _users.Find(u => u.Id == dto.StaffId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == dto.StaffId).FirstOrDefaultAsync();
+                if (staff is null)
+                {
+                    _log.LogError("Staff with ID {StaffId} not found. Cannot treat manual batch for file {FileNumber}.", dto.StaffId, dto.FileNumber);
+                    throw new KeyNotFoundException("Staff not found");
+                }
+                var nextStatus = dto.IsApproved ? ApplicationStatuses.Published : ApplicationStatuses.NewOpposition;
+                var history = new ApplicationHistory
+                {
+                    UserId = staff.Id,
+                    User = staff.Name ?? $"{staff.FirstName} {staff.LastName}",
+                    Message = dto.Comment,
+                    beforeStatus = app.CurrentStatus,
+                    afterStatus = nextStatus,
+                    Date = DateTime.Now,
+                };
+
+                app.StatusHistory ??= [];
+                app.StatusHistory.Add(history);
+                app.CurrentStatus = nextStatus;
+
+                file.PublicationReason = dto.Comment;
+
+                await _files.ReplaceOneAsync(f => f.Id == file.Id, file);
+
+                _log.LogInformation("Manual batch treated successfully for file {FileNumber} with status {Status}", dto.FileNumber, app.CurrentStatus);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Failed to treat manual batch for file {FileNumber}", dto.FileNumber);
+                return false;
+            }
+        }
     }
 }
     
