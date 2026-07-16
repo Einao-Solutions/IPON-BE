@@ -75,15 +75,17 @@ namespace patentdesign.pdfs
                     .FontFamily(Fonts.TimesNewRoman).Justify();
                 column.Item().Height(10);
 
-                var app = model?.ApplicationHistory[0];
-                var applicantName = model.applicants?.Count > 1
-                    ? model.applicants[0]?.Name + " et al."
-                    : model.applicants?.FirstOrDefault()?.Name ?? "N/A";
+                var app = model?.ApplicationHistory?.FirstOrDefault();
+                var firstApplicant = model?.applicants?.FirstOrDefault();
+                var appHistoryApplicant = app?.Applicants?.FirstOrDefault();
+                var applicantName = model?.applicants?.Count > 1
+                    ? firstApplicant?.Name + " et al."
+                    : firstApplicant?.Name ?? "N/A";
 
-                column.Item().Text(app?.Applicants[0].Name ?? applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
+                column.Item().Text(appHistoryApplicant?.Name ?? applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(13);
-                var applicantAddress = model.ApplicationHistory[0].Applicants[0].Address ?? model.applicants?.FirstOrDefault()?.Address ?? "N/A";
+                var applicantAddress = appHistoryApplicant?.Address ?? firstApplicant?.Address ?? "N/A";
                 column.Item().Text(applicantAddress).FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(7);

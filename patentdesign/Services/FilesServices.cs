@@ -2743,7 +2743,9 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            //var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
 
@@ -2762,7 +2764,7 @@ public class FilesServices
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
                 IsLateRenewal = lateRenewal,
-                LateRenewalCost = "9500",
+                LateRenewalCost = "0",
                 IsRenewalEligible = file?.IsRenewalEligible
             };
             return renew;
@@ -13978,15 +13980,14 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var applicantName = applicant.Name ?? string.Empty;
         var applicantEmail = applicant.Email ?? string.Empty;
         var applicantPhone = applicant.Phone ?? string.Empty;
-        var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
-        if (rrr is null)
-        {
-            _log.LogError("Failed to Generate RRR");
-            throw new NullReferenceException();
-        }
-
+        //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+        //var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            //"Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+        //if (rrr is null)
+        //{
+        //    _log.LogError("Failed to Generate RRR");
+        //    throw new NullReferenceException();
+        //}
         var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
@@ -13994,20 +13995,23 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
             ExpiryDate = null,
             LicenseType = "",
             ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = rrr,
+            PaymentId = "-",
             StatusHistory =
             [
                 new ApplicationHistory
                 {
                     Date = DateTime.Now,
                     beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = ApplicationStatuses.PendingRenewal,
                     Message = "File Restoration initiated, awaiting payment",
                     UserId = userId,
                     User = userName
                 }
             ],
         };
+
+        file.FileStatus = ApplicationStatuses.PendingRenewal;
+
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
@@ -14017,9 +14021,9 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         {
             Applicant = applicantName,
             FileNumber = fileId,
-            PaymentId = rrr,
+            PaymentId = "-",
             FileStatus = file.FileStatus,
-            Cost = cost.Item1
+            Cost = "0"
         };
         return restore;
     }
