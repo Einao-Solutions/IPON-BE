@@ -6,6 +6,7 @@ using MongoDB.Bson;
 using patentdesign.Dtos.Response;
 using QuestPDF.Fluent;
 using Tfunctions.pdfs;
+using patentdesign.Dtos.Request;
 
 namespace patentdesign.Services
 {
@@ -18,8 +19,9 @@ namespace patentdesign.Services
         private static IMongoCollection<Filling> _files; 
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
+        private OppositionService _oppositionServices;
         private readonly ILogger<AuthServices> _log;
-        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
+        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, OppositionService oppositionServices)
         {
             _config = config;
             _log = log;
@@ -28,6 +30,7 @@ namespace patentdesign.Services
             _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
             _files = db.GetCollection<Filling>("files");
             _emailServices = emailServices;
+            _oppositionServices = oppositionServices;
         }
 
         public async Task<string> SavePublication(PublicationDto pub)
@@ -277,7 +280,7 @@ namespace patentdesign.Services
                     _log.LogError("Staff with ID {StaffId} not found. Cannot treat manual batch for file {FileNumber}.", dto.StaffId, dto.FileNumber);
                     throw new KeyNotFoundException("Staff not found");
                 }
-                var nextStatus = dto.IsApproved ? ApplicationStatuses.Published : ApplicationStatuses.NewOpposition;
+                var nextStatus = dto.IsApproved ? ApplicationStatuses.Published : ApplicationStatuses.Opposition;
                 var history = new ApplicationHistory
                 {
                     UserId = staff.Id,
@@ -291,7 +294,23 @@ namespace patentdesign.Services
                 app.StatusHistory ??= [];
                 app.StatusHistory.Add(history);
                 app.CurrentStatus = nextStatus;
+                if (nextStatus == ApplicationStatuses.Opposition)
+                {
+                    var opp = new OppositionRequestDto
+                    {
 
+                        FileId = file.Id,
+                        FileNumber = file.FileId,
+                        FileTitle = file.TitleOfTradeMark ?? file.TitleOfInvention,
+                        StaffOpposition = true,
+                        StaffId = staff.Id,
+                        Name = staff.Name ?? $"{staff.FirstName} {staff.LastName}",
+                        Email = staff.Email,
+                        Phone = staff.PhoneNumber,
+                        Address = staff.Address,
+                    };
+                    await _oppositionServices.StaffOpposition(opp);
+                }
                 file.PublicationReason = dto.Comment;
 
                 await _files.ReplaceOneAsync(f => f.Id == file.Id, file);
