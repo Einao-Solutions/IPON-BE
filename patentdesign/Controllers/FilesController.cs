@@ -1781,9 +1781,14 @@ public class FilesController(FilesServices fileService) : ControllerBase
         if (string.IsNullOrWhiteSpace(request.FileId))
             return BadRequest(new { status = "ERROR", message = "FileId is required." });
 
-        var (statusCode, message) = await fileService.UpdateFilingAsync(request);
+        var (statusCode, message, updatedFile) = await fileService.UpdateFilingAsync(request);
 
-        return StatusCode(statusCode, new { status = statusCode == 200 ? "SUCCESS" : "ERROR", message });
+        return StatusCode(statusCode, new
+        {
+            status = statusCode == 200 ? "SUCCESS" : "ERROR",
+            message,
+            file = updatedFile
+        });
     }
 
     [HttpPatch("updatepatentfiles")]

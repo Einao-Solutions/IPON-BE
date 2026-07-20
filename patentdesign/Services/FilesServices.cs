@@ -8985,6 +8985,7 @@ public class FilesServices
                 TrademarkLogo = filling.TrademarkLogo,
                 TrademarkType = filling.TrademarkType,
                 TrademarkDisclaimer = filling.TrademarkDisclaimer,
+                TrademarkSpecification = filling.TrademarkSpecification,
                 RtmNumber = filling.RtmNumber,
                 Comment = filling.Comment,
                 DesignAttachments = designs
@@ -9072,11 +9073,11 @@ public class FilesServices
         return (200, "Filing record updated successfully.");
     }
 
-    public async Task<(int StatusCode, string Message)> UpdateFilingAsync(FileUpdateDto request)
+    public async Task<(int StatusCode, string Message, Filling? UpdatedFile)> UpdateFilingAsync(FileUpdateDto request)
     {
         var existing = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
         if (existing == null)
-            return (404, "Filing record not found");
+            return (404, "Filing record not found", null);
 
         // Scalar fields
         if (!string.IsNullOrWhiteSpace(request.TitleOfInvention)) existing.TitleOfInvention = request.TitleOfInvention;
@@ -9085,6 +9086,7 @@ public class FilesServices
         if (!string.IsNullOrWhiteSpace(request.StatementOfNovelty)) existing.StatementOfNovelty = request.StatementOfNovelty;
         if (!string.IsNullOrWhiteSpace(request.TitleOfTradeMark)) existing.TitleOfTradeMark = request.TitleOfTradeMark;
         if (!string.IsNullOrWhiteSpace(request.TrademarkDisclaimer)) existing.TrademarkDisclaimer = request.TrademarkDisclaimer;
+        if (!string.IsNullOrWhiteSpace(request.TrademarkSpecification)) existing.TrademarkSpecification = request.TrademarkSpecification;
         if (!string.IsNullOrWhiteSpace(request.RtmNumber)) existing.RtmNumber = request.RtmNumber;
         if (!string.IsNullOrWhiteSpace(request.Comment)) existing.Comment = request.Comment;
         if (!string.IsNullOrEmpty(request.FilingCountry)) existing.FilingCountry = request.FilingCountry;
@@ -9093,7 +9095,13 @@ public class FilesServices
         if (request.PatentApplicationType != null) existing.PatentApplicationType = request.PatentApplicationType.Value;
         if (request.PatentType != null) existing.PatentType = request.PatentType.Value;
         if (request.DesignType != null) existing.DesignType = request.DesignType.Value;
-        if (request.TrademarkClass != null) existing.TrademarkClass = request.TrademarkClass.Value;
+        if (request.TrademarkClass != null)
+        {
+            existing.TrademarkClass = request.TrademarkClass.Value;
+            // Derive the description server-side from the canonical class map so the two
+            // fields can never drift, regardless of what the client sends.
+            existing.TrademarkClassDescription = FileUtils.TrademarkClassMapper.GetDescription(request.TrademarkClass.Value);
+        }
         if (request.TrademarkLogo != null) existing.TrademarkLogo = request.TrademarkLogo.Value;
         if (request.TrademarkType != null) existing.TrademarkType = request.TrademarkType.Value;
         if (request.FileStatus != null) existing.FileStatus = request.FileStatus.Value;
@@ -9245,7 +9253,9 @@ public class FilesServices
             request.UpdatedBy ?? "Unknown User"
         );
 
-        return (200, "Filing record updated successfully.");
+        // Reload from DB so the response reflects exactly what was persisted.
+        var updated = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
+        return (200, "Filing record updated successfully.", updated ?? existing);
     }
 
     public async Task LogFileUpdateAsync(string fileNumber,
