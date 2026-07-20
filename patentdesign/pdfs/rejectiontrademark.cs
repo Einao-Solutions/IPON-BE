@@ -171,7 +171,8 @@ namespace patentdesign
                             c.Item().Text(model.applicants[0].Address).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                     });
-                    
+                    var app = model.ApplicationHistory.FirstOrDefault(a => a.CurrentStatus == ApplicationStatuses.Rejected);
+                    var rejection = app.StatusHistory.FirstOrDefault(h => h.afterStatus == ApplicationStatuses.Rejected);
                     // Process Information Section
                     column.Item().Table(table =>
                     {
@@ -187,14 +188,20 @@ namespace patentdesign
                             c.Item().Text("REFUSAL DATE:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
                         });
                         table.Cell().Element(Block).Column(c => {
-                            c.Item().Text(model.ApplicationHistory.LastOrDefault()?.StatusHistory.LastOrDefault().Date.ToString("dd/MM/yyyy")).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(rejection.Date.ToString("dd MMMM, yyyy")).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
 
                         table.Cell().Element(Block).Column(c => {
                             c.Item().Text("REASON FOR REFUSAL:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
                         });
                         table.Cell().Element(Block).Column(c => {
-                            c.Item().Text(model.ApplicationHistory.LastOrDefault()?.StatusHistory.LastOrDefault(s => s.afterStatus == ApplicationStatuses.Rejected)?.Message).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text(rejection.Message).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                        });
+                        table.Cell().Element(Block).Column(c => {
+                            c.Item().Text("EXAMINER NAME:").FontSize(12).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                        });
+                        table.Cell().Element(Block).Column(c => {
+                            c.Item().Text(rejection.User).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                         });
                     });
 

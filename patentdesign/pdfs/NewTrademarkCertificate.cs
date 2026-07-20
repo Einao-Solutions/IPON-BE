@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using patentdesign.Dtos.Response;
 using patentdesign.Models;
 using QRCoder;
 using QuestPDF.Drawing;
@@ -9,7 +10,7 @@ using static System.Net.Mime.MediaTypeNames;
 
 namespace patentdesign.pdfs
 {
-    public class NewTrademarkCertificate(Filling model, string url, byte[]? imageData = null) : IDocument
+    public class NewTrademarkCertificate(Filling model, string url, byte[]? imageData = null, Signatory signature = null) : IDocument
     {
         private Filling model { get; set; } = model;
         private string url { get; set; } = url;
@@ -55,11 +56,11 @@ namespace patentdesign.pdfs
                         PdfImageHelper.TryDecodeImage(imageData))
                     {
                         row.RelativeItem().AlignCenter().Image(imageData!).FitArea();
-                        if (model.TrademarkLogo is TradeMarkLogo.WordandDevice)
-                        {
-                            row.RelativeItem().AlignCenter().Text(model.TitleOfTradeMark ?? "N/A")
-                                .FontSize(18).FontFamily(Fonts.TimesNewRoman);
-                        }
+                        //if (model.TrademarkLogo is TradeMarkLogo.WordandDevice)
+                        //{
+                        //    row.RelativeItem().AlignCenter().Text(model.TitleOfTradeMark ?? "N/A")
+                        //        .FontSize(18).FontFamily(Fonts.TimesNewRoman);
+                        //}
                     }
                     
                     else
@@ -74,15 +75,17 @@ namespace patentdesign.pdfs
                     .FontFamily(Fonts.TimesNewRoman).Justify();
                 column.Item().Height(10);
 
-                var app = model?.ApplicationHistory[0];
-                var applicantName = model.applicants?.Count > 1
-                    ? model.applicants[0]?.Name + " et al."
-                    : model.applicants?.FirstOrDefault()?.Name ?? "N/A";
+                var app = model?.ApplicationHistory?.FirstOrDefault();
+                var firstApplicant = model?.applicants?.FirstOrDefault();
+                var appHistoryApplicant = app?.Applicants?.FirstOrDefault();
+                var applicantName = model?.applicants?.Count > 1
+                    ? firstApplicant?.Name + " et al."
+                    : firstApplicant?.Name ?? "N/A";
 
-                column.Item().Text(app?.Applicants[0].Name ?? applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
+                column.Item().Text(appHistoryApplicant?.Name ?? applicantName).SemiBold().FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(13);
-                var applicantAddress = model.ApplicationHistory[0].Applicants[0].Address ?? model.applicants?.FirstOrDefault()?.Address ?? "N/A";
+                var applicantAddress = appHistoryApplicant?.Address ?? firstApplicant?.Address ?? "N/A";
                 column.Item().Text(applicantAddress).FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(7);
@@ -102,6 +105,8 @@ namespace patentdesign.pdfs
         }
         private void ComposeFooter(IContainer container)
         {
+            var ann = string.Equals(signature?.Name, "Anne Titi Adeleye", StringComparison.Ordinal);
+            if (!ann) return;
             container.Column(c => 
             {
                 c.Item().AlignBottom().Row(row =>
@@ -124,12 +129,21 @@ namespace patentdesign.pdfs
                     row.Spacing(50);
                     row.RelativeItem().AlignRight().Column(c =>
                     {
-                        c.Item().Height(35).Image("assets/trademark_registrar_sig.png").FitArea();
-                        c.Item().Height(20);
-                        c.Item().Text("Shafiu Adamu Yauri").FontFamily(Fonts.TimesNewRoman);
-                        c.Item().Text("Registrar Of Trademarks").SemiBold().FontFamily(Fonts.TimesNewRoman);
+                        c.Item().Height(30);
+
+                        if (signature != null)
+                        {
+                            c.Item().Height(35).Image(signature.Signature).FitArea();
+                        }
+                        else
+                        {
+                            c.Item().Height(35).Image("assets/trademark_registrar_sig.png").FitArea();
+                        }
+                        c.Item().Text(signature?.Name ?? "Shafiu Adamu Yauri").FontFamily(Fonts.TimesNewRoman);
+                        c.Item().Text(ann ? "Ag. Registrar of Trademarks" : "Registrar Of Trademarks").SemiBold().FontFamily(Fonts.TimesNewRoman);
                     });
                 });
+                c.Item().Height(10);
                 IContainer BlockStyle(IContainer container) =>
                     container.Background(Colors.Green.Darken3).Padding(10);
 
@@ -145,8 +159,8 @@ namespace patentdesign.pdfs
             using (QRCodeData qrCodeData = qrGenerator.CreateQrCode(url, QRCodeGenerator.ECCLevel.Q))
             using (PngByteQRCode qrCode = new PngByteQRCode(qrCodeData))
             {
-                byte[] qrCodeImage = qrCode.GetGraphic(20);
-                container.Image(qrCodeImage).FitArea();
+                byte[] qrCodeImage = qrCode.GetGraphic(10);
+                container.Height(50).Width(50).Image(qrCodeImage).FitArea();
             }
         }
     }

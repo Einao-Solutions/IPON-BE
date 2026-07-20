@@ -37,6 +37,14 @@ public class StaffPerformanceDataDto
     public List<StaffPerformanceEntryDto> StaffPerformance { get; set; } = [];
 }
 
+public class StaffPerformanceComparisonDataDto
+{
+    public string RegistryType { get; set; } = string.Empty;
+    public int UnitId { get; set; }
+    public string UnitName { get; set; } = string.Empty;
+    public List<StaffPerformanceDataDto> Periods { get; set; } = [];
+}
+
 public class UnitPerformanceOverviewDto
 {
     public int TotalUnits { get; set; }
@@ -62,6 +70,12 @@ public class UnitPerformanceDataDto
     public PeriodDto Period { get; set; } = new();
     public UnitPerformanceOverviewDto Overview { get; set; } = new();
     public List<UnitPerformanceEntryDto> Units { get; set; } = [];
+}
+
+public class UnitPerformanceComparisonDataDto
+{
+    public string RegistryType { get; set; } = string.Empty;
+    public List<UnitPerformanceDataDto> Periods { get; set; } = [];
 }
 
 public class UnitInfoDto
@@ -124,6 +138,7 @@ public class OperationalPeriodResultDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public int TotalFiles { get; set; }
+    public List<OperationalBreakdownItemDto> ApplicationTypes { get; set; } = [];
     public List<OperationalBreakdownItemDto> TrademarkClasses { get; set; } = [];
     public List<OperationalBreakdownItemDto> TradeMarkTypes { get; set; } = [];
     public List<OperationalBreakdownItemDto> DesignTypes { get; set; } = [];

@@ -3,6 +3,7 @@
 *.user
 *.suo
 
+/.vs/CopilotSnapshots/7BB18722DB54534B8994A0B3CF7FE0B2
 # Build output
 [Bb]in/
 [Oo]bj/

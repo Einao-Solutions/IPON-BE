@@ -175,6 +175,7 @@ public record FileSummary
     public int? TrademarkClass { get; set; }
     public PatentTypes? PatentType { get; set; }
     public DesignTypes? DesignType { get; set; }
+    public DateTime? FilingDate { get; set; }
 }
 
 public record FileApplicationSummary
@@ -1035,7 +1036,9 @@ public enum ApplicationStatuses
     AwaitingOfficeProcess = 36,
     Abandoned = 37,
     WithdrawalRequested = 38,
-    WithdrawalApproved = 39
+    WithdrawalApproved = 39,
+    BatchedManualPublication = 40,
+    Published = 41,
 }
 
 public record AssignmentCertificateType

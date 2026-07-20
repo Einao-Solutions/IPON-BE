@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using QuestPDF.Fluent;
@@ -10,7 +11,7 @@ using QuestPDF.Infrastructure;
 
 namespace Tfunctions.pdfs
 {
-    public class DesignCertificate(Filling model, string expiryDate) : IDocument
+    public class DesignCertificate(Filling model, string expiryDate, Signatory signature = null) : IDocument
     {
         private Filling model { get; set; } = model;
         private string expiryDate { get; set; } = expiryDate;
@@ -100,8 +101,16 @@ namespace Tfunctions.pdfs
                             .Text($"Dated this {datedDate}")
                             .FontSize(12);
                         column.Item().Height(130);
-                        column.Item().Height(50).AlignCenter().Image("assets/signature.jpeg").FitArea();
-                        column.Item().AlignCenter().Text("Jane Igwe").Bold();
+                        if (signature != null)
+                        {
+                            column.Item().Height(50).AlignCenter().Image(signature.Signature).FitArea();
+                        }
+                        else
+                        {
+                            column.Item().Height(50).AlignCenter().Image("assets/signature.jpeg").FitArea();
+                        }
+
+                        column.Item().AlignCenter().Text(signature?.Name ?? "Jane Igwe").Bold();
                         column.Item().AlignCenter().Text("Registrar Patents and Designs").Bold();
                         column.Item().Height(30);
                         column.Item().PaddingLeft(70)

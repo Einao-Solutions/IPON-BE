@@ -1271,7 +1271,10 @@ public class FilesServices
     {
         if (data.applicationType is FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal)
         {
-            operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+            if (data.AfterStatus is not ApplicationStatuses.Published)
+            {
+                operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+            }
         }
 
         if (data.applicationType is not FormApplicationTypes.NewApplication) return;
@@ -1343,7 +1346,7 @@ public class FilesServices
             else if (data.FileType is FileTypes.Patent) perf.OfficeUnit = Roles.PatentExaminer;
             else perf.OfficeUnit = Roles.DesignExaminer;
         }
-
+        
         if (data.AfterStatus is not ApplicationStatuses.Publication) return;
 
         var publish = new PublicationDto
@@ -1413,7 +1416,8 @@ public class FilesServices
             Type = x.Type,
             TrademarkClass = x.TrademarkClass,
             PatentType = x.PatentType,
-            DesignType = x.DesignType
+            DesignType = x.DesignType,
+            FilingDate = x.FilingDate
         });
         var count = _fillingCollection.CountDocuments(filters);
         var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
@@ -2742,7 +2746,9 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            //var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
 
@@ -2761,7 +2767,7 @@ public class FilesServices
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
                 IsLateRenewal = lateRenewal,
-                LateRenewalCost = "9500",
+                LateRenewalCost = "0",
                 IsRenewalEligible = file?.IsRenewalEligible
             };
             return renew;
@@ -9437,7 +9443,7 @@ public class FilesServices
         {
             Console.WriteLine("appeal: " + req);
             var file = await _fillingCollection.Find(f => f.FileId == req.FileNumber).FirstOrDefaultAsync();
-            if (file == null) throw new Exception("File not found");
+            if (file == null || file.FileStatus == ApplicationStatuses.Rejected) throw new Exception("File not found");
             var user = await _userCollection.Find(u => u.Id == req.UserId).FirstOrDefaultAsync();
             if (user == null) throw new UnauthorizedAccessException("Unauthorized User");
             var appeal = file.Appeals?.FirstOrDefault(a => a.Id == req.ApplicationId);
@@ -13967,17 +13973,34 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var user = await _userCollection
        .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
        .FirstOrDefaultAsync();
-        var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
-        var applicant = file.applicants.FirstOrDefault();
-        var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            "Payment for Trademark File Restoration", applicant.Name, applicant.Email, applicant.Phone);
-        if (rrr is null)
+        if (user is null)
         {
-            _log.LogError("Failed to Generate RRR");
-            throw new NullReferenceException();
+            _log.LogError("User not found for restoration request");
+            throw new KeyNotFoundException("User not found");
         }
 
+        var userName = !string.IsNullOrWhiteSpace(user.Name)
+            ? user.Name
+            : $"{user.FirstName} {user.LastName}".Trim();
+
+        var applicant = file.applicants?.FirstOrDefault();
+        if (applicant is null)
+        {
+            _log.LogError("No applicant data found for restoration request");
+            throw new InvalidOperationException("File has no applicant data");
+        }
+
+        var applicantName = applicant.Name ?? string.Empty;
+        var applicantEmail = applicant.Email ?? string.Empty;
+        var applicantPhone = applicant.Phone ?? string.Empty;
+        //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+        //var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            //"Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+        //if (rrr is null)
+        //{
+        //    _log.LogError("Failed to Generate RRR");
+        //    throw new NullReferenceException();
+        //}
         var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
@@ -13985,20 +14008,23 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
             ExpiryDate = null,
             LicenseType = "",
             ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = rrr,
+            PaymentId = "-",
             StatusHistory =
             [
                 new ApplicationHistory
                 {
                     Date = DateTime.Now,
                     beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = ApplicationStatuses.PendingRenewal,
                     Message = "File Restoration initiated, awaiting payment",
                     UserId = userId,
                     User = userName
                 }
             ],
         };
+
+        file.FileStatus = ApplicationStatuses.PendingRenewal;
+
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
@@ -14006,18 +14032,18 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         _log.LogInformation("Restoration application created and awaiting payment.");
         var restore = new RestorationDto
         {
-            Applicant = applicant.Name,
+            Applicant = applicantName,
             FileNumber = fileId,
-            PaymentId = rrr,
+            PaymentId = "-",
             FileStatus = file.FileStatus,
-            Cost = cost.Item1
+            Cost = "0"
         };
         return restore;
     }
     catch (Exception e)
     {
         _log.LogError(e, "Failed to create restoration application");
-        throw e;
+        throw;
     }
     }
 
