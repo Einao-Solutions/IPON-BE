@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using patentdesign.Models;
 using System.Security.Authentication;
@@ -19,9 +20,9 @@ namespace patentdesign.Services
         private static IMongoCollection<Filling> _files; 
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
-        private OppositionService _oppositionServices;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<AuthServices> _log;
-        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, OppositionService oppositionServices)
+        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, IServiceProvider serviceProvider)
         {
             _config = config;
             _log = log;
@@ -30,7 +31,7 @@ namespace patentdesign.Services
             _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
             _files = db.GetCollection<Filling>("files");
             _emailServices = emailServices;
-            _oppositionServices = oppositionServices;
+            _serviceProvider = serviceProvider;
         }
 
         public async Task<string> SavePublication(PublicationDto pub)
@@ -296,6 +297,7 @@ namespace patentdesign.Services
                 app.CurrentStatus = nextStatus;
                 if (nextStatus == ApplicationStatuses.Opposition)
                 {
+                    var oppositionServices = _serviceProvider.GetRequiredService<OppositionService>();
                     var opp = new OppositionRequestDto
                     {
 
@@ -309,7 +311,7 @@ namespace patentdesign.Services
                         Phone = staff.PhoneNumber,
                         Address = staff.Address,
                     };
-                    await _oppositionServices.StaffOpposition(opp);
+                    await oppositionServices.StaffOpposition(opp);
                 }
                 file.PublicationReason = dto.Comment;
 
