@@ -1271,7 +1271,10 @@ public class FilesServices
     {
         if (data.applicationType is FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal)
         {
-            operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+            if (data.AfterStatus is not ApplicationStatuses.Published)
+            {
+                operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+            }
         }
 
         if (data.applicationType is not FormApplicationTypes.NewApplication) return;
@@ -1343,7 +1346,7 @@ public class FilesServices
             else if (data.FileType is FileTypes.Patent) perf.OfficeUnit = Roles.PatentExaminer;
             else perf.OfficeUnit = Roles.DesignExaminer;
         }
-
+        
         if (data.AfterStatus is not ApplicationStatuses.Publication) return;
 
         var publish = new PublicationDto
