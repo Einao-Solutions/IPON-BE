@@ -238,6 +238,7 @@ public record Filling
     public TradeMarkLogo? TrademarkLogo {get;set;}
     public TradeMarkType?  TrademarkType {get;set;}
     public string? TrademarkDisclaimer {get;set;}
+    public string? TrademarkSpecification { get; set; }
     public string? RtmNumber {get;set;}
     public string? Comment { get; set; } = null;
     [BsonElement("registered_User")]
