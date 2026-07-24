@@ -1271,7 +1271,10 @@ public class FilesServices
     {
         if (data.applicationType is FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal)
         {
-            operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+            if (data.AfterStatus is not ApplicationStatuses.Published)
+            {
+                operations.Add(Builders<Filling>.Update.Set(x => x.FileStatus, data.AfterStatus));
+            }
         }
 
         if (data.applicationType is not FormApplicationTypes.NewApplication) return;
@@ -1343,7 +1346,7 @@ public class FilesServices
             else if (data.FileType is FileTypes.Patent) perf.OfficeUnit = Roles.PatentExaminer;
             else perf.OfficeUnit = Roles.DesignExaminer;
         }
-
+        
         if (data.AfterStatus is not ApplicationStatuses.Publication) return;
 
         var publish = new PublicationDto
@@ -2743,7 +2746,9 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            //var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
 
@@ -2762,7 +2767,7 @@ public class FilesServices
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
                 IsLateRenewal = lateRenewal,
-                LateRenewalCost = "9500",
+                LateRenewalCost = "0",
                 IsRenewalEligible = file?.IsRenewalEligible
             };
             return renew;
@@ -8986,6 +8991,7 @@ public class FilesServices
                 TrademarkLogo = filling.TrademarkLogo,
                 TrademarkType = filling.TrademarkType,
                 TrademarkDisclaimer = filling.TrademarkDisclaimer,
+                TrademarkSpecification = filling.TrademarkSpecification,
                 RtmNumber = filling.RtmNumber,
                 Comment = filling.Comment,
                 DesignAttachments = designs
@@ -9073,11 +9079,11 @@ public class FilesServices
         return (200, "Filing record updated successfully.");
     }
 
-    public async Task<(int StatusCode, string Message)> UpdateFilingAsync(FileUpdateDto request)
+    public async Task<(int StatusCode, string Message, Filling? UpdatedFile)> UpdateFilingAsync(FileUpdateDto request)
     {
         var existing = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
         if (existing == null)
-            return (404, "Filing record not found");
+            return (404, "Filing record not found", null);
 
         // Scalar fields
         if (!string.IsNullOrWhiteSpace(request.TitleOfInvention)) existing.TitleOfInvention = request.TitleOfInvention;
@@ -9086,6 +9092,7 @@ public class FilesServices
         if (!string.IsNullOrWhiteSpace(request.StatementOfNovelty)) existing.StatementOfNovelty = request.StatementOfNovelty;
         if (!string.IsNullOrWhiteSpace(request.TitleOfTradeMark)) existing.TitleOfTradeMark = request.TitleOfTradeMark;
         if (!string.IsNullOrWhiteSpace(request.TrademarkDisclaimer)) existing.TrademarkDisclaimer = request.TrademarkDisclaimer;
+        if (!string.IsNullOrWhiteSpace(request.TrademarkSpecification)) existing.TrademarkSpecification = request.TrademarkSpecification;
         if (!string.IsNullOrWhiteSpace(request.RtmNumber)) existing.RtmNumber = request.RtmNumber;
         if (!string.IsNullOrWhiteSpace(request.Comment)) existing.Comment = request.Comment;
         if (!string.IsNullOrEmpty(request.FilingCountry)) existing.FilingCountry = request.FilingCountry;
@@ -9094,7 +9101,13 @@ public class FilesServices
         if (request.PatentApplicationType != null) existing.PatentApplicationType = request.PatentApplicationType.Value;
         if (request.PatentType != null) existing.PatentType = request.PatentType.Value;
         if (request.DesignType != null) existing.DesignType = request.DesignType.Value;
-        if (request.TrademarkClass != null) existing.TrademarkClass = request.TrademarkClass.Value;
+        if (request.TrademarkClass != null)
+        {
+            existing.TrademarkClass = request.TrademarkClass.Value;
+            // Derive the description server-side from the canonical class map so the two
+            // fields can never drift, regardless of what the client sends.
+            existing.TrademarkClassDescription = FileUtils.TrademarkClassMapper.GetDescription(request.TrademarkClass.Value);
+        }
         if (request.TrademarkLogo != null) existing.TrademarkLogo = request.TrademarkLogo.Value;
         if (request.TrademarkType != null) existing.TrademarkType = request.TrademarkType.Value;
         if (request.FileStatus != null) existing.FileStatus = request.FileStatus.Value;
@@ -9246,7 +9259,9 @@ public class FilesServices
             request.UpdatedBy ?? "Unknown User"
         );
 
-        return (200, "Filing record updated successfully.");
+        // Reload from DB so the response reflects exactly what was persisted.
+        var updated = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
+        return (200, "Filing record updated successfully.", updated ?? existing);
     }
 
     public async Task LogFileUpdateAsync(string fileNumber,
@@ -13958,17 +13973,34 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var user = await _userCollection
        .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
        .FirstOrDefaultAsync();
-        var userName = user.Name ?? $"{user.FirstName} {user.LastName}";
-        var applicant = file.applicants.FirstOrDefault();
-        var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-        var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            "Payment for Trademark File Restoration", applicant.Name, applicant.Email, applicant.Phone);
-        if (rrr is null)
+        if (user is null)
         {
-            _log.LogError("Failed to Generate RRR");
-            throw new NullReferenceException();
+            _log.LogError("User not found for restoration request");
+            throw new KeyNotFoundException("User not found");
         }
 
+        var userName = !string.IsNullOrWhiteSpace(user.Name)
+            ? user.Name
+            : $"{user.FirstName} {user.LastName}".Trim();
+
+        var applicant = file.applicants?.FirstOrDefault();
+        if (applicant is null)
+        {
+            _log.LogError("No applicant data found for restoration request");
+            throw new InvalidOperationException("File has no applicant data");
+        }
+
+        var applicantName = applicant.Name ?? string.Empty;
+        var applicantEmail = applicant.Email ?? string.Empty;
+        var applicantPhone = applicant.Phone ?? string.Empty;
+        //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+        //var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            //"Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+        //if (rrr is null)
+        //{
+        //    _log.LogError("Failed to Generate RRR");
+        //    throw new NullReferenceException();
+        //}
         var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
@@ -13976,20 +14008,23 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
             ExpiryDate = null,
             LicenseType = "",
             ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = rrr,
+            PaymentId = "-",
             StatusHistory =
             [
                 new ApplicationHistory
                 {
                     Date = DateTime.Now,
                     beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingPayment,
+                    afterStatus = ApplicationStatuses.PendingRenewal,
                     Message = "File Restoration initiated, awaiting payment",
                     UserId = userId,
                     User = userName
                 }
             ],
         };
+
+        file.FileStatus = ApplicationStatuses.PendingRenewal;
+
         await _fillingCollection.UpdateOneAsync(
             Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
             Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
@@ -13997,18 +14032,18 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         _log.LogInformation("Restoration application created and awaiting payment.");
         var restore = new RestorationDto
         {
-            Applicant = applicant.Name,
+            Applicant = applicantName,
             FileNumber = fileId,
-            PaymentId = rrr,
+            PaymentId = "-",
             FileStatus = file.FileStatus,
-            Cost = cost.Item1
+            Cost = "0"
         };
         return restore;
     }
     catch (Exception e)
     {
         _log.LogError(e, "Failed to create restoration application");
-        throw e;
+        throw;
     }
     }
 

@@ -38,6 +38,7 @@ namespace patentdesign.Dtos.Request
         public TradeMarkLogo? TrademarkLogo { get; set; }
         public TradeMarkType? TrademarkType { get; set; }
         public string? TrademarkDisclaimer { get; set; }
+        public string? TrademarkSpecification { get; set; }
         public string? RtmNumber { get; set; }
         public string? Comment { get; set; }
         public string? MigratedPCTNo { get; set; }

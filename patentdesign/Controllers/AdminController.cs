@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Services;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
@@ -43,6 +44,17 @@ namespace patentdesign.Controllers
             var updated = await adminServices.UpdateApplicationHistory(dto);
             if (updated) return Ok(updated);
             return NotFound(new { message = "Application history not updated" });
+        }
+
+        [HttpDelete("ApplicationHistory")]
+        public async Task<IActionResult> DeleteApplicationHistory([FromBody] DeleteApplicationHistoryDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.FileNumber) || string.IsNullOrWhiteSpace(dto.ApplicationId))
+                return BadRequest(new { message = "FileNumber and ApplicationId are required" });
+
+            var deleted = await adminServices.DeleteApplicationHistory(dto);
+            if (deleted) return Ok(new { message = "Application history entry deleted successfully" });
+            return NotFound(new { message = "Application history entry not found or could not be deleted" });
         }
 
         [HttpPost("SendAnnouncement")]

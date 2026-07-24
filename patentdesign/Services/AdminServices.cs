@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
@@ -241,6 +242,49 @@ namespace patentdesign.Services
             catch (Exception ex)
             {
                 _log.LogError(ex, "Error updating application history");
+                throw;
+            }
+        }
+
+        public async Task<bool> DeleteApplicationHistory(DeleteApplicationHistoryDto dto)
+        {
+            try
+            {
+                // 1. Fetch file first
+                var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber)
+                    .FirstOrDefaultAsync();
+
+                if (file == null || file.ApplicationHistory == null || !file.ApplicationHistory.Any())
+                {
+                    _log.LogError("File not found or has no application history for FileId: {FileId}", dto.FileNumber);
+                    return false;
+                }
+
+                var applicationToRemove = file.ApplicationHistory
+                    .FirstOrDefault(a => a.id == dto.ApplicationId);
+
+                if (applicationToRemove == null)
+                {
+                    _log.LogError("Application not found in history for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, dto.ApplicationId);
+                    return false;
+                }
+
+                // 2. Build filter and remove the application history entry
+                var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber);
+
+                var update = Builders<Filling>.Update.PullFilter(
+                    f => f.ApplicationHistory,
+                    a => a.id == dto.ApplicationId
+                );
+
+                // 3. Execute update
+                var result = await _fillingCollection.UpdateOneAsync(filter, update);
+                _log.LogInformation("Application history entry deleted for FileId: {FileId}, ApplicationId: {ApplicationId}. ModifiedCount: {ModifiedCount}", dto.FileNumber, dto.ApplicationId, result.ModifiedCount);
+                return result.ModifiedCount > 0;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Error deleting application history");
                 throw;
             }
         }

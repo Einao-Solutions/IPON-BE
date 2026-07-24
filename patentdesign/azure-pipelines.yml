@@ -57,7 +57,7 @@ stages:
               script: |
                 Import-Module WebAdministration
 
-                $appPool = "BackEnd"
+                $appPool = "testbackend.iponigeria.com(domain)(pool)"
 
                 $envVars = @{
                     MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
@@ -84,9 +84,9 @@ stages:
               script: |
                 Import-Module WebAdministration
                 
-                $appPool = "BackEnd"
+                $appPool = "testbackend.iponigeria.com(domain)(pool)"
                 $source = "$(Pipeline.Workspace)\backend\*"
-                $destination = "C:\Users\einaoadmin\Desktop\UpLinks\publish"
+                $destination = "C:\inetpub\vhosts\iponigeria.com\testbackend.iponigeria.com"
                 
                 Write-Host "Stopping App Pool: $appPool"
                 if ((Get-WebAppPoolState -Name $appPool).Value -ne "Stopped") {

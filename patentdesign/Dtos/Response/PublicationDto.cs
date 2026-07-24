@@ -28,4 +28,12 @@ namespace patentdesign.Dtos.Response
         public List<PublicationInfoDto> Result { get; set; } = [];
         public long Count { get; set; }
     }
+    public class TreatBatchDto
+    {
+        public string FileNumber { get; set; }
+        public string? Comment { get; set; }
+        public string StaffId { get; set; }
+        public string ApplicationId { get; set; }
+        public bool IsApproved { get; set; } = false;
+    }
 }

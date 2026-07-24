@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using patentdesign.Models;
 using System.Security.Authentication;
@@ -6,6 +7,7 @@ using MongoDB.Bson;
 using patentdesign.Dtos.Response;
 using QuestPDF.Fluent;
 using Tfunctions.pdfs;
+using patentdesign.Dtos.Request;
 
 namespace patentdesign.Services
 {
@@ -18,8 +20,9 @@ namespace patentdesign.Services
         private static IMongoCollection<Filling> _files; 
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<AuthServices> _log;
-        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
+        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, IServiceProvider serviceProvider)
         {
             _config = config;
             _log = log;
@@ -28,6 +31,7 @@ namespace patentdesign.Services
             _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
             _files = db.GetCollection<Filling>("files");
             _emailServices = emailServices;
+            _serviceProvider = serviceProvider;
         }
 
         public async Task<string> SavePublication(PublicationDto pub)
@@ -253,6 +257,74 @@ namespace patentdesign.Services
             _log.LogInformation("Fetched {Count} of {Total} batch publications", result.Count, count);
 
             return new PaginatedPublicationResponse { Result = result, Count = count };
+        }
+        public async Task<bool> TreatManualBatch(TreatBatchDto dto)
+        {
+            try
+            {
+                _log.LogInformation("Treating manual batch for file number: {FileNumber}", dto.FileNumber);
+                var file = await _files.Find(f => f.FileId == dto.FileNumber).FirstOrDefaultAsync();
+                if (file is null)
+                {
+                    _log.LogError("File with number {FileNumber} not found. Cannot treat manual batch.", dto.FileNumber);
+                    throw new KeyNotFoundException("File not found");
+                }
+                var app = file.ApplicationHistory?.FirstOrDefault(a => a.id == dto.ApplicationId);
+                if (app is null || app.CurrentStatus != ApplicationStatuses.BatchedManualPublication)
+                {
+                    _log.LogError("Application with ID {ApplicationId} not found or not in BatchedManualPublication status for file {FileNumber}.", dto.ApplicationId, dto.FileNumber);
+                    throw new InvalidOperationException("Application not found or not in the correct status");
+                }
+                var staff = await _users.Find(u => u.Id == dto.StaffId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == dto.StaffId).FirstOrDefaultAsync();
+                if (staff is null)
+                {
+                    _log.LogError("Staff with ID {StaffId} not found. Cannot treat manual batch for file {FileNumber}.", dto.StaffId, dto.FileNumber);
+                    throw new KeyNotFoundException("Staff not found");
+                }
+                var nextStatus = dto.IsApproved ? ApplicationStatuses.Published : ApplicationStatuses.Opposition;
+                var history = new ApplicationHistory
+                {
+                    UserId = staff.Id,
+                    User = staff.Name ?? $"{staff.FirstName} {staff.LastName}",
+                    Message = dto.Comment,
+                    beforeStatus = app.CurrentStatus,
+                    afterStatus = nextStatus,
+                    Date = DateTime.Now,
+                };
+
+                app.StatusHistory ??= [];
+                app.StatusHistory.Add(history);
+                app.CurrentStatus = nextStatus;
+                if (nextStatus == ApplicationStatuses.Opposition)
+                {
+                    var oppositionServices = _serviceProvider.GetRequiredService<OppositionService>();
+                    var opp = new OppositionRequestDto
+                    {
+
+                        FileId = file.Id,
+                        FileNumber = file.FileId,
+                        FileTitle = file.TitleOfTradeMark ?? file.TitleOfInvention,
+                        StaffOpposition = true,
+                        StaffId = staff.Id,
+                        Name = staff.Name ?? $"{staff.FirstName} {staff.LastName}",
+                        Email = staff.Email,
+                        Phone = staff.PhoneNumber,
+                        Address = staff.Address,
+                    };
+                    await oppositionServices.StaffOpposition(opp);
+                }
+                file.PublicationReason = dto.Comment;
+
+                await _files.ReplaceOneAsync(f => f.Id == file.Id, file);
+
+                _log.LogInformation("Manual batch treated successfully for file {FileNumber} with status {Status}", dto.FileNumber, app.CurrentStatus);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Failed to treat manual batch for file {FileNumber}", dto.FileNumber);
+                return false;
+            }
         }
     }
 }

@@ -300,7 +300,7 @@ public class OppositionService
                 Nationality = staff.Nationality,
                 Reason = dto.Reason,
                 SupportingDocs = null,
-                Status = ApplicationStatuses.NewOpposition,
+                Status = ApplicationStatuses.Opposition,
                 FileTitle = file.TitleOfTradeMark,
                 FileId = dto.FileNumber,
                 IsStaffOpposition = true

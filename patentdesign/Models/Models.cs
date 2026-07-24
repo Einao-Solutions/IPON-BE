@@ -238,6 +238,7 @@ public record Filling
     public TradeMarkLogo? TrademarkLogo {get;set;}
     public TradeMarkType?  TrademarkType {get;set;}
     public string? TrademarkDisclaimer {get;set;}
+    public string? TrademarkSpecification { get; set; }
     public string? RtmNumber {get;set;}
     public string? Comment { get; set; } = null;
     [BsonElement("registered_User")]
@@ -1035,7 +1036,9 @@ public enum ApplicationStatuses
     AwaitingOfficeProcess = 36,
     Abandoned = 37,
     WithdrawalRequested = 38,
-    WithdrawalApproved = 39
+    WithdrawalApproved = 39,
+    BatchedManualPublication = 40,
+    Published = 41,
 }
 
 public record AssignmentCertificateType
