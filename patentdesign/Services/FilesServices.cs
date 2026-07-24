@@ -2746,7 +2746,7 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            //var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
 
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
@@ -13993,22 +13993,22 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var applicantName = applicant.Name ?? string.Empty;
         var applicantEmail = applicant.Email ?? string.Empty;
         var applicantPhone = applicant.Phone ?? string.Empty;
-        //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-        //var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            //"Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
-        //if (rrr is null)
-        //{
-        //    _log.LogError("Failed to Generate RRR");
-        //    throw new NullReferenceException();
-        //}
-        var app = new ApplicationInfo
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+            var rrr = await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+                "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+            if (rrr is null)
+            {
+                _log.LogError("Failed to Generate RRR");
+                throw new NullReferenceException();
+            }
+            var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
             ExpiryDate = null,
             LicenseType = "",
             ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = "-",
+            PaymentId = rrr,
             StatusHistory =
             [
                 new ApplicationHistory
@@ -14034,9 +14034,9 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         {
             Applicant = applicantName,
             FileNumber = fileId,
-            PaymentId = "-",
+            PaymentId = rrr,
             FileStatus = file.FileStatus,
-            Cost = "0"
+            Cost = cost.Item1
         };
         return restore;
     }
