@@ -9,7 +9,6 @@ namespace Tfunctions.pdfs
     public class JournalDocumentNewspaper(
         List<PublicationInfo> models,
         FileTypes type,
-        DateTime start,
         DateTime end) : IDocument
     {
         // ── Brand tokens ──────────────────────────────────────────────────────

@@ -16,8 +16,9 @@ namespace patentdesign.Services
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
-            
+        private static IMongoCollection<Counters> _counters;
         private static IMongoCollection<Filling> _files; 
+        private static IMongoCollection<StaffPerformance> _performanceCollection;
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
         private readonly IServiceProvider _serviceProvider;
@@ -30,6 +31,8 @@ namespace patentdesign.Services
             _users = db.GetCollection<AppUser>("appUsers");
             _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
             _files = db.GetCollection<Filling>("files");
+            _counters = db.GetCollection<Counters>("counters");
+            _performanceCollection = db.GetCollection<StaffPerformance>("staffPerformance");
             _emailServices = emailServices;
             _serviceProvider = serviceProvider;
         }
@@ -135,14 +138,11 @@ namespace patentdesign.Services
 
             return publications.Count;
         }
-        public async Task<byte[]> GetTrademarkJournal(DateTime startDate, DateTime endDate, FileTypes type)
+        public async Task<byte[]> GetTrademarkJournal(string batchVolume)
         {
-            _log.LogInformation("Generating batch publication PDF for type {FileType} from {StartDate} to {EndDate}",
-                type, startDate, endDate);
+            _log.LogInformation($"Generating batch publication PDF for Batch {batchVolume}");
 
-            var filter = Builders<PublicationInfo>.Filter.And(
-                Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
-                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate));
+            var filter = Builders<PublicationInfo>.Filter.Eq(x => x.BatchVolume, batchVolume);
 
             var publicationsData = await _pubCollection.Find(filter)
                 .Project(x => new PublicationInfo()
@@ -157,8 +157,6 @@ namespace patentdesign.Services
                     ClassDescription = x.ClassDescription,
                     Class = x.Class,
                     Attachments = x.Attachments,
-                    Images = type == FileTypes.Design ? x.Attachments : null,
-                    PriorityInfo = type == FileTypes.Patent ? x.PriorityInfo : null,
                     Representation = x.Representation
                 }).ToListAsync();
 
@@ -194,26 +192,26 @@ namespace patentdesign.Services
                     }
                 }
 
-                // design images
-                if (type == FileTypes.Design)
-                {
-                    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
-                    if (attachment?.url is { Count: > 0 } urls)
-                    {
-                        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
-                        dt.ImagesUrl ??= [];
-                        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
-                    }
-                }
+                //// design images
+                //if (type == FileTypes.Design)
+                //{
+                //    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
+                //    if (attachment?.url is { Count: > 0 } urls)
+                //    {
+                //        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
+                //        dt.ImagesUrl ??= [];
+                //        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
+                //    }
+                //}
             });
 
             await Task.WhenAll(tasks);
 
             _log.LogInformation("Image downloads complete; generating PDF");
-
+            var publicationDate = publicationsData.FirstOrDefault()?.BatchPublishDate ?? DateTime.Now;
             // Move CPU-bound PDF rendering off the request thread
             var pdfData = await Task.Run(() =>
-                new JournalDocumentNewspaper(publicationsData, type, startDate, endDate).GeneratePdf());
+                new JournalDocumentNewspaper(publicationsData, FileTypes.TradeMark, publicationDate).GeneratePdf());
 
             return pdfData;
         }
@@ -295,6 +293,22 @@ namespace patentdesign.Services
                 app.StatusHistory ??= [];
                 app.StatusHistory.Add(history);
                 app.CurrentStatus = nextStatus;
+                var perf = new PerformanceDto
+                {
+                    FileNumber = file.FileId,
+                    FileType = file.Type,
+                    AfterStatus = nextStatus,
+                    BeforeStatus = app.CurrentStatus,
+                    ApplicationId = app.id,
+                    ApplicationType = app.ApplicationType,
+                    AppUserId = staff.Id,
+                    Date = DateTime.Now,
+                    OfficeUnit = Enums.Roles.TrademarkPublication,
+                    Reason = dto.Comment
+                };
+
+                SavePerformance(perf);
+
                 if (nextStatus == ApplicationStatuses.Opposition)
                 {
                     var oppositionServices = _serviceProvider.GetRequiredService<OppositionService>();
@@ -325,6 +339,87 @@ namespace patentdesign.Services
                 _log.LogError(ex, "Failed to treat manual batch for file {FileNumber}", dto.FileNumber);
                 return false;
             }
+        }
+        private async Task<string> BatchPubs()
+        {
+            var pubs = await _pubCollection
+                .Find(p => p.IsBatchPublished == false)
+                .SortBy(p => p.PublicationDate)
+                .Limit(5000)
+                .ToListAsync();
+               
+            if (pubs.Count < 5000)
+            {
+                throw new InvalidOperationException("Not enough publications to batch. Minimum required is 5000.");
+            }
+
+            var batchVolume = $"VOL-{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+            var pubIds = pubs.Select(p => p.Id).ToList();
+
+            var filter = Builders<PublicationInfo>.Filter.In(p => p.Id, pubIds);
+            var update = Builders<PublicationInfo>.Update.Combine(
+                Builders<PublicationInfo>.Update.Set(p => p.BatchVolume, batchVolume),
+                Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, DateTime.Now),
+                Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true)
+                );
+
+            await _pubCollection.UpdateManyAsync(filter, update);
+
+            pubs.ForEach(p => p.BatchVolume = batchVolume);
+
+            return batchVolume;
+        }
+        public async Task<bool> BatchJournal(string userId)
+        {
+            var staff = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == userId).FirstOrDefaultAsync();
+            var batchVolume = await BatchPubs();
+            var performance = new PerformanceDto
+            {
+                AppUserId = staff?.Id,
+                FileType = FileTypes.TradeMark,
+                OfficeUnit = Enums.Roles.TrademarkPublication,
+                Date = DateTime.Now,
+                Reason = $"Batching trademark publications {batchVolume}",
+                BeforeStatus = ApplicationStatuses.Publication,
+                AfterStatus = ApplicationStatuses.Published
+            };
+            SavePerformance(performance);
+            var batch = _counters.Find(c => c.id == "Publication").FirstOrDefault();
+            if (batch is null)
+            {
+                throw new KeyNotFoundException("Publication counter not found");
+            }
+
+            var newBatch = new PublicationBatch
+            {
+                BatchDate = DateTime.Now,
+                BatchNumber = batchVolume,
+            };
+            var update = Builders<Counters>.Update
+                .Push(c => c.Batches, newBatch)
+                .Set(c => c.LatestBatch, batchVolume);
+
+            await _counters.UpdateOneAsync(c => c.id == "Publication", update);
+
+            return true;
+        }
+
+        private static void SavePerformance(PerformanceDto perf)
+        {
+            var performance = new StaffPerformance
+            {
+                FileNumber = perf.FileNumber,
+                FileType = perf.FileType,
+                AfterStatus = perf.AfterStatus,
+                BeforeStatus = perf.BeforeStatus,
+                ApplicationType = perf.ApplicationType,
+                AppUserId = perf.AppUserId,
+                Date = perf.Date,
+                Reason = perf.Reason,
+                OfficeUnit = perf.OfficeUnit,
+            };
+
+            _performanceCollection.InsertOne(performance);
         }
     }
 }

@@ -542,6 +542,15 @@ public record Counters
     [BsonId]
     public string id { get; set; }
     public int currentNumber { get; set; }
+    public string? LatestBatch { get; set; }
+    public List<PublicationBatch>? Batches { get; set; }
+}
+public record PublicationBatch
+{
+    [BsonId]
+    public string id { get; set; } = Guid.NewGuid().ToString();
+    public string BatchNumber { get; set; }
+    public DateTime BatchDate { get; set; }
 }
 
 public record ApplicationInfo

@@ -1,5 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Response;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 
@@ -9,11 +11,11 @@ namespace patentdesign.Controllers
     [Route("api/publication")]
     public class PublicationController(PublicationServices publicationServices) : ControllerBase
     {
+
         [HttpGet("GetPublication")]
-        public async Task<IActionResult> GetJournal([FromQuery] int type, [FromQuery] DateTime start,
-            [FromQuery] DateTime end)
+        public async Task<IActionResult> GetJournal([FromQuery] string batchVolume)
         {
-            var data = await publicationServices.GetTrademarkJournal(start, end, Enum.GetValues<FileTypes>()[type]);
+            var data = await publicationServices.GetTrademarkJournal(batchVolume);
             Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
             return File(data, "application/pdf", "journal.pdf");
         }
@@ -27,11 +29,26 @@ namespace patentdesign.Controllers
         }
 
         [HttpPost("SavePublication")]
-        public async Task<IActionResult> SavePublication([FromBody]PublicationDto publication)
+        public async Task<IActionResult> SavePublication([FromBody] PublicationDto publication)
         {
             try
             {
                 await publicationServices.SavePublication(publication);
+                return Ok();
+            }
+            catch (Exception e)
+            {
+                return BadRequest(new { message = e.Message });
+            }
+        }
+
+        [Authorize(Roles = nameof(Roles.TrademarkRegistrar) + "," + nameof(Roles.TrademarkPublication) + "," + nameof(Roles.SuperAdmin))]
+        [HttpPost("BatchJournal")]
+        public async Task<IActionResult> BatchPublications([FromQuery] string userId)
+        {
+            try
+            {
+                await publicationServices.BatchJournal(userId);
                 return Ok();
             }
             catch (Exception e)

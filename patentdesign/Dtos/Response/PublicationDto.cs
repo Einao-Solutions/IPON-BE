@@ -11,6 +11,7 @@ namespace patentdesign.Dtos.Response
         public List<Opposition>? Opposition { get; set; }
         public DateTime? PublicationDate { get; set; }
         public bool? IsManualPublication { get; set; } = false;
+        public string? BatchVolume { get; set; }
     }
     public class PublicationInfoDto
     {
