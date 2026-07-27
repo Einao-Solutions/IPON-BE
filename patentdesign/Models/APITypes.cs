@@ -362,9 +362,11 @@ namespace patentdesign.Enums;
         public FormApplicationTypes applicationType { get; set; }
         public ApplicationStatuses beforeStatus { get; set; }
         public ApplicationStatuses afterStatus { get; set; }
+        public IFormFile? attachment { get; set; }
         public string reason { get; set; }
         public string userId { get; set; }
         public string userName { get; set; }
+        
     }
     public record DataUpdateReq
     {

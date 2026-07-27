@@ -248,7 +248,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
     }
 
     [HttpPost("AdminUpdateApplication")]
-    public async Task<IActionResult> AdminUpdateApplication([FromBody] AdminUpdateReq req)
+    public async Task<IActionResult> AdminUpdateApplication([FromForm] AdminUpdateReq req)
     {
         var stats = await fileService.AdminUpdateAsync(req);
         return Ok(stats);

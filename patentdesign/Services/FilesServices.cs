@@ -3165,10 +3165,32 @@ public class FilesServices
             afterStatus = req.afterStatus,
             beforeStatus = req.beforeStatus,
             Date = DateTime.Now,
-            Message = req.reason,
+            Message = $"Application status recalled. {req.reason}",
             User = req.userName,
             UserId = req.userId
         };
+        if (req.attachment is { Length: > 0 })
+        {
+            using var ms = new MemoryStream();
+            await req.attachment.CopyToAsync(ms);
+
+            var fileName = Path.GetFileName(req.attachment.FileName);
+            var attachmentUrls = await UploadAttachment(new List<TT>
+            {
+                new()
+                {
+                    Name = "adminUpdate",
+                    data = ms.ToArray(),
+                    fileName = string.IsNullOrWhiteSpace(fileName) ? "attachment" : fileName,
+                    contentType = string.IsNullOrWhiteSpace(req.attachment.ContentType)
+                        ? GetContentType(fileName)
+                        : req.attachment.ContentType
+                }
+            });
+
+            latestAddition.AttachmentUrl = attachmentUrls.FirstOrDefault();
+            latestAddition.AttachmentName = fileName;
+        }
         var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", req.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == req.applicationId));
         List<UpdateDefinition<Filling>> operations = [];
