@@ -403,7 +403,6 @@ namespace patentdesign.Services
 
             return true;
         }
-
         private static void SavePerformance(PerformanceDto perf)
         {
             var performance = new StaffPerformance
@@ -421,6 +420,7 @@ namespace patentdesign.Services
 
             _performanceCollection.InsertOne(performance);
         }
+        
     }
 }
     
