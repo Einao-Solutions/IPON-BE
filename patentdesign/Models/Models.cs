@@ -314,6 +314,8 @@ public record ClericalUpdate
     public string? OldCorrespondenceState { get; set; }
     public string? OldPatentAbstract { get; set; }
     public string? NewPatentAbstract { get; set; }
+    public PatentTypes? OldPatentType { get; set; }
+    public PatentTypes? NewPatentType { get; set; }
     public PatentApplicationTypes? OldPatentApplicationType { get; set; }
     public PatentApplicationTypes? NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
