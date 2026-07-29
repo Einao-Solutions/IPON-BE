@@ -599,6 +599,8 @@ public record ApplicationHistory
      public ApplicationStatuses? afterStatus { get; set; }
     public string? User { get; set; }
     public string? UserId { get; set; }
+    public string? AttachmentUrl { get; set; }
+    public string? AttachmentName { get; set; }
 }
 
 public record AttachmentType
