@@ -25,7 +25,8 @@ namespace patentdesign.Services
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
         private readonly IServiceProvider _serviceProvider;
-        private string attachmentBaseUrl = "https://integration.iponigeria.com";
+        //private string attachmentBaseUrl = "https://integration.iponigeria.com";
+        private string attachmentBaseUrl = "http://localhost:5044";
         private readonly ILogger<AuthServices> _log;
         public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, IServiceProvider serviceProvider)
         {
@@ -165,54 +166,55 @@ namespace patentdesign.Services
                     Representation = x.Representation
                 }).ToListAsync();
 
-            _log.LogInformation("Fetched {Count} publications, starting image downloads", publicationsData.Count);
+            _log.LogInformation("Fetched {Count} publications, skipping image downloads (temporarily disabled)", publicationsData.Count);
 
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            using var gate = new SemaphoreSlim(8); // cap concurrent downloads
+            // TODO: re-enable image downloads when ready
+            //using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            //using var gate = new SemaphoreSlim(8); // cap concurrent downloads
 
-            async Task<byte[]?> DownloadAsync(string url)
-            {
-                await gate.WaitAsync();
-                try { return await httpClient.GetByteArrayAsync(url); }
-                catch (Exception ex)
-                {
-                    _log.LogWarning(ex, "Image download failed: {Url}", url);
-                    return null;
-                }
-                finally { gate.Release(); }
-            }
+            //async Task<byte[]?> DownloadAsync(string url)
+            //{
+            //    await gate.WaitAsync();
+            //    try { return await httpClient.GetByteArrayAsync(url); }
+            //    catch (Exception ex)
+            //    {
+            //        _log.LogWarning(ex, "Image download failed: {Url}", url);
+            //        return null;
+            //    }
+            //    finally { gate.Release(); }
+            //}
 
-            var tasks = publicationsData.Select(async dt =>
-            {
-                // representation thumbnail
-                var representation = dt.Attachments?.FirstOrDefault(x => x.name == "representation");
-                if (representation?.url?.Count > 0)
-                {
-                    var bytes = await DownloadAsync(representation.url[0]);
-                    if (bytes != null)
-                    {
-                        dt.Representation = bytes;
-                        dt.ImagesUrl ??= [];
-                        dt.ImagesUrl.Insert(0, bytes);
-                    }
-                }
+            //var tasks = publicationsData.Select(async dt =>
+            //{
+            //    // representation thumbnail
+            //    var representation = dt.Attachments?.FirstOrDefault(x => x.name == "representation");
+            //    if (representation?.url?.Count > 0)
+            //    {
+            //        var bytes = await DownloadAsync(representation.url[0]);
+            //        if (bytes != null)
+            //        {
+            //            dt.Representation = bytes;
+            //            dt.ImagesUrl ??= [];
+            //            dt.ImagesUrl.Insert(0, bytes);
+            //        }
+            //    }
 
-                //// design images
-                //if (type == FileTypes.Design)
-                //{
-                //    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
-                //    if (attachment?.url is { Count: > 0 } urls)
-                //    {
-                //        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
-                //        dt.ImagesUrl ??= [];
-                //        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
-                //    }
-                //}
-            });
+            //    //// design images
+            //    //if (type == FileTypes.Design)
+            //    //{
+            //    //    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
+            //    //    if (attachment?.url is { Count: > 0 } urls)
+            //    //    {
+            //    //        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
+            //    //        dt.ImagesUrl ??= [];
+            //    //        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
+            //    //    }
+            //    //}
+            //});
 
-            await Task.WhenAll(tasks);
+            //await Task.WhenAll(tasks);
 
-            _log.LogInformation("Image downloads complete; generating PDF");
+            _log.LogInformation("Generating PDF");
             var publicationDate = publicationsData.FirstOrDefault()?.BatchPublishDate ?? DateTime.Now;
             // Move CPU-bound PDF rendering off the request thread
             var pdfData = await Task.Run(() =>
@@ -358,15 +360,14 @@ namespace patentdesign.Services
                 throw new InvalidOperationException("Not enough publications to batch. Minimum required is 5000.");
             }
 
-            var batchVolume = $"{DateTime.UtcNow.Year}/V{dto.Volume}/N{dto.Number}";
+            var batchVolume = $"{DateTime.UtcNow.Year}V{dto.Volume}N{dto.Number}";
             var pubIds = pubs.Select(p => p.Id).ToList();
 
             var filter = Builders<PublicationInfo>.Filter.In(p => p.Id, pubIds);
             var update = Builders<PublicationInfo>.Update.Combine(
                 Builders<PublicationInfo>.Update.Set(p => p.BatchVolume, batchVolume),
                 Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, dto.ReleaseDate),
-                Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true)
-                );
+                Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true));
 
             await _pubCollection.UpdateManyAsync(filter, update);
             
@@ -399,7 +400,7 @@ namespace patentdesign.Services
             {
                 data = journal,
                 contentType = "application/pdf",
-                fileName = batchVolume,
+                fileName = $"{batchVolume}.pdf",
                 Name = $"TrademarkJournal_{batchVolume}"
             };
             var journalUrl = await UploadJournal(upload);
@@ -445,6 +446,11 @@ namespace patentdesign.Services
             });
             var url = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
             return url;
+        }
+
+        public async Task<List<PublicationJournal>> GetJournals()
+        {
+            return await _journals.Find(_ => true).ToListAsync();
         }
     }
 }

@@ -56,5 +56,12 @@ namespace patentdesign.Controllers
                 return BadRequest(new { message = e.Message });
             }
         }
+
+        [HttpGet("GetJournals")]
+        public async Task<IActionResult> GetJournals()
+        {
+            var data = await publicationServices.GetJournals();
+            return Ok(data);
+        }
     }
 }
