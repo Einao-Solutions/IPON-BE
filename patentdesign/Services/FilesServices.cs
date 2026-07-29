@@ -2746,8 +2746,8 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            //var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
 
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
@@ -3165,10 +3165,32 @@ public class FilesServices
             afterStatus = req.afterStatus,
             beforeStatus = req.beforeStatus,
             Date = DateTime.Now,
-            Message = req.reason,
+            Message = $"Application status recalled. {req.reason}",
             User = req.userName,
             UserId = req.userId
         };
+        if (req.attachment is { Length: > 0 })
+        {
+            using var ms = new MemoryStream();
+            await req.attachment.CopyToAsync(ms);
+
+            var fileName = Path.GetFileName(req.attachment.FileName);
+            var attachmentUrls = await UploadAttachment(new List<TT>
+            {
+                new()
+                {
+                    Name = "adminUpdate",
+                    data = ms.ToArray(),
+                    fileName = string.IsNullOrWhiteSpace(fileName) ? "attachment" : fileName,
+                    contentType = string.IsNullOrWhiteSpace(req.attachment.ContentType)
+                        ? GetContentType(fileName)
+                        : req.attachment.ContentType
+                }
+            });
+
+            latestAddition.AttachmentUrl = attachmentUrls.FirstOrDefault();
+            latestAddition.AttachmentName = fileName;
+        }
         var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", req.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == req.applicationId));
         List<UpdateDefinition<Filling>> operations = [];
@@ -14071,22 +14093,22 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var applicantName = applicant.Name ?? string.Empty;
         var applicantEmail = applicant.Email ?? string.Empty;
         var applicantPhone = applicant.Phone ?? string.Empty;
-        //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-        //var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            //"Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
-        //if (rrr is null)
-        //{
-        //    _log.LogError("Failed to Generate RRR");
-        //    throw new NullReferenceException();
-        //}
-        var app = new ApplicationInfo
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+            var rrr = await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+                "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+            if (rrr is null)
+            {
+                _log.LogError("Failed to Generate RRR");
+                throw new NullReferenceException();
+            }
+            var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
             ExpiryDate = null,
             LicenseType = "",
             ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = "-",
+            PaymentId = rrr,
             StatusHistory =
             [
                 new ApplicationHistory
@@ -14112,9 +14134,9 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         {
             Applicant = applicantName,
             FileNumber = fileId,
-            PaymentId = "-",
+            PaymentId = rrr,
             FileStatus = file.FileStatus,
-            Cost = "0"
+            Cost = cost.Item1
         };
         return restore;
     }
