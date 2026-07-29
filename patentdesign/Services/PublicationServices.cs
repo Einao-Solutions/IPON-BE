@@ -8,6 +8,7 @@ using patentdesign.Dtos.Response;
 using QuestPDF.Fluent;
 using Tfunctions.pdfs;
 using patentdesign.Dtos.Request;
+using patentdesign.Enums;
 
 namespace patentdesign.Services
 {
@@ -17,22 +18,26 @@ namespace patentdesign.Services
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
         private static IMongoCollection<Counters> _counters;
-        private static IMongoCollection<Filling> _files; 
+        private static IMongoCollection<Filling> _files;
+        private static IMongoCollection<PublicationJournal> _journals;
+        private static IMongoCollection<AttachmentInfo> _attachments;
         private static IMongoCollection<StaffPerformance> _performanceCollection;
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
         private readonly IServiceProvider _serviceProvider;
+        private string attachmentBaseUrl = "https://integration.iponigeria.com";
         private readonly ILogger<AuthServices> _log;
         public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, IServiceProvider serviceProvider)
         {
             _config = config;
             _log = log;
-
             _users = db.GetCollection<AppUser>("appUsers");
             _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
             _files = db.GetCollection<Filling>("files");
             _counters = db.GetCollection<Counters>("counters");
             _performanceCollection = db.GetCollection<StaffPerformance>("staffPerformance");
+            _journals = db.GetCollection<PublicationJournal>("publicationJournals");
+            _attachments = db.GetCollection<AttachmentInfo>("attachments");
             _emailServices = emailServices;
             _serviceProvider = serviceProvider;
         }
@@ -340,7 +345,7 @@ namespace patentdesign.Services
                 return false;
             }
         }
-        private async Task<string> BatchPubs()
+        private async Task<string> BatchPubs(StaffBatchRequest dto)
         {
             var pubs = await _pubCollection
                 .Find(p => p.IsBatchPublished == false)
@@ -353,26 +358,26 @@ namespace patentdesign.Services
                 throw new InvalidOperationException("Not enough publications to batch. Minimum required is 5000.");
             }
 
-            var batchVolume = $"VOL-{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+            var batchVolume = $"{DateTime.UtcNow.Year}/V{dto.Volume}/N{dto.Number}";
             var pubIds = pubs.Select(p => p.Id).ToList();
 
             var filter = Builders<PublicationInfo>.Filter.In(p => p.Id, pubIds);
             var update = Builders<PublicationInfo>.Update.Combine(
                 Builders<PublicationInfo>.Update.Set(p => p.BatchVolume, batchVolume),
-                Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, DateTime.Now),
+                Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, dto.ReleaseDate),
                 Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true)
                 );
 
             await _pubCollection.UpdateManyAsync(filter, update);
-
+            
             pubs.ForEach(p => p.BatchVolume = batchVolume);
 
             return batchVolume;
         }
-        public async Task<bool> BatchJournal(string userId)
+        public async Task<bool> BatchJournal(StaffBatchRequest dto)
         {
-            var staff = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == userId).FirstOrDefaultAsync();
-            var batchVolume = await BatchPubs();
+            var staff = await _users.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == dto.UserId).FirstOrDefaultAsync();
+            var batchVolume = await BatchPubs(dto);
             var performance = new PerformanceDto
             {
                 AppUserId = staff?.Id,
@@ -389,18 +394,25 @@ namespace patentdesign.Services
             {
                 throw new KeyNotFoundException("Publication counter not found");
             }
-
-            var newBatch = new PublicationBatch
+            var journal = await GetTrademarkJournal(batchVolume);
+            var upload = new TT
             {
-                BatchDate = DateTime.Now,
-                BatchNumber = batchVolume,
+                data = journal,
+                contentType = "application/pdf",
+                fileName = batchVolume,
+                Name = $"TrademarkJournal_{batchVolume}"
             };
-            var update = Builders<Counters>.Update
-                .Push(c => c.Batches, newBatch)
-                .Set(c => c.LatestBatch, batchVolume);
-
-            await _counters.UpdateOneAsync(c => c.id == "Publication", update);
-
+            var journalUrl = await UploadJournal(upload);
+            var save = new PublicationJournal
+            {
+                JournalReleaseDate = dto.ReleaseDate,
+                FileType = FileTypes.TradeMark,
+                BatchedBy = staff?.Name,
+                CreatedAt = DateTime.UtcNow,
+                DocumentUrl = journalUrl,
+                Batch = batchVolume
+            };
+            await _journals.InsertOneAsync(save);
             return true;
         }
         private static void SavePerformance(PerformanceDto perf)
@@ -417,10 +429,23 @@ namespace patentdesign.Services
                 Reason = perf.Reason,
                 OfficeUnit = perf.OfficeUnit,
             };
-
             _performanceCollection.InsertOne(performance);
         }
-        
+        private async Task<string> UploadJournal(TT file)
+        {
+            var extention = file.fileName.Split(".").Last();
+            var trustedFileName = Path.GetRandomFileName();
+            trustedFileName = trustedFileName.Split(".")[0] + $".{extention}";
+
+            await _attachments.InsertOneAsync(new AttachmentInfo
+            {
+                Id = trustedFileName,
+                ContentType = file.contentType,
+                Data = file.data
+            });
+            var url = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
+            return url;
+        }
     }
 }
     

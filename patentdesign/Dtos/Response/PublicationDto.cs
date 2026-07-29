@@ -37,4 +37,12 @@ namespace patentdesign.Dtos.Response
         public string ApplicationId { get; set; }
         public bool IsApproved { get; set; } = false;
     }
+
+    public class StaffBatchRequest
+    {
+        public string UserId { get; set; }
+        public int Volume { get; set; }
+        public int Number { get; set; }
+        public DateTime ReleaseDate {get; set;}
+    }
 }

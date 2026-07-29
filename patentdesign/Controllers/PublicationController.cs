@@ -42,13 +42,13 @@ namespace patentdesign.Controllers
             }
         }
 
-        [Authorize(Roles = nameof(Roles.TrademarkRegistrar) + "," + nameof(Roles.TrademarkPublication) + "," + nameof(Roles.SuperAdmin))]
+        [Authorize(Roles = nameof(Roles.TrademarkRegistrar) + "," + nameof(Roles.TrademarkPublication) + "," + nameof(Roles.SuperAdmin)+ "," + nameof(Roles.ActingTrademarkRegistrar))]
         [HttpPost("BatchJournal")]
-        public async Task<IActionResult> BatchPublications([FromQuery] string userId)
+        public async Task<IActionResult> BatchPublications([FromBody] StaffBatchRequest dto)
         {
             try
             {
-                await publicationServices.BatchJournal(userId);
+                await publicationServices.BatchJournal(dto);
                 return Ok();
             }
             catch (Exception e)

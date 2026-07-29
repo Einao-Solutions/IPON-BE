@@ -1953,3 +1953,14 @@ public class Notification
     public FormApplicationTypes? ApplicationType { get; set; }
     public string? ApplicationId { get; set; }
 }
+
+public class PublicationJournal
+{
+    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+    public FileTypes FileType { get; set; }
+    public string Batch { get; set; }
+    public string DocumentUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime JournalReleaseDate { get; set; }
+    public string BatchedBy { get; set; }
+}
