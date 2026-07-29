@@ -7858,17 +7858,23 @@ public class FilesServices
             if (user is null) throw new KeyNotFoundException("User not found");
 
             // Check if this exact clerical update already exists (idempotency)
-            var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
-                c.PaymentRRR == updateData.PaymentRRR &&
-                c.UpdateType == updateData.UpdateType.ToString() &&
-                c.FilingDate.Date == DateTime.Now.Date
-            );
-
-            if (existingUpdate != null)
+            // Skip this for free updates, since PaymentRRR is usually the same literal value ("Free")
+            // and can incorrectly block legitimate new requests on the same day.
+            var isFreeUpdate = string.Equals(updateData.PaymentRRR, "Free", StringComparison.OrdinalIgnoreCase);
+            if (!isFreeUpdate)
             {
-                _log.LogInformation("Clerical update already exists for FileId {FileId}, UpdateType {UpdateType}, AppId {AppId}", updateData.FileId, updateData.UpdateType, existingUpdate.Id);
-                Console.WriteLine("Application already exists!");
-                return existingUpdate.Id;
+                var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
+                    c.PaymentRRR == updateData.PaymentRRR &&
+                    c.UpdateType == updateData.UpdateType.ToString() &&
+                    c.FilingDate.Date == DateTime.Now.Date
+                );
+
+                if (existingUpdate != null)
+                {
+                    _log.LogInformation("Clerical update already exists for FileId {FileId}, UpdateType {UpdateType}, AppId {AppId}", updateData.FileId, updateData.UpdateType, existingUpdate.Id);
+                    Console.WriteLine("Application already exists!");
+                    return existingUpdate.Id;
+                }
             }
 
             var applicant = file.applicants?.FirstOrDefault();
@@ -7927,6 +7933,55 @@ public class FilesServices
             return "Failed";
         }
     }
+
+    private static bool IsForeignPatentFile(Filling file)
+    {
+        if (file.Type != FileTypes.Patent)
+            return false;
+
+        var isForeignByFileNumber = file.FileId?
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault()?
+            .Equals("F", StringComparison.OrdinalIgnoreCase) == true;
+
+        if (isForeignByFileNumber)
+            return true;
+
+        if (string.Equals(file.FileOrigin, "foreign", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return file.applicants?.Any(a =>
+            !string.IsNullOrWhiteSpace(a.country) &&
+            !string.Equals(a.country, "Nigeria", StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private static string GetPatentTypeCode(PatentTypes patentType)
+    {
+        return patentType switch
+        {
+            PatentTypes.Conventional => "C",
+            PatentTypes.Non_Conventional => "NC",
+            PatentTypes.PCT => "PCT",
+            _ => "PCT"
+        };
+    }
+
+    private static string? BuildUpdatedPatentFileId(string? currentFileId, PatentTypes newPatentType)
+    {
+        if (string.IsNullOrWhiteSpace(currentFileId))
+            return null;
+
+        var parts = currentFileId.Split('/').ToList();
+        if (parts.Count < 3)
+            return null;
+
+        if (!string.Equals(parts[1], "PT", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        parts[2] = GetPatentTypeCode(newPatentType);
+        return string.Join("/", parts);
+    }
+
     private async Task<ClericalUpdate> CreateClericalUpdateRecord(
     Filling file,
     ClericalUpdateDto updateData,
@@ -8075,6 +8130,14 @@ public class FilesServices
                     {
                         clerical.OldPatentAbstract = file.PatentAbstract;
                         clerical.NewPatentAbstract = updateData.PatentAbstract;
+                    }
+                    if (updateData.PatentType.HasValue)
+                    {
+                        if (!IsForeignPatentFile(file))
+                            throw new InvalidOperationException("Patent type can only be edited for foreign patent files.");
+
+                        clerical.OldPatentType = file.PatentType;
+                        clerical.NewPatentType = updateData.PatentType;
                     }
                     if (updateData.PatentApplicationType.HasValue)
                     {
@@ -8528,6 +8591,21 @@ public class FilesServices
                         if (!string.IsNullOrWhiteSpace(clerical.NewPatentAbstract))
                         {
                             updates.Add(Builders<Filling>.Update.Set(f => f.PatentAbstract, clerical.NewPatentAbstract));
+                        }
+                        if (clerical.NewPatentType is not null)
+                        {
+                            if (!IsForeignPatentFile(file))
+                                throw new InvalidOperationException("Patent type can only be edited for foreign patent files.");
+
+                            updates.Add(Builders<Filling>.Update.Set(f => f.PatentType, clerical.NewPatentType));
+
+                            var updatedFileId = BuildUpdatedPatentFileId(file.FileId, clerical.NewPatentType.Value);
+                            if (!string.IsNullOrWhiteSpace(updatedFileId) &&
+                                !string.Equals(updatedFileId, file.FileId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                updates.Add(Builders<Filling>.Update.Set(f => f.FileId, updatedFileId));
+                                file.FileId = updatedFileId;
+                            }
                         }
                         if (clerical.NewPatentApplicationType != null)
                         {
