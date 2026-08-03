@@ -8128,6 +8128,9 @@ public class FilesServices
             var user = await _userCollection.Find(u => u.Id == updateData.UserId).FirstOrDefaultAsync();
             if (user is null) throw new KeyNotFoundException("User not found");
 
+            // Check if this exact clerical update already exists (idempotency)
+            // Skip this for free updates, since PaymentRRR is usually the same literal value ("Free")
+            // and can incorrectly block legitimate new requests on the same day.
             var isFreeUpdate = string.Equals(updateData.PaymentRRR, "Free", StringComparison.OrdinalIgnoreCase);
             if (!isFreeUpdate)
             {
