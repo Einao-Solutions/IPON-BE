@@ -97,6 +97,15 @@ public class FilesServices
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
     {
+        if (user.UserRoles.Contains(Roles.SuperAdmin) ||
+            user.UserRoles.Contains(Roles.TrademarkRegistrar) ||
+            user.UserRoles.Contains(Roles.PatentDesignRegistrar) ||
+            user.UserRoles.Contains(Roles.ActingTrademarkRegistrar) ||
+            user.UserRoles.Contains(Roles.ActingPatentDesignRegistrar))
+        {
+            return true;
+        }
+
         return fileType switch
         {
             FileTypes.TradeMark => user.UserRoles.Contains(Roles.TrademarkCertification),
@@ -6994,6 +7003,17 @@ public class FilesServices
 
         var paymentId = dto.PaymentId.Trim();
 
+        var paymentIdExistsInApplicationHistory = file.ApplicationHistory?.Any(a =>
+            !string.IsNullOrWhiteSpace(a.PaymentId) &&
+            string.Equals(a.PaymentId.Trim(), paymentId, StringComparison.OrdinalIgnoreCase)) == true;
+
+        var paymentIdExistsInPostRegistration = file.PostRegApplications?.Any(a =>
+            !string.IsNullOrWhiteSpace(a.rrr) &&
+            string.Equals(a.rrr.Trim(), paymentId, StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (paymentIdExistsInApplicationHistory || paymentIdExistsInPostRegistration)
+            return (false, "Payment ID already exists for this file", null);
+
         var duplicatePendingRequest = await _offlineRenewalRequestsCollection
             .Find(x => x.FileId == file.FileId &&
                        x.Status == OfflineRenewalRequestStatus.AwaitingRenewalConfirmation &&
@@ -7049,37 +7069,99 @@ public class FilesServices
         return (true, "Offline renewal request submitted successfully", request.Id);
     }
 
-    public async Task<(bool Success, string Message, object? Data)> GetOfflineRenewalRequestDetailsAsync(string requestId, string userId)
+    public async Task<(bool Success, string Message, object? Data)> GetOfflineRenewalRequestDetailsAsync(string requestId)
     {
-        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-        if (user == null)
-            return (false, "User not found", null);
+        if (string.IsNullOrWhiteSpace(requestId))
+            return (false, "Request id is required", null);
 
-        var request = await _offlineRenewalRequestsCollection.Find(x => x.Id == requestId).FirstOrDefaultAsync();
+        var collection = _offlineRenewalRequestsCollection.Database
+            .GetCollection<BsonDocument>(_offlineRenewalRequestsCollection.CollectionNamespace.CollectionName);
+
+        var request = await collection.Find(Builders<BsonDocument>.Filter.Eq("Id", requestId)).FirstOrDefaultAsync();
         if (request == null)
             return (false, "Offline renewal request not found", null);
 
-        if (!HasOfflineRenewalCertificateRole(user, request.FileType))
-            return (false, "Unauthorized", null);
+        return (true, "Offline renewal request fetched successfully", BuildOfflineRenewalDetailsResponse(request));
+    }
 
-        var file = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
+    public async Task<(bool Success, string Message, object? Data)> GetOfflineRenewalRequestDetailsByApplicationHistoryIdAsync(string applicationHistoryId)
+    {
+        if (string.IsNullOrWhiteSpace(applicationHistoryId))
+            return (false, "Application history id is required", null);
 
-        return (true, "Offline renewal request fetched successfully", new
+        var collection = _offlineRenewalRequestsCollection.Database
+            .GetCollection<BsonDocument>(_offlineRenewalRequestsCollection.CollectionNamespace.CollectionName);
+
+        var filter = Builders<BsonDocument>.Filter.Or(
+            Builders<BsonDocument>.Filter.Eq("PendingApplicationHistoryId", applicationHistoryId),
+            Builders<BsonDocument>.Filter.Eq("RenewalHistoryApplicationId", applicationHistoryId));
+
+        var request = await collection.Find(filter).FirstOrDefaultAsync();
+        if (request == null)
+            return (false, "Offline renewal request not found", null);
+
+        return (true, "Offline renewal request fetched successfully", BuildOfflineRenewalDetailsResponse(request));
+    }
+
+    private static object BuildOfflineRenewalDetailsResponse(BsonDocument request)
+    {
+        var paymentDate = ReadOfflineRenewalPaymentDate(request);
+
+        return new
         {
-            Request = request,
-            File = file == null
-                ? null
-                : new
+            FileId = request.GetValue("FileId", "").AsString,
+            RenewalYear = request.GetValue("RenewalYear", 0).ToInt32(),
+            PaymentDate = paymentDate,
+            PaymentId = request.GetValue("PaymentId", "").AsString,
+            RenewalReceiptAttachments = ReadOfflineRenewalAttachments(request, "RenewalReceiptAttachments"),
+            RenewalCertificateAttachments = ReadOfflineRenewalAttachments(request, "RenewalCertificateAttachments")
+        };
+    }
+
+    private static DateTime ReadOfflineRenewalPaymentDate(BsonDocument request)
+    {
+        if (!request.TryGetValue("PaymentDate", out var value))
+            return DateTime.MinValue;
+
+        if (value.BsonType == BsonType.DateTime)
+            return value.AsBsonDateTime.ToUniversalTime();
+
+        if (value.BsonType == BsonType.String && DateTime.TryParse(value.AsString, out var parsed))
+            return parsed;
+
+        return DateTime.MinValue;
+    }
+
+    private static List<object> ReadOfflineRenewalAttachments(BsonDocument request, string fieldName)
+    {
+        if (!request.TryGetValue(fieldName, out var value) || value.BsonType != BsonType.Array)
+            return new List<object>();
+
+        var arr = value.AsBsonArray;
+        var result = new List<object>();
+
+        foreach (var item in arr)
+        {
+            if (item.BsonType == BsonType.String)
+            {
+                result.Add(new { url = item.AsString });
+                continue;
+            }
+
+            if (item.BsonType == BsonType.Document)
+            {
+                var doc = item.AsBsonDocument;
+                result.Add(new
                 {
-                    file.FileId,
-                    file.Type,
-                    file.FileStatus,
-                    file.RtmNumber,
-                    file.TitleOfTradeMark,
-                    file.TitleOfInvention,
-                    file.TitleOfDesign
-                }
-        });
+                    name = doc.TryGetValue("name", out var n) && n.BsonType == BsonType.String ? n.AsString : null,
+                    fileName = doc.TryGetValue("fileName", out var f) && f.BsonType == BsonType.String ? f.AsString : null,
+                    contentType = doc.TryGetValue("contentType", out var c) && c.BsonType == BsonType.String ? c.AsString : null,
+                    url = doc.TryGetValue("url", out var u) && u.BsonType == BsonType.String ? u.AsString : null
+                });
+            }
+        }
+
+        return result;
     }
 
     public async Task<(bool Success, string Message)> DecideOfflineRenewalRequestAsync(OfflineRenewalDecisionDto dto)
@@ -7091,7 +7173,17 @@ public class FilesServices
         if (string.IsNullOrWhiteSpace(dto.Reason))
             return (false, "Reason is required");
 
-        var request = await _offlineRenewalRequestsCollection.Find(x => x.Id == dto.RequestId).FirstOrDefaultAsync();
+        var request = await _offlineRenewalRequestsCollection
+            .Find(x => x.Id == dto.RequestId)
+            .FirstOrDefaultAsync();
+
+        if (request == null)
+        {
+            request = await _offlineRenewalRequestsCollection
+                .Find(x => x.PendingApplicationHistoryId == dto.RequestId || x.RenewalHistoryApplicationId == dto.RequestId)
+                .FirstOrDefaultAsync();
+        }
+
         if (request == null)
             return (false, "Offline renewal request not found");
 

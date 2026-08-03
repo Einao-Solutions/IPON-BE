@@ -1939,16 +1939,21 @@ public class FilesController(FilesServices fileService) : ControllerBase
     }
 
     [HttpGet("offline-renewal/requests/{requestId}")]
-    public async Task<IActionResult> GetOfflineRenewalRequestDetails(string requestId, [FromQuery] string userId)
+    public async Task<IActionResult> GetOfflineRenewalRequestDetails(string requestId)
     {
-        var (success, message, data) = await fileService.GetOfflineRenewalRequestDetailsAsync(requestId, userId);
+        var (success, message, data) = await fileService.GetOfflineRenewalRequestDetailsAsync(requestId);
         if (!success)
-        {
-            if (string.Equals(message, "Unauthorized", StringComparison.OrdinalIgnoreCase))
-                return Unauthorized(new { message });
-
             return NotFound(new { message });
-        }
+
+        return Ok(new { message, data });
+    }
+
+    [HttpGet("offline-renewal/application-history/{applicationHistoryId}")]
+    public async Task<IActionResult> GetOfflineRenewalRequestByApplicationHistoryId(string applicationHistoryId)
+    {
+        var (success, message, data) = await fileService.GetOfflineRenewalRequestDetailsByApplicationHistoryIdAsync(applicationHistoryId);
+        if (!success)
+            return NotFound(new { message });
 
         return Ok(new { message, data });
     }
