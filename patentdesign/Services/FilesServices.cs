@@ -59,6 +59,7 @@ public class FilesServices
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
     private static IMongoCollection<PublicationInfo> _publicationCollection;
     private static IMongoCollection<SignatureInfo> _signatures;
+    private static IMongoCollection<OfflineRenewalRequest> _offlineRenewalRequestsCollection;
     private readonly ILogger<FilesServices> _log;
 
     private PaymentUtils _remitaPaymentUtils;
@@ -83,6 +84,7 @@ public class FilesServices
         _ticketsCollection = db.GetCollection<TicketInfo>(s.TicketCollectionName);
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _offlineRenewalRequestsCollection = db.GetCollection<OfflineRenewalRequest>(s.OfflineRenewalRequestsCollectionName);
         _remitaPaymentUtils = remitaPaymentUtils;
         _paymentService = paymentService;
         _log = log;
@@ -91,6 +93,17 @@ public class FilesServices
         _publicationServices = publicationServices;
         _notificationServices = notificationServices;
         _signatures = db.GetCollection<SignatureInfo>("signatures");
+    }
+
+    private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
+    {
+        return fileType switch
+        {
+            FileTypes.TradeMark => user.UserRoles.Contains(Roles.TrademarkCertification),
+            FileTypes.Patent => user.UserRoles.Contains(Roles.PatentCertification),
+            FileTypes.Design => user.UserRoles.Contains(Roles.DesignCertification),
+            _ => false
+        };
     }
 
     public async Task<Filling?> GetFileAsync(string id)
@@ -6948,6 +6961,242 @@ public class FilesServices
         }
     }
 
+    public async Task<(bool Success, string Message, string? RequestId)> SubmitOfflineRenewalRequestAsync(OfflineRenewalSubmitDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.FileId))
+            return (false, "FileId is required", null);
+        if (string.IsNullOrWhiteSpace(dto.UserId))
+            return (false, "UserId is required", null);
+        if (!dto.RenewalYear.HasValue || dto.RenewalYear.Value <= 0)
+            return (false, "Renewal year is required", null);
+        if (!dto.PaymentDate.HasValue || dto.PaymentDate.Value == default)
+            return (false, "Payment date is required", null);
+        if (string.IsNullOrWhiteSpace(dto.PaymentId))
+            return (false, "Payment ID is required", null);
+        if (dto.RenewalReceiptAttachments == null || !dto.RenewalReceiptAttachments.Any())
+            return (false, "Renewal receipt attachment is required", null);
+        if (dto.RenewalCertificateAttachments == null || !dto.RenewalCertificateAttachments.Any())
+            return (false, "Renewal certificate attachment is required", null);
+
+        var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found", null);
+
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User not found", null);
+
+        var receiptUrls = await UploadAttachment(dto.RenewalReceiptAttachments);
+        var certificateUrls = await UploadAttachment(dto.RenewalCertificateAttachments);
+
+        if (!receiptUrls.Any() || !certificateUrls.Any())
+            return (false, "Unable to process attachments", null);
+
+        var paymentId = dto.PaymentId.Trim();
+
+        var duplicatePendingRequest = await _offlineRenewalRequestsCollection
+            .Find(x => x.FileId == file.FileId &&
+                       x.Status == OfflineRenewalRequestStatus.AwaitingRenewalConfirmation &&
+                       x.PaymentId == paymentId)
+            .FirstOrDefaultAsync();
+        if (duplicatePendingRequest != null)
+            return (false, "A pending offline renewal request already exists for this Payment ID", null);
+
+        var pendingHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.OfflineRenewalRequest,
+            CurrentStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+            ApplicationDate = DateTime.Now,
+            PaymentId = paymentId,
+            FieldToChange = "Offline Renewal Request",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new()
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+                    Message = "Offline renewal request submitted",
+                    User = user.Name,
+                    UserId = user.Id
+                }
+            }
+        };
+
+        file.ApplicationHistory ??= new List<ApplicationInfo>();
+        file.ApplicationHistory.Add(pendingHistory);
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var request = new OfflineRenewalRequest
+        {
+            FileId = file.FileId,
+            FileType = file.Type,
+            UserId = user.Id,
+            UserName = user.Name,
+            RenewalYear = dto.RenewalYear.Value,
+            PaymentDate = dto.PaymentDate.Value,
+            PaymentId = paymentId,
+            RenewalReceiptAttachments = receiptUrls,
+            RenewalCertificateAttachments = certificateUrls,
+            Status = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation,
+            SubmittedAt = DateTime.Now,
+            PendingApplicationHistoryId = pendingHistory.id
+        };
+
+        await _offlineRenewalRequestsCollection.InsertOneAsync(request);
+        return (true, "Offline renewal request submitted successfully", request.Id);
+    }
+
+    public async Task<(bool Success, string Message, object? Data)> GetOfflineRenewalRequestDetailsAsync(string requestId, string userId)
+    {
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User not found", null);
+
+        var request = await _offlineRenewalRequestsCollection.Find(x => x.Id == requestId).FirstOrDefaultAsync();
+        if (request == null)
+            return (false, "Offline renewal request not found", null);
+
+        if (!HasOfflineRenewalCertificateRole(user, request.FileType))
+            return (false, "Unauthorized", null);
+
+        var file = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
+
+        return (true, "Offline renewal request fetched successfully", new
+        {
+            Request = request,
+            File = file == null
+                ? null
+                : new
+                {
+                    file.FileId,
+                    file.Type,
+                    file.FileStatus,
+                    file.RtmNumber,
+                    file.TitleOfTradeMark,
+                    file.TitleOfInvention,
+                    file.TitleOfDesign
+                }
+        });
+    }
+
+    public async Task<(bool Success, string Message)> DecideOfflineRenewalRequestAsync(OfflineRenewalDecisionDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.RequestId))
+            return (false, "RequestId is required");
+        if (string.IsNullOrWhiteSpace(dto.UserId))
+            return (false, "UserId is required");
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return (false, "Reason is required");
+
+        var request = await _offlineRenewalRequestsCollection.Find(x => x.Id == dto.RequestId).FirstOrDefaultAsync();
+        if (request == null)
+            return (false, "Offline renewal request not found");
+
+        if (request.Status != OfflineRenewalRequestStatus.AwaitingRenewalConfirmation)
+            return (false, "Request has already been treated");
+
+        var staff = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "User not found");
+
+        if (!HasOfflineRenewalCertificateRole(staff, request.FileType))
+            return (false, "Unauthorized");
+
+        var file = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var pendingHistory = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == request.PendingApplicationHistoryId)
+            ?? file.ApplicationHistory?
+                .Where(a => a.ApplicationType == FormApplicationTypes.OfflineRenewalRequest
+                            && !string.IsNullOrWhiteSpace(a.PaymentId)
+                            && string.Equals(a.PaymentId.Trim(), request.PaymentId.Trim(), StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(a => a.ApplicationDate)
+                .FirstOrDefault();
+
+        if (pendingHistory == null)
+            return (false, "Pending offline renewal history not found");
+
+        request.PendingApplicationHistoryId = pendingHistory.id;
+        request.DecisionReason = dto.Reason.Trim();
+        request.DecidedAt = DateTime.Now;
+        request.DecidedByUserId = staff.Id;
+        request.DecidedByName = staff.Name;
+
+        pendingHistory.StatusHistory ??= new List<ApplicationHistory>();
+
+        if (dto.Approve != true)
+        {
+            request.Status = OfflineRenewalRequestStatus.Refused;
+            pendingHistory.CurrentStatus = ApplicationStatuses.Rejected;
+            pendingHistory.StatusHistory.Add(new ApplicationHistory
+            {
+                Date = DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+                afterStatus = ApplicationStatuses.Rejected,
+                Message = "Offline renewal request refused",
+                User = staff.Name,
+                UserId = staff.Id
+            });
+
+            await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+            await _offlineRenewalRequestsCollection.ReplaceOneAsync(x => x.Id == request.Id, request);
+            return (true, "Offline renewal request refused");
+        }
+
+        var duplicateRenewalPaymentExists = file.ApplicationHistory?.Any(a =>
+            a.id != pendingHistory.id
+            && a.ApplicationType == FormApplicationTypes.LicenseRenewal
+            && !string.IsNullOrWhiteSpace(a.PaymentId)
+            && string.Equals(a.PaymentId.Trim(), request.PaymentId.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (duplicateRenewalPaymentExists)
+            return (false, "A renewal history with this Payment ID already exists");
+
+        var renewalAdded = await RenewalApplication(file.FileId, request.PaymentId);
+        if (!renewalAdded)
+            return (false, "Unable to create renewal history");
+
+        var refreshedFile = await _fillingCollection.Find(x => x.Id == file.Id).FirstOrDefaultAsync();
+        if (refreshedFile == null)
+            return (false, "File not found after renewal update");
+
+        var refreshedPendingHistory = refreshedFile.ApplicationHistory?.FirstOrDefault(a => a.id == pendingHistory.id);
+        if (refreshedPendingHistory == null)
+            return (false, "Pending offline renewal history not found after renewal update");
+
+        refreshedPendingHistory.CurrentStatus = ApplicationStatuses.Approved;
+        refreshedPendingHistory.StatusHistory ??= new List<ApplicationHistory>();
+        refreshedPendingHistory.StatusHistory.Add(new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            beforeStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+            afterStatus = ApplicationStatuses.Approved,
+            Message = "Offline renewal request approved",
+            User = staff.Name,
+            UserId = staff.Id
+        });
+
+        var createdRenewalHistory = refreshedFile.ApplicationHistory?
+            .Where(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal
+                        && !string.IsNullOrWhiteSpace(a.PaymentId)
+                        && string.Equals(a.PaymentId.Trim(), request.PaymentId.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(a => a.ApplicationDate)
+            .FirstOrDefault();
+
+        request.Status = OfflineRenewalRequestStatus.Approved;
+        request.RenewalHistoryApplicationId = createdRenewalHistory?.id;
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == refreshedFile.Id, refreshedFile);
+        await _offlineRenewalRequestsCollection.ReplaceOneAsync(x => x.Id == request.Id, request);
+
+        return (true, "Offline renewal request approved and renewal history added");
+    }
+
     public async Task<(bool Success, string Message)> PublicationStatusUpdateAsync(PublicationUpdateDto dto)
     {
         _log.LogInformation("Starting publication status update for FileId {FileId}, UserId {UserId}", dto.FileId, dto.UserId);
@@ -7879,9 +8128,6 @@ public class FilesServices
             var user = await _userCollection.Find(u => u.Id == updateData.UserId).FirstOrDefaultAsync();
             if (user is null) throw new KeyNotFoundException("User not found");
 
-            // Check if this exact clerical update already exists (idempotency)
-            // Skip this for free updates, since PaymentRRR is usually the same literal value ("Free")
-            // and can incorrectly block legitimate new requests on the same day.
             var isFreeUpdate = string.Equals(updateData.PaymentRRR, "Free", StringComparison.OrdinalIgnoreCase);
             if (!isFreeUpdate)
             {
