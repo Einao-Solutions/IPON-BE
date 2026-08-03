@@ -900,7 +900,7 @@ public enum FormApplicationTypes
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
     PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
-    CounterStatement, StatutoryDeclaration, ChangeOfAgent
+    CounterStatement, StatutoryDeclaration, ChangeOfAgent, TrademarkJournalRequest
 }
 public enum ApplicationLetters
 {
@@ -937,7 +937,7 @@ public enum ApplicationLetters
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
     TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
-    StatutoryDeclarationAck
+    StatutoryDeclarationAck, JournalRequestAcknowledgement
 
 
 }
@@ -1052,6 +1052,7 @@ public enum ApplicationStatuses
     WithdrawalApproved = 39,
     BatchedManualPublication = 40,
     Published = 41,
+    JournalRequested = 42,
 }
 
 public record AssignmentCertificateType
@@ -1094,7 +1095,7 @@ public enum PaymentTypes
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
+CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal, TrademarkJournal
 }
 
 
@@ -1535,6 +1536,11 @@ public record PaymentInfo
     public string? OppositionWithdrawalCost { get; set; }
     public string? OppositionWithdrawalServiceFee { get; set; }
     public string? OppositionWithdrawalServiceID { get; set; }
+    
+    //Trademark Journal
+    public string? TrademarkJournalCost { get; set; }
+    public string? TrademarkJournalServiceFee { get; set; }
+    public string? TrademarkJournalServiceID { get; set; }
 }
 
 public record PaymentRecord

@@ -45,4 +45,18 @@ namespace patentdesign.Dtos.Response
         public int Number { get; set; }
         public DateTime ReleaseDate {get; set;}
     }
+
+    public class JournalRequestDto
+    {
+        public string AppId { get; set; }
+        public string Cost { get; set; }
+        public string PaymentId { get; set; }
+        public string ServiceFee { get; set; }
+    }
+
+    public class JournalRequestStatusDto
+    {
+        public string AppId { get; set; }
+        public string UserId { get; set; }
+    }
 }

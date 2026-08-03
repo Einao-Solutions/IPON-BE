@@ -15,7 +15,7 @@ namespace patentdesign.Controllers
         [HttpGet("GetPublication")]
         public async Task<IActionResult> GetJournal([FromQuery] string batchVolume)
         {
-            var data = await publicationServices.GetTrademarkJournal(batchVolume);
+            var data = await publicationServices.GetTrademarkJournal(batchVolume, 0, 0, null);
             Response.Headers.Add("Content-Disposition", "attachment; filename=journal.pdf");
             return File(data, "application/pdf", "journal.pdf");
         }
@@ -58,10 +58,31 @@ namespace patentdesign.Controllers
         }
 
         [HttpGet("GetJournals")]
-        public async Task<IActionResult> GetJournals()
+        public async Task<IActionResult> GetJournals([FromQuery] int year)
         {
-            var data = await publicationServices.GetJournals();
+            var data = await publicationServices.GetJournals(year);
             return Ok(data);
+        }
+
+        [HttpGet("GetJournalCost")]
+        public async Task<IActionResult> GetJournalCost([FromQuery] string userId, string batch)
+        {
+            var data = await publicationServices.GetJournalCost(userId, batch);
+            return Ok(data);
+        }
+
+        [HttpPost("UpdateRequestStatus")]
+        public async Task<IActionResult> UpdateRequestStatus([FromBody] JournalRequestStatusDto dto)
+        {
+            try
+            {
+                var result = await publicationServices.UpdateJournalRequestStatus(dto.AppId, dto.UserId);
+                return Ok(new { success = result.Item1, message = result.Item2 });
+            }
+            catch (Exception e)
+            {
+                return BadRequest(new { message = e.Message });
+            } 
         }
     }
 }

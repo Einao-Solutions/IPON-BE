@@ -9,7 +9,7 @@ namespace Tfunctions.pdfs
     public class JournalDocumentNewspaper(
         List<PublicationInfo> models,
         FileTypes type,
-        DateTime end) : IDocument
+        DateTime end, int vol, int num) : IDocument
     {
         // ── Brand tokens ──────────────────────────────────────────────────────
         private const string GreenDark = "#1E5631";
