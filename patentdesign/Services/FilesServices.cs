@@ -112,14 +112,13 @@ public class FilesServices
     // atomically create file
     public async Task CreateFileAsync(Filling newFile)
     {
-        // Check for existing file with the same FileId (idempotency)
-        var existing = await _fillingCollection.Find(x => x.FileId == newFile.FileId).FirstOrDefaultAsync();
-        if (existing != null)
+        var baseFileId = newFile.FileId;
+        do
         {
-            _log.LogInformation("File with FileId {FileId} already exists. Skipping creation.", newFile.FileId);
-            return;
+            newFile.FileId = string.Join("/", [baseFileId, Guid.NewGuid().ToString("N")[..8]]);
         }
-        newFile.FileId = string.Join("/", [newFile.FileId, Guid.NewGuid().ToString().Split("-")[0]]);
+        while (await _fillingCollection.Find(x => x.FileId == newFile.FileId).AnyAsync());
+
         _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
     }
@@ -140,8 +139,22 @@ public class FilesServices
         if (isCertificate == true)
         {
             _log.LogDebug("Updating certificate application for FileId {FileId}", fileId);
-            var update = await UpdateCertificatePaymentStatus(fileId, application.PaymentId);
-            if (update) return file;
+            if (application.CurrentStatus != ApplicationStatuses.AwaitingCertification)
+            {
+                _log.LogInformation("Certificate application {AppId} for FileId {FileId} is already in status {Status}. Skipping manual update.",
+                    application.id, fileId, application.CurrentStatus);
+                return file;
+            }
+
+            await UpdateCertificatePaymentStatus(fileId, application.CertificatePaymentId ?? application.PaymentId);
+            return file;
+        }
+
+        if (application.CurrentStatus != ApplicationStatuses.AwaitingPayment)
+        {
+            _log.LogInformation("Application {AppId} for FileId {FileId} is already in status {Status}. Skipping manual update.",
+                application.id, fileId, application.CurrentStatus);
+            return file;
         }
 
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
@@ -246,6 +259,13 @@ public class FilesServices
 
     private async Task ProcessApplicationType(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
+        if (application.CurrentStatus != ApplicationStatuses.AwaitingPayment)
+        {
+            _log.LogInformation("Application {AppId} for FileId {FileId} is already in status {Status}. Skipping application processing.",
+                application.id, file.FileId, application.CurrentStatus);
+            return;
+        }
+
         var firstApp = file.ApplicationHistory.FirstOrDefault();
         switch (application.ApplicationType)
         {
@@ -538,6 +558,17 @@ public class FilesServices
     private void AddStatusHistory(ApplicationInfo application, ApplicationStatuses beforeStatus, ApplicationStatuses afterStatus,
         DateTime date, string? userName, string? userId, string message)
     {
+        application.StatusHistory ??= new List<ApplicationHistory>();
+        if (application.StatusHistory.Any(h =>
+                h.beforeStatus == beforeStatus &&
+                h.afterStatus == afterStatus &&
+                h.Message == message &&
+                h.UserId == userId))
+        {
+            application.CurrentStatus = afterStatus;
+            return;
+        }
+
         application.StatusHistory.Add(new ApplicationHistory
         {
             beforeStatus = beforeStatus,
@@ -556,17 +587,33 @@ public class FilesServices
         var segments = (file.FileId ?? string.Empty).Split('/');
         var max = Math.Max(segments.Length - 1, 0);
 
-        var counter = await _countersCollection
-                          .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                          .FirstOrDefaultAsync()
-                      ?? throw new Exception("Counter not found for file type.");
+        Counters counter;
+        string newId;
+        do
+        {
+            counter = await GetNextCounterAsync(file.Type.ToString());
+            newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
+        }
+        while (await _fillingCollection.Find(x => x.FileId == newId).AnyAsync());
 
-        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
         _log.LogInformation("Generated file number {NewFileId} for {FileType}", newId, file.Type);
-        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-        await _countersCollection.FindOneAndUpdateAsync(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
         return newId;
+    }
+
+    private async Task<Counters> GetNextCounterAsync(string counterId)
+    {
+        var options = new FindOneAndUpdateOptions<Counters>
+        {
+            IsUpsert = false,
+            ReturnDocument = ReturnDocument.Before
+        };
+
+        return await _countersCollection.FindOneAndUpdateAsync(
+                   Builders<Counters>.Filter.Eq("_id", counterId),
+                   Builders<Counters>.Update.Inc(f => f.currentNumber, 1),
+                   options)
+               ?? throw new Exception($"Counter not found for {counterId}.");
     }
 
     private string GetPaymentTypeDescription(FormApplicationTypes applicationType) => applicationType switch
@@ -3460,12 +3507,7 @@ public class FilesServices
         foreach (var co in toConfirm)
         {
             var file = await _fillingCollection.Find(x => x.Id == co["Id"]).FirstOrDefaultAsync();
-            var document = await _countersCollection.Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-         .FirstOrDefaultAsync();
-            var strings = file.FileId.Split("/");
-            var max = strings.Length - 1;
-            var newId = string.Join("/", strings.Take(max).Concat(new[] { document.currentNumber.ToString() }));
-            var counterfilter = Builders<Counters>.Filter.Eq("_id", file.Type);
+            var newId = await GenerateNewFileId(file);
             Console.WriteLine("Updating....");
             await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, co["Id"]),
                 Builders<Filling>.Update.Combine([
@@ -3483,7 +3525,6 @@ public class FilesServices
                      }),
                      Builders<Filling>.Update.AddToSetEach(t=>t.ApplicationHistory[0].ApplicationLetters, [ApplicationLetters.NewApplicationAcknowledgement, ApplicationLetters.NewApplicationReceipt]),
                 ]));
-            await _countersCollection.FindOneAndUpdateAsync(counterfilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
         }
         // await _fillingCollection.DeleteManyAsync(x => toBeDeleted.Contains(x.Id));
     }
@@ -8824,7 +8865,7 @@ public class FilesServices
             var filter = Builders<Filling>.Filter.And(
                 Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
                 Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
-                    a => a.CertificatePaymentId == rrr)
+                    a => a.CertificatePaymentId == rrr && a.CurrentStatus == ApplicationStatuses.AwaitingCertification)
             );
 
             var newStatusHistory = new ApplicationHistory
@@ -8842,7 +8883,7 @@ public class FilesServices
 
             var arrayFilters = new List<ArrayFilterDefinition>
             {
-                new JsonArrayFilterDefinition<BsonDocument>("{'app.CertificatePaymentId': '" + rrr + "'}")
+                new JsonArrayFilterDefinition<BsonDocument>("{'app.CertificatePaymentId': '" + rrr + "', 'app.CurrentStatus': " + (int)ApplicationStatuses.AwaitingCertification + "}")
             };
 
             var updateOptions = new UpdateOptions { ArrayFilters = arrayFilters };
