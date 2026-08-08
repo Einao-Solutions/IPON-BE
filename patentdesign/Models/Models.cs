@@ -92,6 +92,7 @@ public record PatentDesignDBSettings
     public string AssignmentCollectionName { get; set; } = null!;
     public string CountersCollectionName { get; set; } = null!;
     public string TicketCollectionName { get; set; } = null!;
+    public string OfflineRenewalRequestsCollectionName { get; set; } = "offlineRenewalRequests";
     public string UsersCollectionName { get; set; } = null!;
     public string FinanceCollectionName { get; set; } = null!;
     public string AttachmentCollectionName { get; set; } = null!;
@@ -196,6 +197,36 @@ public record StatusRequests
     public ApplicationLetters? receiptLetter { get; set; } = null;
     public ApplicationLetters? ackLetter { get; set; } = null;
     public string? applicantName { get; set; }
+}
+
+public enum OfflineRenewalRequestStatus
+{
+    AwaitingRenewalConfirmation,
+    Approved,
+    Refused
+}
+
+public record OfflineRenewalRequest
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string FileId { get; set; } = string.Empty;
+    public FileTypes FileType { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string? UserName { get; set; }
+    public int RenewalYear { get; set; }
+    public DateTime PaymentDate { get; set; }
+    public string PaymentId { get; set; } = string.Empty;
+    public List<string> RenewalReceiptAttachments { get; set; } = [];
+    public List<string> RenewalCertificateAttachments { get; set; } = [];
+    public OfflineRenewalRequestStatus Status { get; set; } = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation;
+    public string? DecisionReason { get; set; }
+    public DateTime SubmittedAt { get; set; } = DateTime.Now;
+    public DateTime? DecidedAt { get; set; }
+    public string? DecidedByUserId { get; set; }
+    public string? DecidedByName { get; set; }
+    public string? PendingApplicationHistoryId { get; set; }
+    public string? RenewalHistoryApplicationId { get; set; }
 }
 
 public record Filling
@@ -900,7 +931,7 @@ public enum FormApplicationTypes
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
     PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
-    CounterStatement, StatutoryDeclaration, ChangeOfAgent, TrademarkJournalRequest
+    CounterStatement, StatutoryDeclaration, ChangeOfAgent, OfflineRenewalRequest, TrademarkJournalRequest
 }
 public enum ApplicationLetters
 {
@@ -910,7 +941,7 @@ public enum ApplicationLetters
     NewApplicationCertificate, 
     NewApplicationRejection, 
     RenewalReceipt, 
-    RenewalAck, 
+    RenewalAck,
     RenewalCertificate, 
     RecordalReceipt, 
     RecordalAck, 

@@ -27,8 +27,8 @@ public class FilesController(FilesServices fileService) : ControllerBase
     {
         return await fileService.GetFileAsync(id);
     }
-
     [HttpDelete("{id}")]
+
     public async Task<IActionResult> Delete(string id)
     {
         var status = await fileService.DeleteFileAsync(id);
@@ -1924,6 +1924,51 @@ public class FilesController(FilesServices fileService) : ControllerBase
         var (success, message) = await fileService.WithdrawalRequestDecisionAsync(dto.FileId, dto.Approve, dto.Comment, dto.UserId);
         if (!success)
             return NotFound(new { message });
+
+        return Ok(new { message });
+    }
+
+    [HttpPost("offline-renewal/submit")]
+    public async Task<IActionResult> SubmitOfflineRenewalRequest([FromBody] OfflineRenewalSubmitDto dto)
+    {
+        var (success, message, requestId) = await fileService.SubmitOfflineRenewalRequestAsync(dto);
+        if (!success)
+            return BadRequest(new { message });
+
+        return Ok(new { message, requestId });
+    }
+
+    [HttpGet("offline-renewal/requests/{requestId}")]
+    public async Task<IActionResult> GetOfflineRenewalRequestDetails(string requestId)
+    {
+        var (success, message, data) = await fileService.GetOfflineRenewalRequestDetailsAsync(requestId);
+        if (!success)
+            return NotFound(new { message });
+
+        return Ok(new { message, data });
+    }
+
+    [HttpGet("offline-renewal/application-history/{applicationHistoryId}")]
+    public async Task<IActionResult> GetOfflineRenewalRequestByApplicationHistoryId(string applicationHistoryId)
+    {
+        var (success, message, data) = await fileService.GetOfflineRenewalRequestDetailsByApplicationHistoryIdAsync(applicationHistoryId);
+        if (!success)
+            return NotFound(new { message });
+
+        return Ok(new { message, data });
+    }
+
+    [HttpPost("offline-renewal/decision")]
+    public async Task<IActionResult> DecideOfflineRenewalRequest([FromBody] OfflineRenewalDecisionDto dto)
+    {
+        var (success, message) = await fileService.DecideOfflineRenewalRequestAsync(dto);
+        if (!success)
+        {
+            if (string.Equals(message, "Unauthorized", StringComparison.OrdinalIgnoreCase))
+                return Unauthorized(new { message });
+
+            return BadRequest(new { message });
+        }
 
         return Ok(new { message });
     }
