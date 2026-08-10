@@ -212,4 +212,17 @@ public class UsersService
             throw;
         }
     }
+
+    public async Task<List<ApplicationInfo>> FetchOtherApplications(string userId)
+    {
+        _log.LogInformation($"Fetching other applications for user {userId}");
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user is null)
+        {
+            _log.LogError("User not found");
+            throw new KeyNotFoundException("User not found");
+        }
+        var otherApplications = user.OtherApplications ?? new List<ApplicationInfo>();
+        return otherApplications;
+    }
 }

@@ -480,7 +480,7 @@ namespace patentdesign.Services
             {
                 PaymentId = paymentId,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 ApplicationType = FormApplicationTypes.TrademarkJournalRequest,
                 StatusHistory = new List<ApplicationHistory>()
             };

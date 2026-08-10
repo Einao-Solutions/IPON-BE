@@ -77,4 +77,10 @@ public class UsersController(UsersService usersService) :ControllerBase
         var user = await usersService.GetUserById(id);
         return Ok(user);
     }
+    [HttpGet("GetOtherApplications")]
+    public async Task<IActionResult> GetOtherApplications([FromQuery] string userId)
+    {
+        var applications = await usersService.FetchOtherApplications(userId);
+        return Ok(applications);
+    }
 }
