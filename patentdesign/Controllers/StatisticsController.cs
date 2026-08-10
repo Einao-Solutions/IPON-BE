@@ -316,6 +316,35 @@ public class StatisticsController(StatisticsService statisticsService) : Control
     }
 
     /// <summary>
+    /// Compares support officer performance across one or more periods.
+    /// </summary>
+    /// <param name="request">Support performance request containing scope and periods.</param>
+    /// <returns>Response-first weighted support performance metrics per officer and period.</returns>
+    [HttpPost("statistics/support/performance/compare")]
+    public async Task<IActionResult> GetSupportPerformanceComparison([FromBody] SupportPerformanceRequestDto? request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Scope))
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: scope" });
+        }
+
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            return BadRequest(new { success = false, error = "Missing required parameter: periods" });
+        }
+
+        try
+        {
+            var data = await statisticsService.GetSupportPerformanceComparisonAsync(request);
+            return Ok(new { success = true, data });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Invalidates cached statistics responses.
     /// </summary>
     /// <returns>New cache version identifier.</returns>

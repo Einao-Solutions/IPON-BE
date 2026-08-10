@@ -20,6 +20,7 @@ public class StatisticsService
     private readonly IMongoCollection<AppUser> _userCollection;
     private readonly IMongoCollection<PaymentRecord> _paymentCollection;
     private readonly IMongoCollection<Filling> _fillingCollection;
+    private readonly IMongoCollection<TicketInfo> _ticketCollection;
     private readonly IDistributedCache _cache;
     private readonly ILogger<StatisticsService> _log;
 
@@ -60,6 +61,7 @@ public class StatisticsService
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentCollection = db.GetCollection<PaymentRecord>("payments");
         _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
+        _ticketCollection = db.GetCollection<TicketInfo>(s.TicketCollectionName);
         _cache = cache;
         _log = log;
 
@@ -817,6 +819,152 @@ public class StatisticsService
         return result;
     }
 
+    public async Task<SupportPerformanceComparisonDataDto> GetSupportPerformanceComparisonAsync(SupportPerformanceRequestDto request)
+    {
+        if (request?.Periods == null || request.Periods.Count == 0)
+        {
+            throw new ArgumentException("Missing required parameter: periods");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Scope))
+        {
+            throw new ArgumentException("Missing required parameter: scope");
+        }
+
+        var scope = ParseSupportScope(request.Scope);
+        var periods = new List<SupportPerformancePeriodResultDto>();
+
+        foreach (var period in request.Periods)
+        {
+            var range = ResolveFinancePeriod(period);
+
+            var createdInPeriodFilter = Builders<TicketInfo>.Filter.And(
+                BuildSupportScopeFilter(scope),
+                Builders<TicketInfo>.Filter.Gte(x => x.Created, range.StartDate),
+                Builders<TicketInfo>.Filter.Lte(x => x.Created, range.EndDate)
+            );
+
+            var tickets = await _ticketCollection.Find(createdInPeriodFilter).ToListAsync();
+            var fileTypeByFileNumber = await GetTicketFileTypeMapAsync(tickets);
+            var scopedTickets = ApplyFileTypeScope(scope, tickets, fileTypeByFileNumber).ToList();
+
+            var supportOfficers = await GetSupportOfficersAsync(scope);
+            var officerById = supportOfficers
+                .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+                .ToDictionary(x => x.Id, x => x, StringComparer.OrdinalIgnoreCase);
+
+            var officerMetrics = supportOfficers
+                .Select(x => new SupportPerformanceOfficerEntryDto
+                {
+                    OfficerId = x.Id,
+                    OfficerName = !string.IsNullOrWhiteSpace(x.Name) ? x.Name.Trim() : $"{x.FirstName} {x.LastName}".Trim(),
+                    OfficerEmail = x.Email
+                })
+                .ToList();
+
+            var respondedTicketSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var closedTicketSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var responseByOfficer = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var closedByOfficer = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ticket in scopedTickets)
+            {
+                var ticketId = ticket.id ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(ticketId))
+                {
+                    continue;
+                }
+
+                var correspondences = ticket.Correspondences ?? [];
+                var responders = correspondences
+                    .Where(c => c.DateAdded >= range.StartDate && c.DateAdded <= range.EndDate)
+                    .Where(c => !string.IsNullOrWhiteSpace(c.SenderId))
+                    .Select(c => c.SenderId)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Where(senderId => officerById.ContainsKey(senderId))
+                    .ToList();
+
+                if (responders.Count > 0)
+                {
+                    respondedTicketSet.Add(ticketId);
+                    foreach (var responderId in responders)
+                    {
+                        if (!responseByOfficer.TryGetValue(responderId, out var responseSet))
+                        {
+                            responseSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            responseByOfficer[responderId] = responseSet;
+                        }
+
+                        responseSet.Add(ticketId);
+                    }
+                }
+
+                if (ticket.Status == TicketState.Closed &&
+                    ticket.resolution != null &&
+                    !string.IsNullOrWhiteSpace(ticket.resolution.StaffId) &&
+                    ticket.resolution.Date >= range.StartDate &&
+                    ticket.resolution.Date <= range.EndDate &&
+                    officerById.ContainsKey(ticket.resolution.StaffId))
+                {
+                    closedTicketSet.Add(ticketId);
+
+                    if (!closedByOfficer.TryGetValue(ticket.resolution.StaffId, out var closedSet))
+                    {
+                        closedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        closedByOfficer[ticket.resolution.StaffId] = closedSet;
+                    }
+
+                    closedSet.Add(ticketId);
+                }
+            }
+
+            var totalTickets = scopedTickets.Count;
+            var totalResponded = respondedTicketSet.Count;
+            var totalClosed = closedTicketSet.Count;
+
+            foreach (var officer in officerMetrics)
+            {
+                var respondedCount = responseByOfficer.TryGetValue(officer.OfficerId, out var responseSet)
+                    ? responseSet.Count
+                    : 0;
+                var closedCount = closedByOfficer.TryGetValue(officer.OfficerId, out var closeSet)
+                    ? closeSet.Count
+                    : 0;
+
+                officer.RespondedTickets = respondedCount;
+                officer.ClosedTickets = closedCount;
+                officer.ResponseRate = totalTickets == 0 ? 0 : Math.Round(respondedCount * 100d / totalTickets, 1);
+                officer.ClosureRate = totalTickets == 0 ? 0 : Math.Round(closedCount * 100d / totalTickets, 1);
+                officer.PerformanceScore = Math.Round((officer.ResponseRate * 0.6) + (officer.ClosureRate * 0.4), 1);
+            }
+
+            periods.Add(new SupportPerformancePeriodResultDto
+            {
+                Label = range.Label,
+                StartDate = range.StartDate,
+                EndDate = range.EndDate,
+                Summary = new SupportPerformanceSummaryDto
+                {
+                    TotalTickets = totalTickets,
+                    TotalRespondedTickets = totalResponded,
+                    TotalClosedTickets = totalClosed,
+                    ResponseRate = totalTickets == 0 ? 0 : Math.Round(totalResponded * 100d / totalTickets, 1),
+                    ClosureRate = totalTickets == 0 ? 0 : Math.Round(totalClosed * 100d / totalTickets, 1)
+                },
+                Officers = officerMetrics
+                    .OrderByDescending(x => x.PerformanceScore)
+                    .ThenByDescending(x => x.RespondedTickets)
+                    .ToList()
+            });
+        }
+
+        return new SupportPerformanceComparisonDataDto
+        {
+            Scope = scope.ToString(),
+            Periods = periods
+        };
+    }
+
     public async Task<string> InvalidateStatisticsCacheAsync()
     {
         var newVersion = Guid.NewGuid().ToString("N");
@@ -1214,6 +1362,121 @@ public class StatisticsService
         }
         // For all other types, just the second line item
         return payment?.RemitaResponse?.lineItems?.Skip(1).FirstOrDefault()?.beneficiaryAmount ?? 0d;
+    }
+
+    private enum SupportScope
+    {
+        Trademark,
+        Patent,
+        Design,
+        Technical,
+        Overview
+    }
+
+    private static SupportScope ParseSupportScope(string scope)
+    {
+        if (Enum.TryParse<SupportScope>(scope, true, out var parsed))
+        {
+            return parsed;
+        }
+
+        throw new ArgumentException("Invalid scope. Must be Trademark, Patent, Design, Technical, or Overview");
+    }
+
+    private static FilterDefinition<TicketInfo> BuildSupportScopeFilter(SupportScope scope)
+    {
+        var filter = Builders<TicketInfo>.Filter;
+        return scope switch
+        {
+            SupportScope.Trademark => filter.Or(
+                filter.Eq(x => x.Category, TicketCategory.TrademarkRegistry),
+                filter.And(
+                    filter.Eq(x => x.Category, TicketCategory.TechnicalSupport),
+                    filter.Eq(x => x.RegistryCategory, TicketCategory.TrademarkRegistry)
+                )
+            ),
+            SupportScope.Patent => filter.Or(
+                filter.Eq(x => x.Category, TicketCategory.PatentDesignRegistry),
+                filter.And(
+                    filter.Eq(x => x.Category, TicketCategory.TechnicalSupport),
+                    filter.Eq(x => x.RegistryCategory, TicketCategory.PatentDesignRegistry)
+                )
+            ),
+            SupportScope.Design => filter.Or(
+                filter.Eq(x => x.Category, TicketCategory.PatentDesignRegistry),
+                filter.And(
+                    filter.Eq(x => x.Category, TicketCategory.TechnicalSupport),
+                    filter.Eq(x => x.RegistryCategory, TicketCategory.PatentDesignRegistry)
+                )
+            ),
+            SupportScope.Technical => filter.Eq(x => x.Category, TicketCategory.TechnicalSupport),
+            _ => filter.Empty
+        };
+    }
+
+    private async Task<Dictionary<string, FileTypes>> GetTicketFileTypeMapAsync(List<TicketInfo> tickets)
+    {
+        var fileNumbers = tickets
+            .Select(x => x.FileNumber?.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (fileNumbers.Count == 0)
+        {
+            return new Dictionary<string, FileTypes>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var files = await _fillingCollection
+            .Find(Builders<Filling>.Filter.In(x => x.FileId, fileNumbers))
+            .Project(x => new { x.FileId, x.Type })
+            .ToListAsync();
+
+        return files
+            .Where(x => !string.IsNullOrWhiteSpace(x.FileId))
+            .ToDictionary(x => x.FileId, x => x.Type, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<TicketInfo> ApplyFileTypeScope(SupportScope scope, List<TicketInfo> tickets, Dictionary<string, FileTypes> fileTypeByFileNumber)
+    {
+        if (scope != SupportScope.Patent && scope != SupportScope.Design)
+        {
+            return tickets;
+        }
+
+        var targetFileType = scope == SupportScope.Patent ? FileTypes.Patent : FileTypes.Design;
+        return tickets.Where(ticket =>
+        {
+            var fileNumber = ticket.FileNumber?.Trim();
+            return !string.IsNullOrWhiteSpace(fileNumber)
+                   && fileTypeByFileNumber.TryGetValue(fileNumber, out var fileType)
+                   && fileType == targetFileType;
+        });
+    }
+
+    private async Task<List<AppUser>> GetSupportOfficersAsync(SupportScope scope)
+    {
+        var filter = Builders<AppUser>.Filter;
+        var accountFilter = filter.Eq(x => x.AccountType, AccountType.Officer);
+
+        FilterDefinition<AppUser> roleFilter = scope switch
+        {
+            SupportScope.Trademark => filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport),
+            SupportScope.Patent => filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
+            SupportScope.Design => filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
+            SupportScope.Technical => filter.Or(
+                filter.AnyEq(x => x.UserRoles, Roles.Tech),
+                filter.Eq(x => x.AccountType, AccountType.Tech)
+            ),
+            _ => filter.Or(
+                filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport),
+                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
+                filter.AnyEq(x => x.UserRoles, Roles.Tech),
+                filter.Eq(x => x.AccountType, AccountType.Tech)
+            )
+        };
+
+        return await _userCollection.Find(filter.And(accountFilter, roleFilter)).ToListAsync();
     }
 
     private static List<FinanceMonthlyBreakdownDto> BuildMonthlyBreakdown(DateTime startDate, DateTime endDate, List<PaymentRecord> payments, Func<PaymentRecord, double> feeSelector)
