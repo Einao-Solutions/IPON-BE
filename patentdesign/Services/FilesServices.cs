@@ -544,10 +544,18 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == application.id));
 
-        await _fillingCollection.UpdateOneAsync(filter,
-            Builders<Filling>.Update.Combine(
-                Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
-                Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)));
+        var updates = new List<UpdateDefinition<Filling>>
+        {
+            Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
+            Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)
+        };
+
+        if (file.FileStatus == ApplicationStatuses.Re_conduct)
+        {
+            updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingExaminer));
+        }
+
+        await _fillingCollection.UpdateOneAsync(filter, Builders<Filling>.Update.Combine(updates));
 
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
