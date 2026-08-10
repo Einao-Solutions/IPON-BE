@@ -368,6 +368,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                 serviceId = _paymentInfo.TrademarkAmendmentServiceID;
                 serviceFee = _paymentInfo.TrademarkAmendmentServiceFee;
                 break;
+            case PaymentTypes.TrademarkJournal:
+                amount = _paymentInfo.TrademarkJournalCost;
+                serviceId = _paymentInfo.TrademarkJournalServiceID;
+                serviceFee = _paymentInfo.TrademarkJournalServiceFee;
+                break;
         }
 
         return (amount, serviceId, serviceFee);
@@ -746,7 +751,6 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
 
         return paymentDate;
     }
-
 
 }
 

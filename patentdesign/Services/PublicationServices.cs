@@ -8,6 +8,8 @@ using patentdesign.Dtos.Response;
 using QuestPDF.Fluent;
 using Tfunctions.pdfs;
 using patentdesign.Dtos.Request;
+using patentdesign.Enums;
+using patentdesign.Utils;
 
 namespace patentdesign.Services
 {
@@ -16,22 +18,32 @@ namespace patentdesign.Services
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
-            
-        private static IMongoCollection<Filling> _files; 
+        private static IMongoCollection<Counters> _counters;
+        private static IMongoCollection<Filling> _files;
+        private static IMongoCollection<PublicationJournal> _journals;
+        private static IMongoCollection<AttachmentInfo> _attachments;
+        private static IMongoCollection<StaffPerformance> _performanceCollection;
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
+        private PaymentUtils _paymentUtils;
         private readonly IServiceProvider _serviceProvider;
+        private string attachmentBaseUrl = "https://integration.iponigeria.com";
+        //private string attachmentBaseUrl = "http://localhost:5044";
         private readonly ILogger<AuthServices> _log;
-        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, IServiceProvider serviceProvider)
+        public PublicationServices(IMongoDatabase db, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log, IServiceProvider serviceProvider, PaymentUtils paymentUtils)
         {
             _config = config;
             _log = log;
-
             _users = db.GetCollection<AppUser>("appUsers");
             _pubCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
             _files = db.GetCollection<Filling>("files");
+            _counters = db.GetCollection<Counters>("counters");
+            _performanceCollection = db.GetCollection<StaffPerformance>("staffPerformance");
+            _journals = db.GetCollection<PublicationJournal>("publicationJournals");
+            _attachments = db.GetCollection<AttachmentInfo>("attachments");
             _emailServices = emailServices;
             _serviceProvider = serviceProvider;
+            _paymentUtils = paymentUtils;
         }
 
         public async Task<string> SavePublication(PublicationDto pub)
@@ -135,14 +147,11 @@ namespace patentdesign.Services
 
             return publications.Count;
         }
-        public async Task<byte[]> GetTrademarkJournal(DateTime startDate, DateTime endDate, FileTypes type)
+        public async Task<byte[]> GetTrademarkJournal(string batchVolume, int vol, int num, DateTime? date)
         {
-            _log.LogInformation("Generating batch publication PDF for type {FileType} from {StartDate} to {EndDate}",
-                type, startDate, endDate);
+            _log.LogInformation($"Generating batch publication PDF for Batch {batchVolume}");
 
-            var filter = Builders<PublicationInfo>.Filter.And(
-                Builders<PublicationInfo>.Filter.Gte(x => x.PublicationDate, startDate),
-                Builders<PublicationInfo>.Filter.Lte(x => x.PublicationDate, endDate));
+            var filter = Builders<PublicationInfo>.Filter.Eq(x => x.BatchVolume, batchVolume);
 
             var publicationsData = await _pubCollection.Find(filter)
                 .Project(x => new PublicationInfo()
@@ -157,12 +166,10 @@ namespace patentdesign.Services
                     ClassDescription = x.ClassDescription,
                     Class = x.Class,
                     Attachments = x.Attachments,
-                    Images = type == FileTypes.Design ? x.Attachments : null,
-                    PriorityInfo = type == FileTypes.Patent ? x.PriorityInfo : null,
                     Representation = x.Representation
                 }).ToListAsync();
 
-            _log.LogInformation("Fetched {Count} publications, starting image downloads", publicationsData.Count);
+            _log.LogInformation("Fetched {Count} publications, skipping image downloads (temporarily disabled)", publicationsData.Count);
 
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
             using var gate = new SemaphoreSlim(8); // cap concurrent downloads
@@ -194,26 +201,26 @@ namespace patentdesign.Services
                     }
                 }
 
-                // design images
-                if (type == FileTypes.Design)
-                {
-                    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
-                    if (attachment?.url is { Count: > 0 } urls)
-                    {
-                        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
-                        dt.ImagesUrl ??= [];
-                        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
-                    }
-                }
+                //// design images
+                //if (type == FileTypes.Design)
+                //{
+                //    var attachment = dt.Images?.FirstOrDefault(x => x.name == "designs");
+                //    if (attachment?.url is { Count: > 0 } urls)
+                //    {
+                //        var downloaded = await Task.WhenAll(urls.Select(DownloadAsync));
+                //        dt.ImagesUrl ??= [];
+                //        dt.ImagesUrl.AddRange(downloaded.Where(b => b != null)!);
+                //    }
+                //}
             });
+             await Task.WhenAll(tasks);
 
-            await Task.WhenAll(tasks);
-
-            _log.LogInformation("Image downloads complete; generating PDF");
-
+            _log.LogInformation("Generating PDF");
+            var publicationDate = date ?? publicationsData.FirstOrDefault()?.BatchPublishDate ?? DateTime.Now;
+            
             // Move CPU-bound PDF rendering off the request thread
             var pdfData = await Task.Run(() =>
-                new JournalDocumentNewspaper(publicationsData, type, startDate, endDate).GeneratePdf());
+                new JournalDocumentNewspaper(publicationsData, FileTypes.TradeMark, publicationDate, vol, num).GeneratePdf());
 
             return pdfData;
         }
@@ -295,6 +302,22 @@ namespace patentdesign.Services
                 app.StatusHistory ??= [];
                 app.StatusHistory.Add(history);
                 app.CurrentStatus = nextStatus;
+                var perf = new PerformanceDto
+                {
+                    FileNumber = file.FileId,
+                    FileType = file.Type,
+                    AfterStatus = nextStatus,
+                    BeforeStatus = app.CurrentStatus,
+                    ApplicationId = app.id,
+                    ApplicationType = app.ApplicationType,
+                    AppUserId = staff.Id,
+                    Date = DateTime.Now,
+                    OfficeUnit = Enums.Roles.TrademarkPublication,
+                    Reason = dto.Comment
+                };
+
+                SavePerformance(perf);
+
                 if (nextStatus == ApplicationStatuses.Opposition)
                 {
                     var oppositionServices = _serviceProvider.GetRequiredService<OppositionService>();
@@ -325,6 +348,213 @@ namespace patentdesign.Services
                 _log.LogError(ex, "Failed to treat manual batch for file {FileNumber}", dto.FileNumber);
                 return false;
             }
+        }
+        private async Task<string> BatchPubs(StaffBatchRequest dto)
+        {
+            var pubs = await _pubCollection
+                .Find(p => p.IsBatchPublished == false)
+                .SortBy(p => p.PublicationDate)
+                .Limit(5000)
+                .ToListAsync();
+               
+            if (pubs.Count < 5000)
+            {
+                throw new InvalidOperationException("Not enough publications to batch. Minimum required is 5000.");
+            }
+
+            var batchVolume = $"{DateTime.UtcNow.Year}V{dto.Volume}N{dto.Number}";
+            var pubIds = pubs.Select(p => p.Id).ToList();
+
+            var filter = Builders<PublicationInfo>.Filter.In(p => p.Id, pubIds);
+            var update = Builders<PublicationInfo>.Update.Combine(
+                Builders<PublicationInfo>.Update.Set(p => p.BatchVolume, batchVolume),
+                Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, dto.ReleaseDate),
+                Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true));
+
+            await _pubCollection.UpdateManyAsync(filter, update);
+            
+            pubs.ForEach(p => p.BatchVolume = batchVolume);
+
+            return batchVolume;
+        }
+        public async Task<bool> BatchJournal(StaffBatchRequest dto)
+        {
+            var staff = await _users.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == dto.UserId).FirstOrDefaultAsync();
+            var batchVolume = await BatchPubs(dto);
+            var performance = new PerformanceDto
+            {
+                AppUserId = staff?.Id,
+                FileType = FileTypes.TradeMark,
+                OfficeUnit = Enums.Roles.TrademarkPublication,
+                Date = DateTime.Now,
+                Reason = $"Batching trademark publications {batchVolume}",
+                BeforeStatus = ApplicationStatuses.Publication,
+                AfterStatus = ApplicationStatuses.Published
+            };
+            SavePerformance(performance);
+            var batch = _counters.Find(c => c.id == "Publication").FirstOrDefault();
+            if (batch is null)
+            {
+                throw new KeyNotFoundException("Publication counter not found");
+            }
+            var journal = await GetTrademarkJournal(batchVolume, dto.Volume, dto.Number, dto.ReleaseDate);
+            var upload = new TT
+            {
+                data = journal,
+                contentType = "application/pdf",
+                fileName = $"{batchVolume}.pdf",
+                Name = $"TrademarkJournal_{batchVolume}"
+            };
+            var journalUrl = await UploadJournal(upload);
+            var save = new PublicationJournal
+            {
+                JournalReleaseDate = dto.ReleaseDate,
+                FileType = FileTypes.TradeMark,
+                BatchedBy = staff.Name ?? $"{staff.FirstName} {staff.LastName}",
+                CreatedAt = DateTime.UtcNow,
+                DocumentUrl = journalUrl,
+                Batch = batchVolume
+            };
+            await _journals.InsertOneAsync(save);
+            return true;
+        }
+        private static void SavePerformance(PerformanceDto perf)
+        {
+            var performance = new StaffPerformance
+            {
+                FileNumber = perf.FileNumber,
+                FileType = perf.FileType,
+                AfterStatus = perf.AfterStatus,
+                BeforeStatus = perf.BeforeStatus,
+                ApplicationType = perf.ApplicationType,
+                AppUserId = perf.AppUserId,
+                Date = perf.Date,
+                Reason = perf.Reason,
+                OfficeUnit = perf.OfficeUnit,
+            };
+            _performanceCollection.InsertOne(performance);
+        }
+        private async Task<string> UploadJournal(TT file)
+        {
+            var extention = file.fileName.Split(".").Last();
+            var trustedFileName = Path.GetRandomFileName();
+            trustedFileName = trustedFileName.Split(".")[0] + $".{extention}";
+
+            await _attachments.InsertOneAsync(new AttachmentInfo
+            {
+                Id = trustedFileName,
+                ContentType = file.contentType,
+                Data = file.data
+            });
+            var url = $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}";
+            return url;
+        }
+        public async Task<List<PublicationJournal>> GetJournals(int year)
+        {
+            _log.LogInformation("Getting journal list for {year}", year);
+            return await _journals.Find(j => j.JournalReleaseDate.Year == year).ToListAsync();
+        }
+        public async Task<JournalRequestDto> GetJournalCost(string userId, string batch)
+        {
+            _log.LogInformation("Getting journal cost for {userId}", userId);
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            var name = user.Name ?? $"{user.FirstName} {user.LastName}";
+            if (user?.PhoneNumber is null)
+            {
+                throw new InvalidOperationException("User Phone number not found");
+            }
+            var journal = await _journals.Find(j => j.Batch == batch).FirstOrDefaultAsync();
+            if (DateTime.Now < journal.JournalReleaseDate ) throw new KeyNotFoundException("Journal is not yet available");
+            var cost = _paymentUtils.GetCost(PaymentTypes.TrademarkJournal, FileTypes.TradeMark, user.Nationality, null, null, null);
+            var paymentId = await _paymentUtils.GenerateRemitaPaymentId(
+                cost.Item1, cost.Item3, cost.Item2, "Trademark Journal Request",
+                name, user.Email, user.PhoneNumber);
+
+            if (paymentId == null)
+            {
+                _log.LogError("Failed to generate payment ID");
+                return null;
+            }
+
+            var app = new ApplicationInfo
+            {
+                PaymentId = paymentId,
+                CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                ApplicationDate = DateTime.UtcNow,
+                ApplicationType = FormApplicationTypes.TrademarkJournalRequest,
+                StatusHistory = new List<ApplicationHistory>()
+            };
+
+            var updates = Builders<AppUser>.Update.Push("OtherApplications", app);
+            
+            var result = await _users.FindOneAndUpdateAsync(
+                Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+                updates,
+                new FindOneAndUpdateOptions<AppUser> { ReturnDocument = ReturnDocument.After }
+            );
+
+            var req = new JournalRequestDto
+            {
+                AppId = app.id,
+                Cost = cost.Item1,
+                ServiceFee = cost.Item3,
+                PaymentId = paymentId,
+            };
+            
+            return req;
+        }
+
+        public async Task<(bool, string)> UpdateJournalRequestStatus(string appId, string userId)
+        {
+            _log.LogInformation("Updating journal request status");
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                throw new KeyNotFoundException("User not found");
+            }
+
+            var app = user.OtherApplications?.Find(a => a.id == appId);
+            if (app == null)
+            {
+                throw new KeyNotFoundException("Application not found");
+            }
+
+            if (string.IsNullOrWhiteSpace(app.PaymentId))
+            {
+                throw new InvalidOperationException("Payment ID not found");
+            }
+
+            var payment = await _paymentUtils.GetDetailsByRRR(app.PaymentId);
+            if (payment?.status != "00")
+            {
+                throw new InvalidOperationException("Unsuccessful payment");
+            }
+
+            app.CurrentStatus = ApplicationStatuses.JournalRequested;
+            var history = new ApplicationHistory
+            {
+                Date = DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingPayment,
+                afterStatus = ApplicationStatuses.JournalRequested,
+                Message = "Payment successful, awaiting approval",
+                User = "System",
+                UserId = "System"
+            };
+            app.StatusHistory ??= [];
+            app.StatusHistory.Add(history);
+            var filter = Builders<AppUser>.Filter.And(
+                Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+                Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a => a.id == appId));
+            var updates = Builders<AppUser>.Update.Set("OtherApplications.$", app);
+            var result = await _users.FindOneAndUpdateAsync(
+                filter,
+                updates,
+                new FindOneAndUpdateOptions<AppUser> { ReturnDocument = ReturnDocument.After }
+            );
+
+            return result is not null
+                ? (true, "Journal request status updated successfully")
+                : (false, "Journal request status update failed");
         }
     }
 }
