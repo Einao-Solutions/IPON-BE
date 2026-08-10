@@ -264,12 +264,12 @@ public class ConstantValues
         " or order for the time being ni force at al times hereafter during the term of years herein mentioned, make, use, exercise and vend the said invention throughout the Federal Republic of Nigeria," +
         " and that the patentee shall have and enjoy the whole profit and advantage from time ot time accruing by reason of the said invention during the term of twenty years from the date first above written on this Instrument.";
     public static string Passage11 =
-        "AND to the end that the patentee may have and enjoy the sole use and exercise of the full benefit of the said invention. Ido by this Instrument strictly command al citizens of the Federal Republic of Nigeria that they do not at any time during the continuance of the said term either directly" +
-        " or indirectly make use of or put ni practice the said invention, nor ni anywise imitate the same, without the written consent, licence or agreement of the patentee, on pain of incurring such penalties as may be justly inflicted on such offenders" +
+        "AND to the end that the patentee may have and enjoy the sole use and exercise of the full benefit of the said invention. I do by this Instrument strictly command all citizens of the Federal Republic of Nigeria that they do not at any time during the continuance of the said term either directly" +
+        " or indirectly make use of or put in practice the said invention, nor in anywise imitate the same, without the written consent, licence or agreement of the patentee, on pain of incurring such penalties as may be justly inflicted on such offenders" +
         ", and of being answerable to the patentee according to law for damages thereby occasioned";
 
     public static string Passage9 =
-        "PROVIDED ALWAYS that this patent shall be revocable on any of the grounds from time ot time by law prescribed as grounds for revoking patents granted yb me, and the same may be revoked and made void accordingly";
+        "PROVIDED ALWAYS that this patent shall be revocable on any of the grounds from time to time by law prescribed as grounds for revoking patents granted by me, and the same may be revoked and made void accordingly";
 
     public static string Passage10 =
         "PROVIDED ALSO that nothing herein contained shall prevent the granting of licences in such manner and for such considerations as they may by law be granted";
