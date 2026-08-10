@@ -78,6 +78,42 @@ public class UnitPerformanceComparisonDataDto
     public List<UnitPerformanceDataDto> Periods { get; set; } = [];
 }
 
+public class SupportPerformanceOfficerEntryDto
+{
+    public string OfficerId { get; set; } = string.Empty;
+    public string OfficerName { get; set; } = string.Empty;
+    public string OfficerEmail { get; set; } = string.Empty;
+    public int RespondedTickets { get; set; }
+    public int ClosedTickets { get; set; }
+    public double ResponseRate { get; set; }
+    public double ClosureRate { get; set; }
+    public double PerformanceScore { get; set; }
+}
+
+public class SupportPerformanceSummaryDto
+{
+    public int TotalTickets { get; set; }
+    public int TotalRespondedTickets { get; set; }
+    public int TotalClosedTickets { get; set; }
+    public double ResponseRate { get; set; }
+    public double ClosureRate { get; set; }
+}
+
+public class SupportPerformancePeriodResultDto
+{
+    public string Label { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public SupportPerformanceSummaryDto Summary { get; set; } = new();
+    public List<SupportPerformanceOfficerEntryDto> Officers { get; set; } = [];
+}
+
+public class SupportPerformanceComparisonDataDto
+{
+    public string Scope { get; set; } = string.Empty;
+    public List<SupportPerformancePeriodResultDto> Periods { get; set; } = [];
+}
+
 public class UnitInfoDto
 {
     public int UnitId { get; set; }
