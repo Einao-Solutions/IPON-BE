@@ -566,10 +566,18 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == application.id));
 
-        await _fillingCollection.UpdateOneAsync(filter,
-            Builders<Filling>.Update.Combine(
-                Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
-                Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)));
+        var updates = new List<UpdateDefinition<Filling>>
+        {
+            Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
+            Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)
+        };
+
+        if (file.FileStatus == ApplicationStatuses.Re_conduct)
+        {
+            updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingExaminer));
+        }
+
+        await _fillingCollection.UpdateOneAsync(filter, Builders<Filling>.Update.Combine(updates));
 
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
@@ -9281,10 +9289,24 @@ public class FilesServices
     {
         try
         {
-            var filter = Builders<Filling>.Filter.And(
+            if (string.IsNullOrWhiteSpace(fileId) || string.IsNullOrWhiteSpace(rrr))
+            {
+                _log.LogWarning("Certificate payment status update rejected. FileId or RRR is empty. FileId: {FileId}, RRR: {Rrr}", fileId, rrr);
+                return false;
+            }
+
+            var paymentReference = rrr.Trim();
+
+            var fileFilter = Builders<Filling>.Filter.Or(
                 Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+                Builders<Filling>.Filter.Eq(f => f.Id, fileId)
+            );
+
+            var filter = Builders<Filling>.Filter.And(
+                fileFilter,
                 Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
-                    a => a.CertificatePaymentId == rrr && a.CurrentStatus == ApplicationStatuses.AwaitingCertification)
+                    a => (a.CertificatePaymentId == paymentReference || a.PaymentId == paymentReference) &&
+                         a.CurrentStatus == ApplicationStatuses.AwaitingCertification)
             );
 
             var newStatusHistory = new ApplicationHistory
@@ -9296,13 +9318,23 @@ public class FilesServices
             };
 
             var update = Builders<Filling>.Update
-                .Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
+                .Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.AwaitingCertificateConfirmation.ToString())
                 .Set("FileStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
                 .Push("ApplicationHistory.$[app].StatusHistory", newStatusHistory);
 
             var arrayFilters = new List<ArrayFilterDefinition>
             {
-                new JsonArrayFilterDefinition<BsonDocument>("{'app.CertificatePaymentId': '" + rrr + "', 'app.CurrentStatus': " + (int)ApplicationStatuses.AwaitingCertification + "}")
+                new BsonDocumentArrayFilterDefinition<BsonDocument>(new BsonDocument
+                {
+                    {
+                        "$or", new BsonArray
+                        {
+                            new BsonDocument("app.CertificatePaymentId", paymentReference),
+                            new BsonDocument("app.PaymentId", paymentReference)
+                        }
+                    },
+                    { "app.CurrentStatus", ApplicationStatuses.AwaitingCertification.ToString() }
+                })
             };
 
             var updateOptions = new UpdateOptions { ArrayFilters = arrayFilters };
@@ -9311,19 +9343,45 @@ public class FilesServices
 
             if (result.ModifiedCount > 0)
             {
-                Console.WriteLine("Successfully updated certificate payment status for FileId");
+                _log.LogInformation("Successfully updated certificate payment status for FileId {FileId}, RRR {Rrr}", fileId, paymentReference);
                 return true;
             }
-            else
+
+            var file = await _fillingCollection.Find(fileFilter).FirstOrDefaultAsync();
+            if (file == null)
             {
-                Console.WriteLine("No document updated. Either already updated or document not found. FileId");
+                _log.LogWarning("Certificate payment status update failed. File not found for FileId or Id {FileId}, RRR {Rrr}", fileId, paymentReference);
                 return false;
             }
+
+            var application = file.ApplicationHistory?.FirstOrDefault(a =>
+                a.CertificatePaymentId == paymentReference || a.PaymentId == paymentReference);
+
+            if (application == null)
+            {
+                _log.LogWarning("Certificate payment status update failed. No application found for FileId {FileId}, RRR {Rrr}", file.FileId, paymentReference);
+                return false;
+            }
+
+            if (application.CurrentStatus == ApplicationStatuses.AwaitingCertificateConfirmation)
+            {
+                _log.LogInformation("Certificate payment status already updated for FileId {FileId}, AppId {AppId}, RRR {Rrr}", file.FileId, application.id, paymentReference);
+                return true;
+            }
+
+            _log.LogWarning("Certificate payment status update failed. Application {AppId} for FileId {FileId}, RRR {Rrr} is in status {Status}, expected {ExpectedStatus}",
+                application.id,
+                file.FileId,
+                paymentReference,
+                application.CurrentStatus,
+                ApplicationStatuses.AwaitingCertification);
+
+            return false;
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Error while updating certificate payment status for FileId");
-            throw ex;
+            _log.LogError(ex, "Error while updating certificate payment status for FileId {FileId}, RRR {Rrr}", fileId, rrr);
+            throw;
         }
     }
 
