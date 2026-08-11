@@ -25,19 +25,63 @@ namespace patentdesign.Controllers
             return BadRequest(new { message = "Failed to change status" });
         }
 
+        [Authorize(Roles = "SuperAdmin")]
+        [HttpPost("ApplicationHistory")]
         [HttpPost("CreateApplicationHistory")]
         public async Task<IActionResult> CreateApplicationHistory(
             [FromBody] ApplicationHistoryDto applicationHistoryDto)
         {
-            var result = await adminServices.CreateApplicationHistory(applicationHistoryDto);
-            if (result)
+            try
             {
-                return Ok(result);
-            }
+                var result = await adminServices.CreateApplicationHistory(applicationHistoryDto);
+                if (result)
+                {
+                    return Ok(result);
+                }
 
-            return BadRequest(new { message = "Failed to create application history" });
+                return BadRequest(new { message = "Failed to create application history" });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
+        /// <summary>
+        /// Returns a single application history entry (<c>hist</c>) shaped so the SuperAdmin
+        /// UI can pre-fill its recordal forms directly. See <see cref="ApplicationHistoryResponseDto"/>.
+        /// </summary>
+        [Authorize(Roles = "SuperAdmin")]
+        [HttpGet("ApplicationHistory/{applicationId}")]
+        public async Task<IActionResult> GetApplicationHistory([FromRoute] string applicationId)
+        {
+            if (string.IsNullOrWhiteSpace(applicationId))
+                return BadRequest(new { message = "applicationId is required" });
+
+            var hist = await adminServices.GetApplicationHistoryAsync(applicationId);
+            if (hist == null) return NotFound(new { message = "Application history entry not found" });
+            return Ok(hist);
+        }
+
+        /// <summary>
+        /// TEMP DIAGNOSTIC: dumps the raw stored assignor/assignee data for every assignment
+        /// entry in a file's application history, so we can see exactly what the SuperAdmin
+        /// form has to work with. Open in a browser:
+        /// <c>/api/admin/diag/assignment?fileNumber=TM/2024/00001</c>
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("diag/assignment")]
+        public async Task<IActionResult> DiagAssignment([FromQuery] string fileNumber)
+        {
+            if (string.IsNullOrWhiteSpace(fileNumber))
+                return BadRequest(new { message = "fileNumber is required" });
+
+            var dump = await adminServices.DiagnoseAssignmentHistory(fileNumber);
+            if (dump == null) return NotFound(new { message = "File not found for that fileNumber" });
+            return Ok(dump);
+        }
+
+        [Authorize(Roles = "SuperAdmin")]
         [HttpPatch("ApplicationHistory")]
         public async Task<IActionResult> UpdateApplicationHistory([FromBody] UpdateApplicationHistoryDto dto)
         {
@@ -46,14 +90,15 @@ namespace patentdesign.Controllers
             return NotFound(new { message = "Application history not updated" });
         }
 
+        [Authorize(Roles = "SuperAdmin")]
         [HttpDelete("ApplicationHistory")]
         public async Task<IActionResult> DeleteApplicationHistory([FromBody] DeleteApplicationHistoryDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.FileNumber) || string.IsNullOrWhiteSpace(dto.ApplicationId))
                 return BadRequest(new { message = "FileNumber and ApplicationId are required" });
 
-            var deleted = await adminServices.DeleteApplicationHistory(dto);
-            if (deleted) return Ok(new { message = "Application history entry deleted successfully" });
+            var updatedFile = await adminServices.DeleteApplicationHistory(dto);
+            if (updatedFile != null) return Ok(updatedFile);
             return NotFound(new { message = "Application history entry not found or could not be deleted" });
         }
 

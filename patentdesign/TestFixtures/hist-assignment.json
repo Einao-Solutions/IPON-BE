@@ -1,0 +1,45 @@
+{
+  "id": "app-123",
+  "applicationType": 5,
+  "applicationDate": "2026-08-03T00:00:00Z",
+  "currentStatus": 2,
+  "paymentId": "PAY123",
+  "fileNumber": "TM/2024/00001",
+  "assignment": {
+    "assignorName": "John Doe",
+    "assignorEmail": "john.doe@example.com",
+    "assignorPhone": "+2348012345678",
+    "assignorNationality": "Nigerian",
+    "assignorAddress": "123 Main St, Lagos",
+    "assignorCountry": "Nigeria",
+    "assigneeName": "Acme Ltd",
+    "assigneeEmail": "acme@example.com",
+    "assigneePhone": "+2348098765432",
+    "assigneeNationality": "Nigerian",
+    "assigneeAddress": "456 Business Rd, Lagos",
+    "assigneeCountry": "Nigeria",
+    "dateOfAssignment": "2026-08-01",
+    "assignmentDeedUrl": "https://files.example.com/deeds/deed123.pdf",
+    "authorizationLetterUrl": "https://files.example.com/auth/auth123.pdf"
+  },
+  "oldValue": {
+    "name": "John Doe",
+    "email": "john.doe@example.com",
+    "phone": "+2348012345678",
+    "address": "123 Main St, Lagos",
+    "country": "Nigeria",
+    "nationality": "Nigerian"
+  },
+  "newValue": {
+    "assigneeName": "Acme Ltd",
+    "assigneeEmail": "acme@example.com",
+    "assigneePhone": "+2348098765432",
+    "assigneeAddress": "456 Business Rd, Lagos",
+    "assigneeCountry": "Nigeria",
+    "dateOfAssignment": "2026-08-01",
+    "attachments": [
+      { "fileName": "deed123.pdf", "contentType": "application/pdf", "url": "https://files.example.com/deeds/deed123.pdf" },
+      { "fileName": "auth123.pdf", "contentType": "application/pdf", "url": "https://files.example.com/auth/auth123.pdf" }
+    ]
+  }
+}
