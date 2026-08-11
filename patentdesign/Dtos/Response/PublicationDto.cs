@@ -44,6 +44,7 @@ namespace patentdesign.Dtos.Response
         public int Volume { get; set; }
         public int Number { get; set; }
         public DateTime ReleaseDate {get; set;}
+        public string? BatchVolume { get; set; }
     }
 
     public class JournalRequestDto

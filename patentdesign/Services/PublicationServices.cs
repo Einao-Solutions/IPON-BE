@@ -7,6 +7,7 @@ using MongoDB.Bson;
 using patentdesign.Dtos.Response;
 using QuestPDF.Fluent;
 using Tfunctions.pdfs;
+using patentdesign.pdfs;
 using patentdesign.Dtos.Request;
 using patentdesign.Enums;
 using patentdesign.Utils;
@@ -169,6 +170,15 @@ namespace patentdesign.Services
                     Representation = x.Representation
                 }).ToListAsync();
 
+            foreach (var publication in publicationsData)
+            {
+                if (publication.Representation is { Length: > 0 } existingImage && !PdfImageHelper.TryDecodeImage(existingImage))
+                {
+                    _log.LogWarning("Skipping invalid representation image for publication {PublicationId}", publication.Id);
+                    publication.Representation = null;
+                }
+            }
+
             _log.LogInformation("Fetched {Count} publications, skipping image downloads (temporarily disabled)", publicationsData.Count);
 
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
@@ -195,9 +205,16 @@ namespace patentdesign.Services
                     var bytes = await DownloadAsync(representation.url[0]);
                     if (bytes != null)
                     {
-                        dt.Representation = bytes;
-                        dt.ImagesUrl ??= [];
-                        dt.ImagesUrl.Insert(0, bytes);
+                        if (PdfImageHelper.TryDecodeImage(bytes))
+                        {
+                            dt.Representation = bytes;
+                            dt.ImagesUrl ??= [];
+                            dt.ImagesUrl.Insert(0, bytes);
+                        }
+                        else
+                        {
+                            _log.LogWarning("Skipping undecodable representation image for publication {PublicationId} from {ImageUrl}", dt.Id, representation.url[0]);
+                        }
                     }
                 }
 
@@ -349,7 +366,7 @@ namespace patentdesign.Services
                 return false;
             }
         }
-        private async Task<string> BatchPubs(StaffBatchRequest dto)
+        private async Task<bool> BatchPubs(StaffBatchRequest dto)
         {
             var pubs = await _pubCollection
                 .Find(p => p.IsBatchPublished == false)
@@ -362,41 +379,37 @@ namespace patentdesign.Services
                 throw new InvalidOperationException("Not enough publications to batch. Minimum required is 5000.");
             }
 
-            var batchVolume = $"{DateTime.UtcNow.Year}V{dto.Volume}N{dto.Number}";
+            //var batchVolume = $"{DateTime.UtcNow.Year}V{dto.Volume}N{dto.Number}";
             var pubIds = pubs.Select(p => p.Id).ToList();
 
             var filter = Builders<PublicationInfo>.Filter.In(p => p.Id, pubIds);
             var update = Builders<PublicationInfo>.Update.Combine(
-                Builders<PublicationInfo>.Update.Set(p => p.BatchVolume, batchVolume),
+                Builders<PublicationInfo>.Update.Set(p => p.BatchVolume, dto.BatchVolume),
                 Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, dto.ReleaseDate),
                 Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true));
 
             await _pubCollection.UpdateManyAsync(filter, update);
             
-            pubs.ForEach(p => p.BatchVolume = batchVolume);
+            pubs.ForEach(p => p.BatchVolume = dto.BatchVolume);
 
-            return batchVolume;
+            return true;
         }
         public async Task<bool> BatchJournal(StaffBatchRequest dto)
         {
             var staff = await _users.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync() ?? await _users.Find(u => u.CreatorId == dto.UserId).FirstOrDefaultAsync();
-            var batchVolume = await BatchPubs(dto);
-            var performance = new PerformanceDto
+            if (staff is null)
             {
-                AppUserId = staff?.Id,
-                FileType = FileTypes.TradeMark,
-                OfficeUnit = Enums.Roles.TrademarkPublication,
-                Date = DateTime.Now,
-                Reason = $"Batching trademark publications {batchVolume}",
-                BeforeStatus = ApplicationStatuses.Publication,
-                AfterStatus = ApplicationStatuses.Published
-            };
-            SavePerformance(performance);
+                throw new KeyNotFoundException("Staff not found");
+            }
+
             var batch = _counters.Find(c => c.id == "Publication").FirstOrDefault();
             if (batch is null)
             {
                 throw new KeyNotFoundException("Publication counter not found");
             }
+            var batchVolume = $"{DateTime.UtcNow.Year}V{dto.Volume}N{dto.Number}";
+            dto.BatchVolume = batchVolume;
+            await BatchPubs(dto);
             var journal = await GetTrademarkJournal(batchVolume, dto.Volume, dto.Number, dto.ReleaseDate);
             var upload = new TT
             {
@@ -416,6 +429,19 @@ namespace patentdesign.Services
                 Batch = batchVolume
             };
             await _journals.InsertOneAsync(save);
+
+            var performance = new PerformanceDto
+            {
+                AppUserId = staff.Id,
+                FileType = FileTypes.TradeMark,
+                OfficeUnit = Enums.Roles.TrademarkPublication,
+                Date = DateTime.Now,
+                Reason = $"Batching trademark publications {batchVolume}",
+                BeforeStatus = ApplicationStatuses.Publication,
+                AfterStatus = ApplicationStatuses.Published
+            };
+            SavePerformance(performance);
+
             return true;
         }
         private static void SavePerformance(PerformanceDto perf)
