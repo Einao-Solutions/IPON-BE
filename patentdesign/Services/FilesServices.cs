@@ -59,6 +59,7 @@ public class FilesServices
     private static IMongoCollection<FileUpdateHistory> _fileUpdateHistoryCollection;
     private static IMongoCollection<PublicationInfo> _publicationCollection;
     private static IMongoCollection<SignatureInfo> _signatures;
+    private static IMongoCollection<OfflineRenewalRequest> _offlineRenewalRequestsCollection;
     private readonly ILogger<FilesServices> _log;
 
     private PaymentUtils _remitaPaymentUtils;
@@ -83,6 +84,7 @@ public class FilesServices
         _ticketsCollection = db.GetCollection<TicketInfo>(s.TicketCollectionName);
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _attachmentCollection = db.GetCollection<AttachmentInfo>(s.AttachmentCollectionName);
+        _offlineRenewalRequestsCollection = db.GetCollection<OfflineRenewalRequest>(s.OfflineRenewalRequestsCollectionName);
         _remitaPaymentUtils = remitaPaymentUtils;
         _paymentService = paymentService;
         _log = log;
@@ -91,6 +93,26 @@ public class FilesServices
         _publicationServices = publicationServices;
         _notificationServices = notificationServices;
         _signatures = db.GetCollection<SignatureInfo>("signatures");
+    }
+
+    private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
+    {
+        if (user.UserRoles.Contains(Roles.SuperAdmin) ||
+            user.UserRoles.Contains(Roles.TrademarkRegistrar) ||
+            user.UserRoles.Contains(Roles.PatentDesignRegistrar) ||
+            user.UserRoles.Contains(Roles.ActingTrademarkRegistrar) ||
+            user.UserRoles.Contains(Roles.ActingPatentDesignRegistrar))
+        {
+            return true;
+        }
+
+        return fileType switch
+        {
+            FileTypes.TradeMark => user.UserRoles.Contains(Roles.TrademarkCertification),
+            FileTypes.Patent => user.UserRoles.Contains(Roles.PatentCertification),
+            FileTypes.Design => user.UserRoles.Contains(Roles.DesignCertification),
+            _ => false
+        };
     }
 
     public async Task<Filling?> GetFileAsync(string id)
@@ -112,14 +134,13 @@ public class FilesServices
     // atomically create file
     public async Task CreateFileAsync(Filling newFile)
     {
-        // Check for existing file with the same FileId (idempotency)
-        var existing = await _fillingCollection.Find(x => x.FileId == newFile.FileId).FirstOrDefaultAsync();
-        if (existing != null)
+        var baseFileId = newFile.FileId;
+        do
         {
-            _log.LogInformation("File with FileId {FileId} already exists. Skipping creation.", newFile.FileId);
-            return;
+            newFile.FileId = string.Join("/", [baseFileId, Guid.NewGuid().ToString("N")[..8]]);
         }
-        newFile.FileId = string.Join("/", [newFile.FileId, Guid.NewGuid().ToString().Split("-")[0]]);
+        while (await _fillingCollection.Find(x => x.FileId == newFile.FileId).AnyAsync());
+
         _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
     }
@@ -140,8 +161,22 @@ public class FilesServices
         if (isCertificate == true)
         {
             _log.LogDebug("Updating certificate application for FileId {FileId}", fileId);
-            var update = await UpdateCertificatePaymentStatus(fileId, application.PaymentId);
-            if (update) return file;
+            if (application.CurrentStatus != ApplicationStatuses.AwaitingCertification)
+            {
+                _log.LogInformation("Certificate application {AppId} for FileId {FileId} is already in status {Status}. Skipping manual update.",
+                    application.id, fileId, application.CurrentStatus);
+                return file;
+            }
+
+            await UpdateCertificatePaymentStatus(fileId, application.CertificatePaymentId ?? application.PaymentId);
+            return file;
+        }
+
+        if (application.CurrentStatus != ApplicationStatuses.AwaitingPayment)
+        {
+            _log.LogInformation("Application {AppId} for FileId {FileId} is already in status {Status}. Skipping manual update.",
+                application.id, fileId, application.CurrentStatus);
+            return file;
         }
 
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
@@ -246,6 +281,13 @@ public class FilesServices
 
     private async Task ProcessApplicationType(Filling file, ApplicationInfo application, DateTime paymentDate, string? userName, string? userId)
     {
+        if (application.CurrentStatus != ApplicationStatuses.AwaitingPayment)
+        {
+            _log.LogInformation("Application {AppId} for FileId {FileId} is already in status {Status}. Skipping application processing.",
+                application.id, file.FileId, application.CurrentStatus);
+            return;
+        }
+
         var firstApp = file.ApplicationHistory.FirstOrDefault();
         switch (application.ApplicationType)
         {
@@ -524,10 +566,18 @@ public class FilesServices
             Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, a => a.id == application.id));
 
-        await _fillingCollection.UpdateOneAsync(filter,
-            Builders<Filling>.Update.Combine(
-                Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
-                Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)));
+        var updates = new List<UpdateDefinition<Filling>>
+        {
+            Builders<Filling>.Update.Push("ApplicationHistory.$.StatusHistory", statusEntry),
+            Builders<Filling>.Update.Set("ApplicationHistory.$.CurrentStatus", ApplicationStatuses.AutoApproved)
+        };
+
+        if (file.FileStatus == ApplicationStatuses.Re_conduct)
+        {
+            updates.Add(Builders<Filling>.Update.Set(f => f.FileStatus, ApplicationStatuses.AwaitingExaminer));
+        }
+
+        await _fillingCollection.UpdateOneAsync(filter, Builders<Filling>.Update.Combine(updates));
 
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
 
@@ -538,6 +588,17 @@ public class FilesServices
     private void AddStatusHistory(ApplicationInfo application, ApplicationStatuses beforeStatus, ApplicationStatuses afterStatus,
         DateTime date, string? userName, string? userId, string message)
     {
+        application.StatusHistory ??= new List<ApplicationHistory>();
+        if (application.StatusHistory.Any(h =>
+                h.beforeStatus == beforeStatus &&
+                h.afterStatus == afterStatus &&
+                h.Message == message &&
+                h.UserId == userId))
+        {
+            application.CurrentStatus = afterStatus;
+            return;
+        }
+
         application.StatusHistory.Add(new ApplicationHistory
         {
             beforeStatus = beforeStatus,
@@ -556,17 +617,33 @@ public class FilesServices
         var segments = (file.FileId ?? string.Empty).Split('/');
         var max = Math.Max(segments.Length - 1, 0);
 
-        var counter = await _countersCollection
-                          .Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-                          .FirstOrDefaultAsync()
-                      ?? throw new Exception("Counter not found for file type.");
+        Counters counter;
+        string newId;
+        do
+        {
+            counter = await GetNextCounterAsync(file.Type.ToString());
+            newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
+        }
+        while (await _fillingCollection.Find(x => x.FileId == newId).AnyAsync());
 
-        var newId = string.Join("/", segments.Take(max).Concat(new[] { counter.currentNumber.ToString() }));
         _log.LogInformation("Generated file number {NewFileId} for {FileType}", newId, file.Type);
-        var counterFilter = Builders<Counters>.Filter.Eq("_id", file.Type);
-        await _countersCollection.FindOneAndUpdateAsync(counterFilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
 
         return newId;
+    }
+
+    private async Task<Counters> GetNextCounterAsync(string counterId)
+    {
+        var options = new FindOneAndUpdateOptions<Counters>
+        {
+            IsUpsert = false,
+            ReturnDocument = ReturnDocument.Before
+        };
+
+        return await _countersCollection.FindOneAndUpdateAsync(
+                   Builders<Counters>.Filter.Eq("_id", counterId),
+                   Builders<Counters>.Update.Inc(f => f.currentNumber, 1),
+                   options)
+               ?? throw new Exception($"Counter not found for {counterId}.");
     }
 
     private string GetPaymentTypeDescription(FormApplicationTypes applicationType) => applicationType switch
@@ -2746,8 +2823,8 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            //var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
 
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
@@ -3165,10 +3242,32 @@ public class FilesServices
             afterStatus = req.afterStatus,
             beforeStatus = req.beforeStatus,
             Date = DateTime.Now,
-            Message = req.reason,
+            Message = $"Application status recalled. {req.reason}",
             User = req.userName,
             UserId = req.userId
         };
+        if (req.attachment is { Length: > 0 })
+        {
+            using var ms = new MemoryStream();
+            await req.attachment.CopyToAsync(ms);
+
+            var fileName = Path.GetFileName(req.attachment.FileName);
+            var attachmentUrls = await UploadAttachment(new List<TT>
+            {
+                new()
+                {
+                    Name = "adminUpdate",
+                    data = ms.ToArray(),
+                    fileName = string.IsNullOrWhiteSpace(fileName) ? "attachment" : fileName,
+                    contentType = string.IsNullOrWhiteSpace(req.attachment.ContentType)
+                        ? GetContentType(fileName)
+                        : req.attachment.ContentType
+                }
+            });
+
+            latestAddition.AttachmentUrl = attachmentUrls.FirstOrDefault();
+            latestAddition.AttachmentName = fileName;
+        }
         var filter = Builders<Filling>.Filter.And(Builders<Filling>.Filter.Eq("_id", req.fileId),
             Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory, f => f.id == req.applicationId));
         List<UpdateDefinition<Filling>> operations = [];
@@ -3455,12 +3554,7 @@ public class FilesServices
         foreach (var co in toConfirm)
         {
             var file = await _fillingCollection.Find(x => x.Id == co["Id"]).FirstOrDefaultAsync();
-            var document = await _countersCollection.Find(Builders<Counters>.Filter.Eq("_id", file.Type))
-         .FirstOrDefaultAsync();
-            var strings = file.FileId.Split("/");
-            var max = strings.Length - 1;
-            var newId = string.Join("/", strings.Take(max).Concat(new[] { document.currentNumber.ToString() }));
-            var counterfilter = Builders<Counters>.Filter.Eq("_id", file.Type);
+            var newId = await GenerateNewFileId(file);
             Console.WriteLine("Updating....");
             await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, co["Id"]),
                 Builders<Filling>.Update.Combine([
@@ -3478,7 +3572,6 @@ public class FilesServices
                      }),
                      Builders<Filling>.Update.AddToSetEach(t=>t.ApplicationHistory[0].ApplicationLetters, [ApplicationLetters.NewApplicationAcknowledgement, ApplicationLetters.NewApplicationReceipt]),
                 ]));
-            await _countersCollection.FindOneAndUpdateAsync(counterfilter, Builders<Counters>.Update.Inc(f => f.currentNumber, 1));
         }
         // await _fillingCollection.DeleteManyAsync(x => toBeDeleted.Contains(x.Id));
     }
@@ -7247,6 +7340,325 @@ public class FilesServices
         }
     }
 
+    public async Task<(bool Success, string Message, string? RequestId)> SubmitOfflineRenewalRequestAsync(OfflineRenewalSubmitDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.FileId))
+            return (false, "FileId is required", null);
+        if (string.IsNullOrWhiteSpace(dto.UserId))
+            return (false, "UserId is required", null);
+        if (!dto.RenewalYear.HasValue || dto.RenewalYear.Value <= 0)
+            return (false, "Renewal year is required", null);
+        if (!dto.PaymentDate.HasValue || dto.PaymentDate.Value == default)
+            return (false, "Payment date is required", null);
+        if (string.IsNullOrWhiteSpace(dto.PaymentId))
+            return (false, "Payment ID is required", null);
+        if (dto.RenewalReceiptAttachments == null || !dto.RenewalReceiptAttachments.Any())
+            return (false, "Renewal receipt attachment is required", null);
+        if (dto.RenewalCertificateAttachments == null || !dto.RenewalCertificateAttachments.Any())
+            return (false, "Renewal certificate attachment is required", null);
+
+        var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found", null);
+
+        var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (user == null)
+            return (false, "User not found", null);
+
+        var receiptUrls = await UploadAttachment(dto.RenewalReceiptAttachments);
+        var certificateUrls = await UploadAttachment(dto.RenewalCertificateAttachments);
+
+        if (!receiptUrls.Any() || !certificateUrls.Any())
+            return (false, "Unable to process attachments", null);
+
+        var paymentId = dto.PaymentId.Trim();
+
+        var paymentIdExistsInApplicationHistory = file.ApplicationHistory?.Any(a =>
+            !string.IsNullOrWhiteSpace(a.PaymentId) &&
+            string.Equals(a.PaymentId.Trim(), paymentId, StringComparison.OrdinalIgnoreCase)) == true;
+
+        var paymentIdExistsInPostRegistration = file.PostRegApplications?.Any(a =>
+            !string.IsNullOrWhiteSpace(a.rrr) &&
+            string.Equals(a.rrr.Trim(), paymentId, StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (paymentIdExistsInApplicationHistory || paymentIdExistsInPostRegistration)
+            return (false, "Payment ID already exists for this file", null);
+
+        var duplicatePendingRequest = await _offlineRenewalRequestsCollection
+            .Find(x => x.FileId == file.FileId &&
+                       x.Status == OfflineRenewalRequestStatus.AwaitingRenewalConfirmation &&
+                       x.PaymentId == paymentId)
+            .FirstOrDefaultAsync();
+        if (duplicatePendingRequest != null)
+            return (false, "A pending offline renewal request already exists for this Payment ID", null);
+
+        var pendingHistory = new ApplicationInfo
+        {
+            id = Guid.NewGuid().ToString(),
+            ApplicationType = FormApplicationTypes.OfflineRenewalRequest,
+            CurrentStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+            ApplicationDate = DateTime.Now,
+            PaymentId = paymentId,
+            FieldToChange = "Offline Renewal Request",
+            NewValue = "",
+            StatusHistory = new List<ApplicationHistory>
+            {
+                new()
+                {
+                    Date = DateTime.Now,
+                    beforeStatus = ApplicationStatuses.None,
+                    afterStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+                    Message = "Offline renewal request submitted",
+                    User = user.Name,
+                    UserId = user.Id
+                }
+            }
+        };
+
+        file.ApplicationHistory ??= new List<ApplicationInfo>();
+        file.ApplicationHistory.Add(pendingHistory);
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+
+        var request = new OfflineRenewalRequest
+        {
+            FileId = file.FileId,
+            FileType = file.Type,
+            UserId = user.Id,
+            UserName = user.Name,
+            RenewalYear = dto.RenewalYear.Value,
+            PaymentDate = dto.PaymentDate.Value,
+            PaymentId = paymentId,
+            RenewalReceiptAttachments = receiptUrls,
+            RenewalCertificateAttachments = certificateUrls,
+            Status = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation,
+            SubmittedAt = DateTime.Now,
+            PendingApplicationHistoryId = pendingHistory.id
+        };
+
+        await _offlineRenewalRequestsCollection.InsertOneAsync(request);
+        return (true, "Offline renewal request submitted successfully", request.Id);
+    }
+
+    public async Task<(bool Success, string Message, object? Data)> GetOfflineRenewalRequestDetailsAsync(string requestId)
+    {
+        if (string.IsNullOrWhiteSpace(requestId))
+            return (false, "Request id is required", null);
+
+        var collection = _offlineRenewalRequestsCollection.Database
+            .GetCollection<BsonDocument>(_offlineRenewalRequestsCollection.CollectionNamespace.CollectionName);
+
+        var request = await collection.Find(Builders<BsonDocument>.Filter.Eq("Id", requestId)).FirstOrDefaultAsync();
+        if (request == null)
+            return (false, "Offline renewal request not found", null);
+
+        return (true, "Offline renewal request fetched successfully", BuildOfflineRenewalDetailsResponse(request));
+    }
+
+    public async Task<(bool Success, string Message, object? Data)> GetOfflineRenewalRequestDetailsByApplicationHistoryIdAsync(string applicationHistoryId)
+    {
+        if (string.IsNullOrWhiteSpace(applicationHistoryId))
+            return (false, "Application history id is required", null);
+
+        var collection = _offlineRenewalRequestsCollection.Database
+            .GetCollection<BsonDocument>(_offlineRenewalRequestsCollection.CollectionNamespace.CollectionName);
+
+        var filter = Builders<BsonDocument>.Filter.Or(
+            Builders<BsonDocument>.Filter.Eq("PendingApplicationHistoryId", applicationHistoryId),
+            Builders<BsonDocument>.Filter.Eq("RenewalHistoryApplicationId", applicationHistoryId));
+
+        var request = await collection.Find(filter).FirstOrDefaultAsync();
+        if (request == null)
+            return (false, "Offline renewal request not found", null);
+
+        return (true, "Offline renewal request fetched successfully", BuildOfflineRenewalDetailsResponse(request));
+    }
+
+    private static object BuildOfflineRenewalDetailsResponse(BsonDocument request)
+    {
+        var paymentDate = ReadOfflineRenewalPaymentDate(request);
+
+        return new
+        {
+            FileId = request.GetValue("FileId", "").AsString,
+            RenewalYear = request.GetValue("RenewalYear", 0).ToInt32(),
+            PaymentDate = paymentDate,
+            PaymentId = request.GetValue("PaymentId", "").AsString,
+            RenewalReceiptAttachments = ReadOfflineRenewalAttachments(request, "RenewalReceiptAttachments"),
+            RenewalCertificateAttachments = ReadOfflineRenewalAttachments(request, "RenewalCertificateAttachments")
+        };
+    }
+
+    private static DateTime ReadOfflineRenewalPaymentDate(BsonDocument request)
+    {
+        if (!request.TryGetValue("PaymentDate", out var value))
+            return DateTime.MinValue;
+
+        if (value.BsonType == BsonType.DateTime)
+            return value.AsBsonDateTime.ToUniversalTime();
+
+        if (value.BsonType == BsonType.String && DateTime.TryParse(value.AsString, out var parsed))
+            return parsed;
+
+        return DateTime.MinValue;
+    }
+
+    private static List<object> ReadOfflineRenewalAttachments(BsonDocument request, string fieldName)
+    {
+        if (!request.TryGetValue(fieldName, out var value) || value.BsonType != BsonType.Array)
+            return new List<object>();
+
+        var arr = value.AsBsonArray;
+        var result = new List<object>();
+
+        foreach (var item in arr)
+        {
+            if (item.BsonType == BsonType.String)
+            {
+                result.Add(new { url = item.AsString });
+                continue;
+            }
+
+            if (item.BsonType == BsonType.Document)
+            {
+                var doc = item.AsBsonDocument;
+                result.Add(new
+                {
+                    name = doc.TryGetValue("name", out var n) && n.BsonType == BsonType.String ? n.AsString : null,
+                    fileName = doc.TryGetValue("fileName", out var f) && f.BsonType == BsonType.String ? f.AsString : null,
+                    contentType = doc.TryGetValue("contentType", out var c) && c.BsonType == BsonType.String ? c.AsString : null,
+                    url = doc.TryGetValue("url", out var u) && u.BsonType == BsonType.String ? u.AsString : null
+                });
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<(bool Success, string Message)> DecideOfflineRenewalRequestAsync(OfflineRenewalDecisionDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.RequestId))
+            return (false, "RequestId is required");
+        if (string.IsNullOrWhiteSpace(dto.UserId))
+            return (false, "UserId is required");
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return (false, "Reason is required");
+
+        var request = await _offlineRenewalRequestsCollection
+            .Find(x => x.Id == dto.RequestId)
+            .FirstOrDefaultAsync();
+
+        if (request == null)
+        {
+            request = await _offlineRenewalRequestsCollection
+                .Find(x => x.PendingApplicationHistoryId == dto.RequestId || x.RenewalHistoryApplicationId == dto.RequestId)
+                .FirstOrDefaultAsync();
+        }
+
+        if (request == null)
+            return (false, "Offline renewal request not found");
+
+        if (request.Status != OfflineRenewalRequestStatus.AwaitingRenewalConfirmation)
+            return (false, "Request has already been treated");
+
+        var staff = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
+        if (staff == null)
+            return (false, "User not found");
+
+        if (!HasOfflineRenewalCertificateRole(staff, request.FileType))
+            return (false, "Unauthorized");
+
+        var file = await _fillingCollection.Find(x => x.FileId == request.FileId).FirstOrDefaultAsync();
+        if (file == null)
+            return (false, "File not found");
+
+        var pendingHistory = file.ApplicationHistory?
+            .FirstOrDefault(a => a.id == request.PendingApplicationHistoryId)
+            ?? file.ApplicationHistory?
+                .Where(a => a.ApplicationType == FormApplicationTypes.OfflineRenewalRequest
+                            && !string.IsNullOrWhiteSpace(a.PaymentId)
+                            && string.Equals(a.PaymentId.Trim(), request.PaymentId.Trim(), StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(a => a.ApplicationDate)
+                .FirstOrDefault();
+
+        if (pendingHistory == null)
+            return (false, "Pending offline renewal history not found");
+
+        request.PendingApplicationHistoryId = pendingHistory.id;
+        request.DecisionReason = dto.Reason.Trim();
+        request.DecidedAt = DateTime.Now;
+        request.DecidedByUserId = staff.Id;
+        request.DecidedByName = staff.Name;
+
+        pendingHistory.StatusHistory ??= new List<ApplicationHistory>();
+
+        if (dto.Approve != true)
+        {
+            request.Status = OfflineRenewalRequestStatus.Refused;
+            pendingHistory.CurrentStatus = ApplicationStatuses.Rejected;
+            pendingHistory.StatusHistory.Add(new ApplicationHistory
+            {
+                Date = DateTime.Now,
+                beforeStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+                afterStatus = ApplicationStatuses.Rejected,
+                Message = "Offline renewal request refused",
+                User = staff.Name,
+                UserId = staff.Id
+            });
+
+            await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+            await _offlineRenewalRequestsCollection.ReplaceOneAsync(x => x.Id == request.Id, request);
+            return (true, "Offline renewal request refused");
+        }
+
+        var duplicateRenewalPaymentExists = file.ApplicationHistory?.Any(a =>
+            a.id != pendingHistory.id
+            && a.ApplicationType == FormApplicationTypes.LicenseRenewal
+            && !string.IsNullOrWhiteSpace(a.PaymentId)
+            && string.Equals(a.PaymentId.Trim(), request.PaymentId.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (duplicateRenewalPaymentExists)
+            return (false, "A renewal history with this Payment ID already exists");
+
+        var renewalAdded = await RenewalApplication(file.FileId, request.PaymentId);
+        if (!renewalAdded)
+            return (false, "Unable to create renewal history");
+
+        var refreshedFile = await _fillingCollection.Find(x => x.Id == file.Id).FirstOrDefaultAsync();
+        if (refreshedFile == null)
+            return (false, "File not found after renewal update");
+
+        var refreshedPendingHistory = refreshedFile.ApplicationHistory?.FirstOrDefault(a => a.id == pendingHistory.id);
+        if (refreshedPendingHistory == null)
+            return (false, "Pending offline renewal history not found after renewal update");
+
+        refreshedPendingHistory.CurrentStatus = ApplicationStatuses.Approved;
+        refreshedPendingHistory.StatusHistory ??= new List<ApplicationHistory>();
+        refreshedPendingHistory.StatusHistory.Add(new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            beforeStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
+            afterStatus = ApplicationStatuses.Approved,
+            Message = "Offline renewal request approved",
+            User = staff.Name,
+            UserId = staff.Id
+        });
+
+        var createdRenewalHistory = refreshedFile.ApplicationHistory?
+            .Where(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal
+                        && !string.IsNullOrWhiteSpace(a.PaymentId)
+                        && string.Equals(a.PaymentId.Trim(), request.PaymentId.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(a => a.ApplicationDate)
+            .FirstOrDefault();
+
+        request.Status = OfflineRenewalRequestStatus.Approved;
+        request.RenewalHistoryApplicationId = createdRenewalHistory?.id;
+
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == refreshedFile.Id, refreshedFile);
+        await _offlineRenewalRequestsCollection.ReplaceOneAsync(x => x.Id == request.Id, request);
+
+        return (true, "Offline renewal request approved and renewal history added");
+    }
+
     public async Task<(bool Success, string Message)> PublicationStatusUpdateAsync(PublicationUpdateDto dto)
     {
         _log.LogInformation("Starting publication status update for FileId {FileId}, UserId {UserId}", dto.FileId, dto.UserId);
@@ -8179,17 +8591,23 @@ public class FilesServices
             if (user is null) throw new KeyNotFoundException("User not found");
 
             // Check if this exact clerical update already exists (idempotency)
-            var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
-                c.PaymentRRR == updateData.PaymentRRR &&
-                c.UpdateType == updateData.UpdateType.ToString() &&
-                c.FilingDate.Date == DateTime.Now.Date
-            );
-
-            if (existingUpdate != null)
+            // Skip this for free updates, since PaymentRRR is usually the same literal value ("Free")
+            // and can incorrectly block legitimate new requests on the same day.
+            var isFreeUpdate = string.Equals(updateData.PaymentRRR, "Free", StringComparison.OrdinalIgnoreCase);
+            if (!isFreeUpdate)
             {
-                _log.LogInformation("Clerical update already exists for FileId {FileId}, UpdateType {UpdateType}, AppId {AppId}", updateData.FileId, updateData.UpdateType, existingUpdate.Id);
-                Console.WriteLine("Application already exists!");
-                return existingUpdate.Id;
+                var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
+                    c.PaymentRRR == updateData.PaymentRRR &&
+                    c.UpdateType == updateData.UpdateType.ToString() &&
+                    c.FilingDate.Date == DateTime.Now.Date
+                );
+
+                if (existingUpdate != null)
+                {
+                    _log.LogInformation("Clerical update already exists for FileId {FileId}, UpdateType {UpdateType}, AppId {AppId}", updateData.FileId, updateData.UpdateType, existingUpdate.Id);
+                    Console.WriteLine("Application already exists!");
+                    return existingUpdate.Id;
+                }
             }
 
             var applicant = file.applicants?.FirstOrDefault();
@@ -8248,6 +8666,55 @@ public class FilesServices
             return "Failed";
         }
     }
+
+    private static bool IsForeignPatentFile(Filling file)
+    {
+        if (file.Type != FileTypes.Patent)
+            return false;
+
+        var isForeignByFileNumber = file.FileId?
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault()?
+            .Equals("F", StringComparison.OrdinalIgnoreCase) == true;
+
+        if (isForeignByFileNumber)
+            return true;
+
+        if (string.Equals(file.FileOrigin, "foreign", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return file.applicants?.Any(a =>
+            !string.IsNullOrWhiteSpace(a.country) &&
+            !string.Equals(a.country, "Nigeria", StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private static string GetPatentTypeCode(PatentTypes patentType)
+    {
+        return patentType switch
+        {
+            PatentTypes.Conventional => "C",
+            PatentTypes.Non_Conventional => "NC",
+            PatentTypes.PCT => "PCT",
+            _ => "PCT"
+        };
+    }
+
+    private static string? BuildUpdatedPatentFileId(string? currentFileId, PatentTypes newPatentType)
+    {
+        if (string.IsNullOrWhiteSpace(currentFileId))
+            return null;
+
+        var parts = currentFileId.Split('/').ToList();
+        if (parts.Count < 3)
+            return null;
+
+        if (!string.Equals(parts[1], "PT", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        parts[2] = GetPatentTypeCode(newPatentType);
+        return string.Join("/", parts);
+    }
+
     private async Task<ClericalUpdate> CreateClericalUpdateRecord(
     Filling file,
     ClericalUpdateDto updateData,
@@ -8396,6 +8863,14 @@ public class FilesServices
                     {
                         clerical.OldPatentAbstract = file.PatentAbstract;
                         clerical.NewPatentAbstract = updateData.PatentAbstract;
+                    }
+                    if (updateData.PatentType.HasValue)
+                    {
+                        if (!IsForeignPatentFile(file))
+                            throw new InvalidOperationException("Patent type can only be edited for foreign patent files.");
+
+                        clerical.OldPatentType = file.PatentType;
+                        clerical.NewPatentType = updateData.PatentType;
                     }
                     if (updateData.PatentApplicationType.HasValue)
                     {
@@ -8850,6 +9325,21 @@ public class FilesServices
                         {
                             updates.Add(Builders<Filling>.Update.Set(f => f.PatentAbstract, clerical.NewPatentAbstract));
                         }
+                        if (clerical.NewPatentType is not null)
+                        {
+                            if (!IsForeignPatentFile(file))
+                                throw new InvalidOperationException("Patent type can only be edited for foreign patent files.");
+
+                            updates.Add(Builders<Filling>.Update.Set(f => f.PatentType, clerical.NewPatentType));
+
+                            var updatedFileId = BuildUpdatedPatentFileId(file.FileId, clerical.NewPatentType.Value);
+                            if (!string.IsNullOrWhiteSpace(updatedFileId) &&
+                                !string.Equals(updatedFileId, file.FileId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                updates.Add(Builders<Filling>.Update.Set(f => f.FileId, updatedFileId));
+                                file.FileId = updatedFileId;
+                            }
+                        }
                         if (clerical.NewPatentApplicationType != null)
                         {
                             updates.Add(Builders<Filling>.Update.Set(f => f.PatentApplicationType, clerical.NewPatentApplicationType));
@@ -9120,10 +9610,24 @@ public class FilesServices
     {
         try
         {
-            var filter = Builders<Filling>.Filter.And(
+            if (string.IsNullOrWhiteSpace(fileId) || string.IsNullOrWhiteSpace(rrr))
+            {
+                _log.LogWarning("Certificate payment status update rejected. FileId or RRR is empty. FileId: {FileId}, RRR: {Rrr}", fileId, rrr);
+                return false;
+            }
+
+            var paymentReference = rrr.Trim();
+
+            var fileFilter = Builders<Filling>.Filter.Or(
                 Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+                Builders<Filling>.Filter.Eq(f => f.Id, fileId)
+            );
+
+            var filter = Builders<Filling>.Filter.And(
+                fileFilter,
                 Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
-                    a => a.CertificatePaymentId == rrr)
+                    a => (a.CertificatePaymentId == paymentReference || a.PaymentId == paymentReference) &&
+                         a.CurrentStatus == ApplicationStatuses.AwaitingCertification)
             );
 
             var newStatusHistory = new ApplicationHistory
@@ -9135,13 +9639,23 @@ public class FilesServices
             };
 
             var update = Builders<Filling>.Update
-                .Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
+                .Set("ApplicationHistory.$[app].CurrentStatus", ApplicationStatuses.AwaitingCertificateConfirmation.ToString())
                 .Set("FileStatus", ApplicationStatuses.AwaitingCertificateConfirmation)
                 .Push("ApplicationHistory.$[app].StatusHistory", newStatusHistory);
 
             var arrayFilters = new List<ArrayFilterDefinition>
             {
-                new JsonArrayFilterDefinition<BsonDocument>("{'app.CertificatePaymentId': '" + rrr + "'}")
+                new BsonDocumentArrayFilterDefinition<BsonDocument>(new BsonDocument
+                {
+                    {
+                        "$or", new BsonArray
+                        {
+                            new BsonDocument("app.CertificatePaymentId", paymentReference),
+                            new BsonDocument("app.PaymentId", paymentReference)
+                        }
+                    },
+                    { "app.CurrentStatus", ApplicationStatuses.AwaitingCertification.ToString() }
+                })
             };
 
             var updateOptions = new UpdateOptions { ArrayFilters = arrayFilters };
@@ -9150,19 +9664,45 @@ public class FilesServices
 
             if (result.ModifiedCount > 0)
             {
-                Console.WriteLine("Successfully updated certificate payment status for FileId");
+                _log.LogInformation("Successfully updated certificate payment status for FileId {FileId}, RRR {Rrr}", fileId, paymentReference);
                 return true;
             }
-            else
+
+            var file = await _fillingCollection.Find(fileFilter).FirstOrDefaultAsync();
+            if (file == null)
             {
-                Console.WriteLine("No document updated. Either already updated or document not found. FileId");
+                _log.LogWarning("Certificate payment status update failed. File not found for FileId or Id {FileId}, RRR {Rrr}", fileId, paymentReference);
                 return false;
             }
+
+            var application = file.ApplicationHistory?.FirstOrDefault(a =>
+                a.CertificatePaymentId == paymentReference || a.PaymentId == paymentReference);
+
+            if (application == null)
+            {
+                _log.LogWarning("Certificate payment status update failed. No application found for FileId {FileId}, RRR {Rrr}", file.FileId, paymentReference);
+                return false;
+            }
+
+            if (application.CurrentStatus == ApplicationStatuses.AwaitingCertificateConfirmation)
+            {
+                _log.LogInformation("Certificate payment status already updated for FileId {FileId}, AppId {AppId}, RRR {Rrr}", file.FileId, application.id, paymentReference);
+                return true;
+            }
+
+            _log.LogWarning("Certificate payment status update failed. Application {AppId} for FileId {FileId}, RRR {Rrr} is in status {Status}, expected {ExpectedStatus}",
+                application.id,
+                file.FileId,
+                paymentReference,
+                application.CurrentStatus,
+                ApplicationStatuses.AwaitingCertification);
+
+            return false;
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Error while updating certificate payment status for FileId");
-            throw ex;
+            _log.LogError(ex, "Error while updating certificate payment status for FileId {FileId}, RRR {Rrr}", fileId, rrr);
+            throw;
         }
     }
 
@@ -14316,22 +14856,22 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var applicantName = applicant.Name ?? string.Empty;
         var applicantEmail = applicant.Email ?? string.Empty;
         var applicantPhone = applicant.Phone ?? string.Empty;
-        //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-        //var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-            //"Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
-        //if (rrr is null)
-        //{
-        //    _log.LogError("Failed to Generate RRR");
-        //    throw new NullReferenceException();
-        //}
-        var app = new ApplicationInfo
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+            var rrr = await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+                "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+            if (rrr is null)
+            {
+                _log.LogError("Failed to Generate RRR");
+                throw new NullReferenceException();
+            }
+            var app = new ApplicationInfo
         {
             ApplicationDate = DateTime.Now,
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
             ExpiryDate = null,
             LicenseType = "",
             ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = "-",
+            PaymentId = rrr,
             StatusHistory =
             [
                 new ApplicationHistory
@@ -14357,9 +14897,9 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         {
             Applicant = applicantName,
             FileNumber = fileId,
-            PaymentId = "-",
+            PaymentId = rrr,
             FileStatus = file.FileStatus,
-            Cost = "0"
+            Cost = cost.Item1
         };
         return restore;
     }

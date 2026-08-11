@@ -11,6 +11,7 @@ namespace patentdesign.Dtos.Response
         public List<Opposition>? Opposition { get; set; }
         public DateTime? PublicationDate { get; set; }
         public bool? IsManualPublication { get; set; } = false;
+        public string? BatchVolume { get; set; }
     }
     public class PublicationInfoDto
     {
@@ -35,5 +36,28 @@ namespace patentdesign.Dtos.Response
         public string StaffId { get; set; }
         public string ApplicationId { get; set; }
         public bool IsApproved { get; set; } = false;
+    }
+
+    public class StaffBatchRequest
+    {
+        public string UserId { get; set; }
+        public int Volume { get; set; }
+        public int Number { get; set; }
+        public DateTime ReleaseDate {get; set;}
+        public string? BatchVolume { get; set; }
+    }
+
+    public class JournalRequestDto
+    {
+        public string AppId { get; set; }
+        public string Cost { get; set; }
+        public string PaymentId { get; set; }
+        public string ServiceFee { get; set; }
+    }
+
+    public class JournalRequestStatusDto
+    {
+        public string AppId { get; set; }
+        public string UserId { get; set; }
     }
 }

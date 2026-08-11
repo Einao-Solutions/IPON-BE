@@ -42,6 +42,12 @@ namespace patentdesign.Dtos.Request
         public List<FinancePeriodRequestDto> Periods { get; set; } = [];
     }
 
+    public class SupportPerformanceRequestDto
+    {
+        public string Scope { get; set; } = string.Empty;
+        public List<FinancePeriodRequestDto> Periods { get; set; } = [];
+    }
+
     public class FinancePeriodRequestDto
     {
         public string Type { get; set; } = string.Empty;

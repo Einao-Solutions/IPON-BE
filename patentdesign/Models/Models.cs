@@ -92,6 +92,7 @@ public record PatentDesignDBSettings
     public string AssignmentCollectionName { get; set; } = null!;
     public string CountersCollectionName { get; set; } = null!;
     public string TicketCollectionName { get; set; } = null!;
+    public string OfflineRenewalRequestsCollectionName { get; set; } = "offlineRenewalRequests";
     public string UsersCollectionName { get; set; } = null!;
     public string FinanceCollectionName { get; set; } = null!;
     public string AttachmentCollectionName { get; set; } = null!;
@@ -196,6 +197,36 @@ public record StatusRequests
     public ApplicationLetters? receiptLetter { get; set; } = null;
     public ApplicationLetters? ackLetter { get; set; } = null;
     public string? applicantName { get; set; }
+}
+
+public enum OfflineRenewalRequestStatus
+{
+    AwaitingRenewalConfirmation,
+    Approved,
+    Refused
+}
+
+public record OfflineRenewalRequest
+{
+    [BsonId]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string FileId { get; set; } = string.Empty;
+    public FileTypes FileType { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string? UserName { get; set; }
+    public int RenewalYear { get; set; }
+    public DateTime PaymentDate { get; set; }
+    public string PaymentId { get; set; } = string.Empty;
+    public List<string> RenewalReceiptAttachments { get; set; } = [];
+    public List<string> RenewalCertificateAttachments { get; set; } = [];
+    public OfflineRenewalRequestStatus Status { get; set; } = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation;
+    public string? DecisionReason { get; set; }
+    public DateTime SubmittedAt { get; set; } = DateTime.Now;
+    public DateTime? DecidedAt { get; set; }
+    public string? DecidedByUserId { get; set; }
+    public string? DecidedByName { get; set; }
+    public string? PendingApplicationHistoryId { get; set; }
+    public string? RenewalHistoryApplicationId { get; set; }
 }
 
 public record Filling
@@ -314,6 +345,8 @@ public record ClericalUpdate
     public string? OldCorrespondenceState { get; set; }
     public string? OldPatentAbstract { get; set; }
     public string? NewPatentAbstract { get; set; }
+    public PatentTypes? OldPatentType { get; set; }
+    public PatentTypes? NewPatentType { get; set; }
     public PatentApplicationTypes? OldPatentApplicationType { get; set; }
     public PatentApplicationTypes? NewPatentApplicationType { get; set; }
     public string? OldRepresentationUrl { get; set; }
@@ -542,6 +575,15 @@ public record Counters
     [BsonId]
     public string id { get; set; }
     public int currentNumber { get; set; }
+    public string? LatestBatch { get; set; }
+    public List<PublicationBatch>? Batches { get; set; }
+}
+public record PublicationBatch
+{
+    [BsonId]
+    public string id { get; set; } = Guid.NewGuid().ToString();
+    public string BatchNumber { get; set; }
+    public DateTime BatchDate { get; set; }
 }
 
 public record ApplicationInfo
@@ -592,6 +634,8 @@ public record ApplicationHistory
      public ApplicationStatuses? afterStatus { get; set; }
     public string? User { get; set; }
     public string? UserId { get; set; }
+    public string? AttachmentUrl { get; set; }
+    public string? AttachmentName { get; set; }
 }
 
 public record AttachmentType
@@ -889,7 +933,7 @@ public enum FormApplicationTypes
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
     PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
-    CounterStatement, StatutoryDeclaration, ChangeOfAgent
+    CounterStatement, StatutoryDeclaration, ChangeOfAgent, OfflineRenewalRequest, TrademarkJournalRequest
 }
 public enum ApplicationLetters
 {
@@ -899,7 +943,7 @@ public enum ApplicationLetters
     NewApplicationCertificate, 
     NewApplicationRejection, 
     RenewalReceipt, 
-    RenewalAck, 
+    RenewalAck,
     RenewalCertificate, 
     RecordalReceipt, 
     RecordalAck, 
@@ -926,7 +970,7 @@ public enum ApplicationLetters
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
     TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
-    StatutoryDeclarationAck
+    StatutoryDeclarationAck, JournalRequestAcknowledgement
 
 
 }
@@ -1041,6 +1085,7 @@ public enum ApplicationStatuses
     WithdrawalApproved = 39,
     BatchedManualPublication = 40,
     Published = 41,
+    JournalRequested = 42,
 }
 
 public record AssignmentCertificateType
@@ -1083,7 +1128,7 @@ public enum PaymentTypes
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
+CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal, TrademarkJournal
 }
 
 
@@ -1533,6 +1578,11 @@ public record PaymentInfo
     public string? OppositionWithdrawalCost { get; set; }
     public string? OppositionWithdrawalServiceFee { get; set; }
     public string? OppositionWithdrawalServiceID { get; set; }
+    
+    //Trademark Journal
+    public string? TrademarkJournalCost { get; set; }
+    public string? TrademarkJournalServiceFee { get; set; }
+    public string? TrademarkJournalServiceID { get; set; }
 }
 
 public record PaymentRecord
@@ -1950,4 +2000,15 @@ public class Notification
     public ApplicationStatuses? NewStatus { get; set; }
     public FormApplicationTypes? ApplicationType { get; set; }
     public string? ApplicationId { get; set; }
+}
+
+public class PublicationJournal
+{
+    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+    public FileTypes FileType { get; set; }
+    public string Batch { get; set; }
+    public string DocumentUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime JournalReleaseDate { get; set; }
+    public string BatchedBy { get; set; }
 }

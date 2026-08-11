@@ -89,37 +89,6 @@ namespace patentdesign
 
                 col.Item().Height(15);
 
-                // APPLICANT INFORMATION
-                col.Item().Element(Header).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-                if (model.applicants != null && model.applicants.Count > 0)
-                {
-                    foreach (var applicant in model.applicants)
-                    {
-                        TwoColumnSection(col, string.Empty, new[]
-                        {
-                            ("Name:",         F(applicant?.Name)),
-                            ("Email:",        F(applicant?.Email)),
-                            ("Phone number:", F(applicant?.Phone)),
-                            ("State:",        F(applicant?.State)),
-                            ("Address:",      F(applicant?.Address)),
-                            ("Nationality:",  F(applicant?.country))
-                        });
-                    }
-                }
-                else
-                {
-                    TwoColumnSection(col, string.Empty, new[]
-                    {
-                        ("Name:",         "N/A"),
-                        ("Email:",        "N/A"),
-                        ("Phone number:", "N/A"),
-                        ("State:",        "N/A"),
-                        ("Address:",      "N/A"),
-                        ("Nationality:",  "N/A")
-                    });
-                }
-
-
                 // Determine Renewal Due Date and Next Renewal Date (custom logic)
                 string renewalDueDateStr = "N/A";
                 string nextRenewalDateStr = "N/A";
@@ -177,17 +146,52 @@ namespace patentdesign
                 col.Item().Element(Header).Text("RENEWAL INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                 TwoColumnSection(col, string.Empty, new[]
                 {
+                    ("File number:", F(model.FileId)),
                     ("Renewal Due Date:", renewalDueDateStr),
-                    ("Next Renewal Date:", nextRenewalDateStr)
+                    ("Next Renewal Date:", nextRenewalDateStr),
+                    ("Payment RRR:", F(receipt?.rrr)),
+                    ("Renewal Filing Date:", F(model.DateCreated))
                 });
 
+                // APPLICANT INFORMATION
+                col.Item().Element(Header).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                if (model.applicants != null && model.applicants.Count > 0)
+                {
+                    foreach (var applicant in model.applicants)
+                    {
+                        TwoColumnSection(col, string.Empty, new[]
+                        {
+                            ("Name:",         F(applicant?.Name)),
+                            ("Email:",        F(applicant?.Email)),
+                            ("Phone number:", F(applicant?.Phone)),
+                            ("State:",        F(applicant?.State)),
+                            ("Address:",      F(applicant?.Address)),
+                            ("Nationality:",  F(applicant?.country))
+                        });
+                    }
+                }
+                else
+                {
+                    TwoColumnSection(col, string.Empty, new[]
+                    {
+                        ("Name:",         "N/A"),
+                        ("Email:",        "N/A"),
+                        ("Phone number:", "N/A"),
+                        ("State:",        "N/A"),
+                        ("Address:",      "N/A"),
+                        ("Nationality:",  "N/A")
+                    });
+                }
+
+
+               
                 // PATENT INFORMATION
                 col.Item().Element(Header).Text("PATENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
                 FullWidthBox(col, "Title Of Invention:", F(model.TitleOfInvention));
                 TwoColumnSection(col, string.Empty, new[]
                 {
                     ("Application Type:", F(model.PatentApplicationType)),
-                    ("Patent type:",       $"{F(model.PatentType)} - {F(model.FileOrigin)}")
+                    ("Patent type:",       F(model.PatentType))
                 });
                 FullWidthBox(col, "Abstract:", F(model.PatentAbstract));
 
@@ -199,13 +203,8 @@ namespace patentdesign
                     row.RelativeItem().Column(colLeft =>
                     {
                         colLeft.Item().Text("Sealed at my direction,").Bold().FontSize(12);
-                        colLeft.Item().Row(r =>
-                        {
-                            r.AutoItem().Text("Renewal Filing Date").Bold().FontSize(12).FontColor(Colors.Red.Darken2);
-                            r.AutoItem().Text($": {model.DateCreated:dd MMMM, yyyy}").FontSize(12);
-                        });
                         colLeft.Item().Text("Jane Igwe").Bold().FontSize(12);
-                        colLeft.Item().Text("Registrar,").Bold().FontSize(12);
+                        colLeft.Item().Text("Chief Registrar,").Bold().FontSize(12);
                         colLeft.Item().Text("Patent and Design Registry,").Bold().FontSize(12);
                         colLeft.Item().Text("Federal Ministry of Industry, Trade and Investment").Bold().FontSize(12);
                         colLeft.Item().Text("Federal Capital Territory.").Bold().FontSize(12);

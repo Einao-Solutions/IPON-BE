@@ -216,6 +216,18 @@ public class PaymentService
 
     public async Task AddPaymentRecord(PaymentRecord payment)
     {
+        var filter = Builders<PaymentRecord>.Filter.And(
+            Builders<PaymentRecord>.Filter.Eq(p => p.ApplicationId, payment.ApplicationId),
+            Builders<PaymentRecord>.Filter.Eq(p => p.PaymentType, payment.PaymentType),
+            Builders<PaymentRecord>.Filter.Eq("RemitaResponse.rrr", payment.RemitaResponse?.rrr));
+
+        if (await _payments.Find(filter).AnyAsync())
+        {
+            _log.LogInformation("Payment record already exists for AppId {AppId}, Type {PaymentType}, RRR {Rrr}. Skipping insert.",
+                payment.ApplicationId, payment.PaymentType, payment.RemitaResponse?.rrr);
+            return;
+        }
+
         await _payments.InsertOneAsync(payment);
     }
     private async Task<PayxResponse?> VerifyPayx(string paymentId)
