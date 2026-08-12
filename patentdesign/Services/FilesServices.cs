@@ -3470,13 +3470,30 @@ public class FilesServices
             NormalizeOwnershipHistory(file);
             return file;
         }
-        var result = _fillingCollection.Find(d => d.Id == fileId)
-            .Project(d => d.ApplicationHistory.FirstOrDefault(f => f.id == applicationId)).FirstOrDefault();
-        if (result != null && result.ApplicationType == FormApplicationTypes.Ownership)
+        var fileDoc = _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
+        var result = fileDoc?.ApplicationHistory?.FirstOrDefault(f => f.id == applicationId);
+        if (result == null) return null;
+
+        if (result.ApplicationType == FormApplicationTypes.Ownership)
         {
             result.OldValue = CoerceOwnershipValue(result.OldValue);
             result.NewValue = CoerceOwnershipValue(result.NewValue);
         }
+
+        // For recordal application types the SuperAdmin UI expects a shaped `hist` payload
+        // with a top-level `assignment` block (type 5) and camelCase old/new value keys so
+        // its forms can pre-fill directly. Falling back to the raw ApplicationInfo for all
+        // other types preserves existing consumer behaviour.
+        switch (result.ApplicationType)
+        {
+            case FormApplicationTypes.Assignment:       // 5
+            case FormApplicationTypes.RegisteredUser:   // 7
+            case FormApplicationTypes.Merger:           // 8
+            case FormApplicationTypes.ChangeOfName:     // 9
+            case FormApplicationTypes.ChangeOfAddress:  // 10
+                return Utils.ApplicationHistoryShaper.Shape(result, fileDoc?.FileId);
+        }
+
         return result;
     }
 
@@ -3784,38 +3801,36 @@ public class FilesServices
             {
                 ["id"] = !string.IsNullOrWhiteSpace(data.oldId) ? data.oldId : oldOwnerId,
                 ["name"] = resolvedOldName,
-                ["correspondence"] = new Dictionary<string, object?>
-                {
-                    ["name"] = data.oldCorrespondence?.name,
-                    ["email"] = data.oldCorrespondence?.email,
-                    ["phone"] = data.oldCorrespondence?.phone,
-                    ["address"] = data.oldCorrespondence?.address,
-                    ["state"] = data.oldCorrespondence?.state,
-                },
+                ["email"] = data.oldCorrespondence?.email,
+                ["phone"] = data.oldCorrespondence?.phone,
+                ["address"] = data.oldCorrespondence?.address,
+                ["state"] = data.oldCorrespondence?.state,
+                ["nationality"] = existing.Correspondence?.Nationality
             };
 
             var newValue = new Dictionary<string, object?>
             {
                 ["id"] = data.newOwner,
                 ["name"] = resolvedNewName,
-                ["correspondence"] = new Dictionary<string, object?>
+                ["email"] = data.newCorrespondence?.email,
+                ["phone"] = data.newCorrespondence?.phone,
+                ["address"] = data.newCorrespondence?.address,
+                ["state"] = data.newCorrespondence?.state,
+                ["nationality"] = data.newCorrespondence?.Nationality,
+                ["attachments"] = new List<Dictionary<string, object?>>
                 {
-                    ["name"] = data.newCorrespondence?.name,
-                    ["email"] = data.newCorrespondence?.email,
-                    ["phone"] = data.newCorrespondence?.phone,
-                    ["address"] = data.newCorrespondence?.address,
-                    ["state"] = data.newCorrespondence?.state,
-                },
-                ["poa"] = new Dictionary<string, object?>
-                {
-                    ["fileName"] = sanitizedOriginalName,
-                    ["contentType"] = poa.contentType,
-                    ["url"] = poaUrl,
-                },
+                    new()
+                    {
+                        ["fileName"] = sanitizedOriginalName,
+                        ["contentType"] = poa.contentType,
+                        ["url"] = poaUrl,
+                    }
+                }
             };
 
-            // Preserve existing file status for the new history row.
-            var currentStatus = existing.FileStatus;
+            var applicationType = data.applicationType ?? FormApplicationTypes.Ownership;
+            var applicationDate = data.applicationDate ?? DateTime.UtcNow;
+            var currentStatus = data.currentStatus ?? existing.FileStatus;
 
             // ---- Update the Filling: owner, correspondence, attachments list, audit trail -----
             var filter = Builders<Filling>.Filter.Eq(x => x.FileId, data.fileId);
@@ -3829,10 +3844,11 @@ public class FilesServices
                 }),
                 Builders<Filling>.Update.Push(x => x.ApplicationHistory, new ApplicationInfo()
                 {
-                    ApplicationType = FormApplicationTypes.Ownership,
-                    ApplicationDate = DateTime.UtcNow,
+                    ApplicationType = applicationType,
+                    ApplicationDate = applicationDate,
                     CurrentStatus = currentStatus,
-                    PaymentId = null,
+                    PaymentId = data.paymentId,
+                    CertificatePaymentId = data.certificatePaymentId,
                     FieldToChange = "ownership",
                     OldValue = oldValue,
                     NewValue = newValue,
@@ -3840,7 +3856,7 @@ public class FilesServices
                     [
                         new ApplicationHistory()
                         {
-                            Date = DateTime.UtcNow,
+                            Date = applicationDate,
                             beforeStatus = ApplicationStatuses.AwaitingConfirmation,
                             afterStatus = currentStatus,
                             User = data.userName,
@@ -3991,6 +4007,228 @@ public class FilesServices
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Ensures every Assignment entry in a file's application history carries a fully populated
+    /// ASSIGNOR block (previous owner) and ASSIGNEE block (new owner) so the SuperAdmin Assignment
+    /// form can render both sides. Data is sourced (in priority order) from the entry's existing
+    /// oldValue/newValue, then the stored <see cref="AssignmentType"/> object, and finally the
+    /// file's current applicant (the owner on record). Both the preferred <c>assignment</c> object
+    /// and the legacy <c>oldValue</c>/<c>newValue</c> fallback keys are written.
+    /// </summary>
+    private static void NormalizeAssignmentHistory(Filling? file)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        var currentOwner = file.applicants?.FirstOrDefault();
+
+        static string? Get(object? payload, params string[] names)
+            => patentdesign.Utils.ApplicationHistoryShaper.TryGetPayloadString(payload, names);
+
+        // Reads a value from a nested object (e.g. oldValue.correspondence.email) after coercion.
+        static string? GetNested(object? payload, string container, params string[] names)
+        {
+            if (payload is IDictionary<string, object?> dict)
+            {
+                foreach (var kv in dict)
+                {
+                    if (string.Equals(kv.Key, container, StringComparison.OrdinalIgnoreCase))
+                        return Get(kv.Value, names);
+                }
+            }
+            return null;
+        }
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            // Handle both Assignment (type 5) and Ownership (type 6) recordals — the SuperAdmin
+            // Assignment form renders either as an assignor/assignee transfer.
+            if (entry == null ||
+                (entry.ApplicationType != FormApplicationTypes.Assignment &&
+                 entry.ApplicationType != FormApplicationTypes.Ownership))
+                continue;
+
+            // Coerce Bson/JsonElement payloads into plain dictionaries first (same helper the
+            // Ownership normalizer uses) so reads are reliable and the reassigned values below
+            // serialize cleanly under System.Text.Json.
+            entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+            entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+
+            var a = entry.Assignment;
+
+            // ASSIGNOR — the current owner before the transfer.
+            var assignorName        = Get(entry.OldValue, "assignorName", "name") ?? a?.assignorName ?? currentOwner?.Name;
+            var assignorEmail       = Get(entry.OldValue, "assignorEmail", "email") ?? GetNested(entry.OldValue, "correspondence", "email") ?? currentOwner?.Email;
+            var assignorPhone       = Get(entry.OldValue, "assignorPhone", "phone") ?? GetNested(entry.OldValue, "correspondence", "phone") ?? currentOwner?.Phone;
+            var assignorNationality = Get(entry.OldValue, "assignorNationality", "nationality") ?? GetNested(entry.OldValue, "correspondence", "state") ?? currentOwner?.country;
+            var assignorAddress     = Get(entry.OldValue, "assignorAddress", "address") ?? GetNested(entry.OldValue, "correspondence", "address") ?? a?.assignorAddress ?? currentOwner?.Address;
+            var assignorCountry     = Get(entry.OldValue, "assignorCountry", "country") ?? a?.assignorCountry ?? currentOwner?.country;
+
+            // ASSIGNEE — the new owner.
+            var assigneeName        = Get(entry.NewValue, "assigneeName", "name") ?? a?.assigneeName;
+            var assigneeEmail       = Get(entry.NewValue, "assigneeEmail", "email") ?? GetNested(entry.NewValue, "correspondence", "email");
+            var assigneePhone       = Get(entry.NewValue, "assigneePhone", "phone") ?? GetNested(entry.NewValue, "correspondence", "phone");
+            var assigneeNationality = Get(entry.NewValue, "assigneeNationality", "nationality") ?? GetNested(entry.NewValue, "correspondence", "state");
+            var assigneeAddress     = Get(entry.NewValue, "assigneeAddress", "address") ?? GetNested(entry.NewValue, "correspondence", "address") ?? a?.assigneeAddress;
+            var assigneeCountry     = Get(entry.NewValue, "assigneeCountry", "country") ?? a?.assigneeCountry;
+
+            var dateOfAssignment = Get(entry.NewValue, "dateOfAssignment")
+                ?? (a != null && a.dateOfAssignment != default ? a.dateOfAssignment.ToString("yyyy-MM-dd") : null);
+            var deedUrl = Get(entry.NewValue, "assignmentDeedUrl", "deedOfAgreementUrl") ?? a?.deedOfAgreementUrl;
+            var authUrl = Get(entry.NewValue, "authorizationLetterUrl") ?? a?.authorizationLetterUrl;
+
+            // Merge (do NOT clobber): keep existing keys such as `correspondence` and `poa`
+            // that the Ownership view relies on, while ADDING the assignor/assignee alias keys
+            // the SuperAdmin Assignment form reads.
+            var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+            var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+
+            void Set(IDictionary<string, object?> d, string key, object? val)
+            {
+                if (val != null || !d.ContainsKey(key)) d[key] = val;
+            }
+
+            Set(oldDict, "name", assignorName);
+            Set(oldDict, "email", assignorEmail);
+            Set(oldDict, "phone", assignorPhone);
+            Set(oldDict, "nationality", assignorNationality);
+            Set(oldDict, "address", assignorAddress);
+            Set(oldDict, "country", assignorCountry);
+            Set(oldDict, "assignorName", assignorName);
+            Set(oldDict, "assignorEmail", assignorEmail);
+            Set(oldDict, "assignorPhone", assignorPhone);
+            Set(oldDict, "assignorNationality", assignorNationality);
+            Set(oldDict, "assignorAddress", assignorAddress);
+            Set(oldDict, "assignorCountry", assignorCountry);
+            entry.OldValue = oldDict;
+
+            var attachments = new List<Dictionary<string, object?>>();
+            if (!string.IsNullOrWhiteSpace(deedUrl))
+                attachments.Add(new() { ["fileName"] = "Deed of Assignment", ["contentType"] = "application/pdf", ["url"] = deedUrl });
+            if (!string.IsNullOrWhiteSpace(authUrl))
+                attachments.Add(new() { ["fileName"] = "Authorization Letter", ["contentType"] = "application/pdf", ["url"] = authUrl });
+
+            Set(newDict, "assigneeName", assigneeName);
+            Set(newDict, "assigneeEmail", assigneeEmail);
+            Set(newDict, "assigneePhone", assigneePhone);
+            Set(newDict, "assigneeNationality", assigneeNationality);
+            Set(newDict, "assigneeAddress", assigneeAddress);
+            Set(newDict, "assigneeCountry", assigneeCountry);
+            Set(newDict, "name", assigneeName);
+            Set(newDict, "address", assigneeAddress);
+            Set(newDict, "country", assigneeCountry);
+            Set(newDict, "dateOfAssignment", dateOfAssignment);
+            if (attachments.Count > 0) Set(newDict, "attachments", attachments);
+            entry.NewValue = newDict;
+
+            // Preferred path: a fully-populated `assignment` object (serialized camelCase).
+            entry.Assignment = new AssignmentType
+            {
+                Id                     = a?.Id ?? Guid.NewGuid().ToString(),
+                assignorName           = assignorName ?? string.Empty,
+                assignorAddress        = assignorAddress ?? string.Empty,
+                assignorCountry        = assignorCountry ?? string.Empty,
+                assignorEmail          = assignorEmail ?? string.Empty,
+                assignorPhone          = assignorPhone ?? string.Empty,
+                assignorNationality    = assignorNationality ?? string.Empty,
+                assigneeName           = assigneeName ?? string.Empty,
+                assigneeAddress        = assigneeAddress ?? string.Empty,
+                assigneeCountry        = assigneeCountry ?? string.Empty,
+                assigneeEmail          = assigneeEmail ?? string.Empty,
+                assigneePhone          = assigneePhone ?? string.Empty,
+                assigneeNationality    = assigneeNationality ?? string.Empty,
+                authorizationLetterUrl = authUrl ?? string.Empty,
+                deedOfAgreementUrl     = deedUrl ?? string.Empty,
+                assignmentDeedUrl      = deedUrl ?? string.Empty,
+                dateOfAssignment       = a?.dateOfAssignment ?? default,
+                receiptUrl             = a?.receiptUrl,
+                acceptanceUrl          = a?.acceptanceUrl,
+                rejectionUrl           = a?.rejectionUrl,
+                acknowledgementUrl     = a?.acknowledgementUrl,
+                message                = a?.message,
+            };
+        }
+    }
+
+    // Populates newValue/oldValue for the remaining recordal types so the SuperAdmin forms fill in:
+    //   7  RegisteredUser  -> newValue { name, email, phone, nationality, address }
+    //   8  Merger          -> newValue { name, email, phone, dateOfMerger, nationality, address }
+    //   9  ChangeOfName    -> newValue { newName } ; oldValue { name }
+    //   10 ChangeOfAddress -> newValue { newAddress } ; oldValue { address }
+    private static void NormalizeRecordalHistory(Filling? file)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        var currentOwner = file.applicants?.FirstOrDefault();
+
+        static string? Get(object? payload, params string[] names)
+            => patentdesign.Utils.ApplicationHistoryShaper.TryGetPayloadString(payload, names);
+
+        static void Set(IDictionary<string, object?> d, string key, object? val)
+        {
+            if (val != null || !d.ContainsKey(key)) d[key] = val;
+        }
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            if (entry == null) continue;
+
+            switch (entry.ApplicationType)
+            {
+                case FormApplicationTypes.RegisteredUser:
+                {
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(newDict, "name", Get(entry.NewValue, "name") ?? currentOwner?.Name ?? string.Empty);
+                    Set(newDict, "email", Get(entry.NewValue, "email") ?? currentOwner?.Email ?? string.Empty);
+                    Set(newDict, "phone", Get(entry.NewValue, "phone") ?? currentOwner?.Phone ?? string.Empty);
+                    Set(newDict, "nationality", Get(entry.NewValue, "nationality") ?? currentOwner?.country ?? string.Empty);
+                    Set(newDict, "address", Get(entry.NewValue, "address") ?? currentOwner?.Address ?? string.Empty);
+                    entry.NewValue = newDict;
+                    break;
+                }
+                case FormApplicationTypes.Merger:
+                {
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(newDict, "name", Get(entry.NewValue, "name") ?? currentOwner?.Name ?? string.Empty);
+                    Set(newDict, "email", Get(entry.NewValue, "email") ?? currentOwner?.Email ?? string.Empty);
+                    Set(newDict, "phone", Get(entry.NewValue, "phone") ?? currentOwner?.Phone ?? string.Empty);
+                    Set(newDict, "dateOfMerger", Get(entry.NewValue, "dateOfMerger") ?? string.Empty);
+                    Set(newDict, "nationality", Get(entry.NewValue, "nationality") ?? currentOwner?.country ?? string.Empty);
+                    Set(newDict, "address", Get(entry.NewValue, "address") ?? currentOwner?.Address ?? string.Empty);
+                    entry.NewValue = newDict;
+                    break;
+                }
+                case FormApplicationTypes.ChangeOfName:
+                {
+                    entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(oldDict, "name", Get(entry.OldValue, "name") ?? currentOwner?.Name ?? string.Empty);
+                    Set(newDict, "newName", Get(entry.NewValue, "newName", "name") ?? string.Empty);
+                    entry.OldValue = oldDict;
+                    entry.NewValue = newDict;
+                    break;
+                }
+                case FormApplicationTypes.ChangeOfAddress:
+                {
+                    entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(oldDict, "address", Get(entry.OldValue, "address") ?? currentOwner?.Address ?? string.Empty);
+                    Set(newDict, "newAddress", Get(entry.NewValue, "newAddress", "address") ?? string.Empty);
+                    entry.OldValue = oldDict;
+                    entry.NewValue = newDict;
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
     }
 
     private static (Dictionary<string, object?>? old, Dictionary<string, object?>? @new) ParseLegacyOwnershipMessage(string message)
@@ -5886,8 +6124,37 @@ public class FilesServices
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
                 ApplicationDate = DateTime.Now,
                 PaymentId = regUser.rrr,
-                FieldToChange = "Registered Users Application",
-                NewValue = "",
+                FieldToChange = "registeredUser",
+                OldValue = new Dictionary<string, object?>
+                {
+                    ["title"]        = file.Type == FileTypes.Design ? file.TitleOfDesign : file.Type == FileTypes.Patent ? file.TitleOfInvention : file.TitleOfTradeMark,
+                    ["fileNumber"]   = file.FileId,
+                    ["fileType"]     = file.Type.ToString(),
+                    ["productClass"] = file.TrademarkClass,
+                    ["rtmNumber"]    = file.RtmNumber,
+                    ["name"]        = applicant?.Name,
+                    ["email"]       = applicant?.Email,
+                    ["phone"]       = applicant?.Phone,
+                    ["address"]     = applicant?.Address,
+                    ["nationality"] = applicant?.country,
+                },
+                NewValue = new Dictionary<string, object?>
+                {
+                    ["name"]        = regUser.Name,
+                    ["email"]       = regUser.Email,
+                    ["phone"]       = regUser.Phone,
+                    ["address"]     = regUser.Address,
+                    ["nationality"] = regUser.Nationality,
+                    ["attachments"] = new List<Dictionary<string, object?>>
+                    {
+                        new()
+                        {
+                            ["fileName"]    = "Registered User Document",
+                            ["contentType"] = "application/pdf",
+                            ["url"]         = docUrl,
+                        }
+                    }
+                },
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
@@ -6234,8 +6501,38 @@ public class FilesServices
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
                 ApplicationDate = DateTime.Now,
                 PaymentId = mergerApp.rrr,
-                FieldToChange = "Merger Application",
-                NewValue = "",
+                FieldToChange = "merger",
+                OldValue = new Dictionary<string, object?>
+                {
+                    ["title"]        = file.Type == FileTypes.Design ? file.TitleOfDesign : file.Type == FileTypes.Patent ? file.TitleOfInvention : file.TitleOfTradeMark,
+                    ["fileNumber"]   = file.FileId,
+                    ["fileType"]     = file.Type.ToString(),
+                    ["productClass"] = file.TrademarkClass,
+                    ["rtmNumber"]    = file.RtmNumber,
+                    ["name"]        = applicant?.Name,
+                    ["email"]       = applicant?.Email,
+                    ["phone"]       = applicant?.Phone,
+                    ["address"]     = applicant?.Address,
+                    ["nationality"] = applicant?.country,
+                },
+                NewValue = new Dictionary<string, object?>
+                {
+                    ["name"]        = mergerApp.Name,
+                    ["email"]       = mergerApp.Email,
+                    ["phone"]       = mergerApp.Phone,
+                    ["address"]     = mergerApp.Address,
+                    ["nationality"] = mergerApp.Nationality,
+                    ["mergerDate"]  = mergerApp.MergerDate,
+                    ["attachments"] = new List<Dictionary<string, object?>>
+                    {
+                        new()
+                        {
+                            ["fileName"]    = "Merger Document",
+                            ["contentType"] = "application/pdf",
+                            ["url"]         = docUrl,
+                        }
+                    }
+                },
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
@@ -6502,11 +6799,35 @@ public class FilesServices
                 ApplicationDate = DateTime.Now,
                 PaymentId = newData.rrr,
                 FieldToChange = newData.ChangeType == "Name"
-                    ? "Change of Applicant Name"
-                    : "Change of Applicant Address",
-                NewValue = newData.ChangeType == "Name"
-                    ? newData.NewName
-                    : newData.NewAddress,
+                    ? "changeOfName"
+                    : "changeOfAddress",
+                OldValue = new Dictionary<string, object?>
+                {
+                    ["title"]        = file.Type == FileTypes.Design ? file.TitleOfDesign : file.Type == FileTypes.Patent ? file.TitleOfInvention : file.TitleOfTradeMark,
+                    ["fileNumber"]   = file.FileId,
+                    ["fileType"]     = file.Type.ToString(),
+                    ["productClass"] = file.TrademarkClass,
+                    ["rtmNumber"]    = file.RtmNumber,
+                    ["name"]        = applicant?.Name,
+                    ["email"]       = applicant?.Email,
+                    ["phone"]       = applicant?.Phone,
+                    ["address"]     = applicant?.Address,
+                    ["nationality"] = applicant?.country,
+                },
+                NewValue = new Dictionary<string, object?>
+                {
+                    ["newName"]    = newData.ChangeType == "Name" ? newData.NewName : null,
+                    ["newAddress"] = newData.ChangeType == "Address" ? newData.NewAddress : null,
+                    ["attachments"] = new List<Dictionary<string, object?>>
+                    {
+                        new()
+                        {
+                            ["fileName"]    = newData.document != null ? Path.GetFileName(newData.document.FileName) : "Supporting Document",
+                            ["contentType"] = newData.document?.ContentType ?? "application/pdf",
+                            ["url"]         = docUrl,
+                        }
+                    }
+                },
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
@@ -9496,6 +9817,8 @@ public class FilesServices
             if (filling == null) return null;
 
             NormalizeOwnershipHistory(filling);
+            NormalizeAssignmentHistory(filling);
+            NormalizeRecordalHistory(filling);
 
             var designs = filling.Attachments?
                      .Where(a => a.name == "designs")

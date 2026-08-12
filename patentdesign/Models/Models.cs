@@ -597,6 +597,7 @@ public record ApplicationInfo
     public DateOnly? ExpiryDate { get; set; }
     [JsonPropertyName("paymentId")]
     public string? PaymentId { get; set; }
+    [JsonPropertyName("certificatePaymentId")]
     public string? CertificatePaymentId { get; set; }
 
     [JsonPropertyName("applicationDate")]
@@ -613,6 +614,7 @@ public record ApplicationInfo
     [JsonPropertyName("statusHistory")]
     public List<ApplicationHistory> StatusHistory { get; set; } = [];
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
+    [JsonPropertyName("assignment")]
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
     public List<ApplicantInfo>? Applicants { get; set; } 
@@ -1293,6 +1295,15 @@ public record AssignmentType
     public string? rejectionUrl { get; set; }
     public string? acknowledgementUrl { get; set; }
     public string? message { get; set; }
+
+    // Snapshot contact fields surfaced to the SuperAdmin Assignment form (assignor/assignee blocks).
+    public string? assignorEmail { get; set; }
+    public string? assignorPhone { get; set; }
+    public string? assignorNationality { get; set; }
+    public string? assigneeEmail { get; set; }
+    public string? assigneePhone { get; set; }
+    public string? assigneeNationality { get; set; }
+    public string? assignmentDeedUrl { get; set; }
 }
 
 public record AssignmentHistory

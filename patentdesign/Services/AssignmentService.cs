@@ -67,12 +67,69 @@ public class AssignmentService
             paymentData.Item1, paymentData.Item3, paymentData.Item2,
             $"{fileType.ToString()} Assignment Application",
             applicantName, applicantEmail, applicantNumber);
+
+        // Load the file so we can snapshot the current-owner header (title, fileNumber,
+        // productClass, rtmNumber + applicant contact info) into oldValue. This is what
+        // the SuperAdmin re-render uses to show the ASSIGNOR INFORMATION section.
+        var fileSnapshot = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Eq(x => x.Id, fileID))
+            .FirstOrDefaultAsync();
+        var currentApplicant = fileSnapshot?.applicants?.FirstOrDefault();
+        var fileTitle = fileSnapshot?.Type == FileTypes.Design
+            ? fileSnapshot?.TitleOfDesign
+            : fileSnapshot?.Type == FileTypes.Patent
+                ? fileSnapshot?.TitleOfInvention
+                : fileSnapshot?.TitleOfTradeMark;
+
         var application = new ApplicationInfo()
         {
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
             ApplicationType = FormApplicationTypes.Assignment,
             PaymentId = rrr,
             Assignment = assignmentData,
+            FieldToChange = "assignment",
+            OldValue = new Dictionary<string, object?>
+            {
+                // File header (top of the re-rendered form)
+                ["title"]        = fileTitle,
+                ["fileNumber"]   = fileSnapshot?.FileId,
+                ["fileType"]     = fileSnapshot?.Type.ToString(),
+                ["productClass"] = fileSnapshot?.TrademarkClass,
+                ["rtmNumber"]    = fileSnapshot?.RtmNumber,
+                // ASSIGNOR INFORMATION (current owner on file)
+                ["name"]         = currentApplicant?.Name        ?? assignmentData?.assignorName,
+                ["email"]        = currentApplicant?.Email       ?? applicantEmail,
+                ["phone"]        = currentApplicant?.Phone       ?? applicantNumber,
+                ["nationality"]  = currentApplicant?.country,
+                ["address"]      = currentApplicant?.Address     ?? assignmentData?.assignorAddress,
+                ["country"]      = currentApplicant?.country     ?? assignmentData?.assignorCountry,
+            },
+            NewValue = new Dictionary<string, object?>
+            {
+                ["assigneeName"]    = assignmentData?.assigneeName,
+                ["assigneeAddress"] = assignmentData?.assigneeAddress,
+                ["assigneeCountry"] = assignmentData?.assigneeCountry,
+                // Aliases so FE bindings that read newValue.name / newValue.address still work.
+                ["name"]            = assignmentData?.assigneeName,
+                ["address"]         = assignmentData?.assigneeAddress,
+                ["country"]         = assignmentData?.assigneeCountry,
+                ["dateOfAssignment"] = assignmentData?.dateOfAssignment,
+                ["attachments"] = new List<Dictionary<string, object?>>
+                {
+                    new()
+                    {
+                        ["fileName"]    = "Deed of Assignment",
+                        ["contentType"] = "application/pdf",
+                        ["url"]         = assignmentData?.deedOfAgreementUrl,
+                    },
+                    new()
+                    {
+                        ["fileName"]    = "Authorization Letter",
+                        ["contentType"] = "application/pdf",
+                        ["url"]         = assignmentData?.authorizationLetterUrl,
+                    }
+                }
+            },
             StatusHistory =
             [
                 new ApplicationHistory()

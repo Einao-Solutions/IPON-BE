@@ -198,6 +198,13 @@ builder.Services.Configure<PatentDesignDBSettings>(builder.Configuration.GetSect
 builder.Services.Configure<PaymentInfo>(builder.Configuration.GetSection("PaymentInfo"));
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 
+// ------------------ Mongo Object Serializer (round-trip object? / dynamic fields) ------------------
+// Without this, properties typed as `object?` (e.g. ApplicationInfo.OldValue / NewValue) come back
+// from Mongo as opaque BsonDocument/BsonValue instances that System.Text.Json serializes as `{}`,
+// which is why the SuperAdmin form re-render shows blank old details.
+var objectSerializer = new MongoDB.Bson.Serialization.Serializers.ObjectSerializer(type => true);
+BsonSerializer.TryRegisterSerializer(typeof(object), objectSerializer);
+
 // ------------------ Mongo Enum Serializers ------------------
 BsonSerializer.RegisterSerializer(typeof(ApplicationStatuses), new EnumSerializer<ApplicationStatuses>(BsonType.String));
 BsonSerializer.RegisterSerializer(typeof(FileTypes), new EnumSerializer<FileTypes>(BsonType.String));

@@ -163,6 +163,11 @@ namespace patentdesign.Enums;
         public  string? fileId {get;set;}
         public string? userName { get; set; }
         public string? userId { get; set; }
+        public FormApplicationTypes? applicationType { get; set; }
+        public DateTime? applicationDate { get; set; }
+        public ApplicationStatuses? currentStatus { get; set; }
+        public string? paymentId { get; set; }
+        public string? certificatePaymentId { get; set; }
         public  string? newOwner {get;set;}
         public  string? oldId {get;set;}
         public  string? oldName {get;set;}
