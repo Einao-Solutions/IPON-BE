@@ -9801,6 +9801,93 @@ public class FilesServices
     }
 
 
+    // Persists SuperAdmin edits to the Assignor/Assignee details of an existing
+    // Assignment (applicationType 5) application history entry.
+    public async Task<bool> UpdateAssignmentHistoryEntry(UpdateAssignmentHistoryDto dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.FileNumber) || string.IsNullOrWhiteSpace(dto.ApplicationId))
+            return false;
+
+        try
+        {
+            var filter = Builders<Filling>.Filter.Or(
+                Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+                Builders<Filling>.Filter.Eq(f => f.RtmNumber, dto.FileNumber)
+            );
+
+            var file = await _fillingCollection.Find(filter).FirstOrDefaultAsync();
+            if (file?.ApplicationHistory == null) return false;
+
+            var entry = file.ApplicationHistory.FirstOrDefault(h => h.id == dto.ApplicationId);
+            if (entry == null) return false;
+
+            // Only overwrite a value when the admin actually supplied one (non-null); this keeps
+            // any existing data intact for fields the admin left untouched.
+            static string Coalesce(string? incoming, string? existing) =>
+                incoming ?? existing ?? string.Empty;
+
+            var existing = entry.Assignment;
+
+            entry.Assignment = new AssignmentType
+            {
+                Id                     = existing?.Id ?? Guid.NewGuid().ToString(),
+                assignorName           = Coalesce(dto.AssignorName, existing?.assignorName),
+                assignorEmail          = Coalesce(dto.AssignorEmail, existing?.assignorEmail),
+                assignorPhone          = Coalesce(dto.AssignorPhone, existing?.assignorPhone),
+                assignorNationality    = Coalesce(dto.AssignorNationality, existing?.assignorNationality),
+                assignorAddress        = Coalesce(dto.AssignorAddress, existing?.assignorAddress),
+                assignorCountry        = Coalesce(dto.AssignorCountry, existing?.assignorCountry),
+                assigneeName           = Coalesce(dto.AssigneeName, existing?.assigneeName),
+                assigneeEmail          = Coalesce(dto.AssigneeEmail, existing?.assigneeEmail),
+                assigneePhone          = Coalesce(dto.AssigneePhone, existing?.assigneePhone),
+                assigneeNationality    = Coalesce(dto.AssigneeNationality, existing?.assigneeNationality),
+                assigneeAddress        = Coalesce(dto.AssigneeAddress, existing?.assigneeAddress),
+                assigneeCountry        = Coalesce(dto.AssigneeCountry, existing?.assigneeCountry),
+                authorizationLetterUrl = existing?.authorizationLetterUrl ?? string.Empty,
+                deedOfAgreementUrl     = existing?.deedOfAgreementUrl ?? string.Empty,
+                assignmentDeedUrl      = existing?.assignmentDeedUrl,
+                dateOfAssignment       = existing?.dateOfAssignment ?? default,
+                receiptUrl             = existing?.receiptUrl,
+                acceptanceUrl          = existing?.acceptanceUrl,
+                rejectionUrl           = existing?.rejectionUrl,
+                acknowledgementUrl     = existing?.acknowledgementUrl,
+                message                = existing?.message,
+            };
+
+            // Keep the legacy oldValue/newValue fallbacks in sync so any consumer that reads them
+            // (including the SuperAdmin form's fallback path) sees the same edited values.
+            var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+            oldDict["name"]        = entry.Assignment.assignorName;
+            oldDict["email"]       = entry.Assignment.assignorEmail;
+            oldDict["phone"]       = entry.Assignment.assignorPhone;
+            oldDict["nationality"] = entry.Assignment.assignorNationality;
+            oldDict["address"]     = entry.Assignment.assignorAddress;
+            oldDict["country"]     = entry.Assignment.assignorCountry;
+            entry.OldValue = oldDict;
+
+            var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+            newDict["assigneeName"]        = entry.Assignment.assigneeName;
+            newDict["assigneeEmail"]       = entry.Assignment.assigneeEmail;
+            newDict["assigneePhone"]       = entry.Assignment.assigneePhone;
+            newDict["assigneeNationality"] = entry.Assignment.assigneeNationality;
+            newDict["assigneeAddress"]     = entry.Assignment.assigneeAddress;
+            newDict["assigneeCountry"]     = entry.Assignment.assigneeCountry;
+            if (!string.IsNullOrWhiteSpace(dto.DateOfAssignment))
+                newDict["dateOfAssignment"] = dto.DateOfAssignment;
+            entry.NewValue = newDict;
+
+            var update = Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory);
+            var result = await _fillingCollection.UpdateOneAsync(filter, update);
+            return result.ModifiedCount > 0 || result.MatchedCount > 0;
+        }
+        catch (Exception e)
+        {
+            _log.LogError(e, $"Error updating assignment history entry for FileNumber: {dto.FileNumber}, ApplicationId: {dto.ApplicationId}");
+            return false;
+        }
+    }
+
+
     public async Task<FileUpdateDto?> GetAllFileDetails(string fileNumber)
     {
         if (string.IsNullOrWhiteSpace(fileNumber))
