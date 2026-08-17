@@ -99,7 +99,7 @@ namespace patentdesign.Services
             }
         }
 
-        public async Task<bool> CreateApplicationHistory(ApplicationHistoryDto dto)
+        public async Task<ApplicationInfo?> CreateApplicationHistory(ApplicationHistoryDto dto)
         {
             try
             {
@@ -153,9 +153,16 @@ namespace patentdesign.Services
                 };
                 var filter = Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber);
                 var update = Builders<Filling>.Update.Push(f => f.ApplicationHistory, app);
-                await _fillingCollection.UpdateOneAsync(filter, update);
+                var result = await _fillingCollection.UpdateOneAsync(filter, update);
+
+                if (result.ModifiedCount == 0)
+                {
+                    _log.LogError("Failed to save application history to database for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, app.id);
+                    throw new Exception("Failed to save application history to database - no documents were modified");
+                }
+
                 _log.LogInformation("Application history created successfully for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, app.id);
-                return true;
+                return app;
             }
             catch (ArgumentException)
             {
@@ -164,11 +171,11 @@ namespace patentdesign.Services
             catch (Exception ex)
             {
                 _log.LogError(ex, "Error creating application history");
-                return false;
+                throw;
             }
         }
 
-        public async Task<bool> UpdateApplicationHistory(UpdateApplicationHistoryDto dto)
+        public async Task<ApplicationInfo?> UpdateApplicationHistory(UpdateApplicationHistoryDto dto)
         {
             try
             {
@@ -190,7 +197,7 @@ namespace patentdesign.Services
                     _log.LogError("Application not found in history for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, dto.ApplicationId);
                     throw new KeyNotFoundException("Application not found in history");
                 }
-                    
+
 
                 var isFirstApplication = applicationIndex == 0;
 
@@ -245,7 +252,7 @@ namespace patentdesign.Services
                 if (!updates.Any())
                 {
                     _log.LogWarning("No updates to apply for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, dto.ApplicationId);
-                    return false;
+                    return null;
                 }
 
                 // 5. Execute update
@@ -253,8 +260,32 @@ namespace patentdesign.Services
                     filter,
                     Builders<Filling>.Update.Combine(updates)
                 );
+
+                if (result.ModifiedCount == 0)
+                {
+                    _log.LogError("Failed to update application history - no documents were modified for FileId: {FileId}, ApplicationId: {ApplicationId}", dto.FileNumber, dto.ApplicationId);
+                    throw new Exception("Failed to update application history in database - no documents were modified");
+                }
+
+                // 6. Fetch the updated file to return the updated application
+                var updatedFile = await _fillingCollection.Find(f => f.FileId == dto.FileNumber)
+                    .FirstOrDefaultAsync();
+
+                if (updatedFile?.ApplicationHistory == null)
+                {
+                    throw new Exception("Failed to retrieve updated application history");
+                }
+
+                var updatedApplication = updatedFile.ApplicationHistory
+                    .FirstOrDefault(a => a.id == dto.ApplicationId);
+
+                if (updatedApplication == null)
+                {
+                    throw new Exception("Updated application history entry not found");
+                }
+
                 _log.LogInformation("Application history updated for FileId: {FileId}, ApplicationId: {ApplicationId}. ModifiedCount: {ModifiedCount}", dto.FileNumber, dto.ApplicationId, result.ModifiedCount);
-                return result.ModifiedCount > 0;
+                return updatedApplication;
             }
             catch (Exception ex)
             {
