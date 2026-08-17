@@ -575,6 +575,15 @@ public record Counters
     [BsonId]
     public string id { get; set; }
     public int currentNumber { get; set; }
+    public string? LatestBatch { get; set; }
+    public List<PublicationBatch>? Batches { get; set; }
+}
+public record PublicationBatch
+{
+    [BsonId]
+    public string id { get; set; } = Guid.NewGuid().ToString();
+    public string BatchNumber { get; set; }
+    public DateTime BatchDate { get; set; }
 }
 
 public record ApplicationInfo
@@ -588,6 +597,7 @@ public record ApplicationInfo
     public DateOnly? ExpiryDate { get; set; }
     [JsonPropertyName("paymentId")]
     public string? PaymentId { get; set; }
+    [JsonPropertyName("certificatePaymentId")]
     public string? CertificatePaymentId { get; set; }
 
     [JsonPropertyName("applicationDate")]
@@ -604,6 +614,7 @@ public record ApplicationInfo
     [JsonPropertyName("statusHistory")]
     public List<ApplicationHistory> StatusHistory { get; set; } = [];
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
+    [JsonPropertyName("assignment")]
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
     public List<ApplicantInfo>? Applicants { get; set; } 
@@ -922,7 +933,7 @@ public enum FormApplicationTypes
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
     PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
-    CounterStatement, StatutoryDeclaration, ChangeOfAgent, OfflineRenewalRequest
+    CounterStatement, StatutoryDeclaration, ChangeOfAgent, OfflineRenewalRequest, TrademarkJournalRequest
 }
 public enum ApplicationLetters
 {
@@ -959,7 +970,7 @@ public enum ApplicationLetters
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
     TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
-    StatutoryDeclarationAck
+    StatutoryDeclarationAck, JournalRequestAcknowledgement
 
 
 }
@@ -1074,6 +1085,7 @@ public enum ApplicationStatuses
     WithdrawalApproved = 39,
     BatchedManualPublication = 40,
     Published = 41,
+    JournalRequested = 42,
 }
 
 public record AssignmentCertificateType
@@ -1116,7 +1128,7 @@ public enum PaymentTypes
     Other, TrademarkCertificate, statusCheck, AvailabilitySearch, Merger, ChangeDataRecordal, Renewal, LateTrademarkRenewal, ClericalUpdate,
     StatusSearch, NonConventional, PatentClericalUpdate, PatentLateRenewal, PublicationStatusUpdate, FileWithdrawal, Opposition, DesignClericalUpdate, Appeal,
 PatentAssignment, PatentLicense, PatentMortgage, PatentCtc, PatentAmendment, PatentMerger, DesignAssignment, DesignLicense, DesignMerger, DesignMortgage, DesignCtc, DesignAmendment, TrademarkCtc, Reclassification, FileRestoration,
-CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
+CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal, TrademarkJournal
 }
 
 
@@ -1283,6 +1295,15 @@ public record AssignmentType
     public string? rejectionUrl { get; set; }
     public string? acknowledgementUrl { get; set; }
     public string? message { get; set; }
+
+    // Snapshot contact fields surfaced to the SuperAdmin Assignment form (assignor/assignee blocks).
+    public string? assignorEmail { get; set; }
+    public string? assignorPhone { get; set; }
+    public string? assignorNationality { get; set; }
+    public string? assigneeEmail { get; set; }
+    public string? assigneePhone { get; set; }
+    public string? assigneeNationality { get; set; }
+    public string? assignmentDeedUrl { get; set; }
 }
 
 public record AssignmentHistory
@@ -1557,6 +1578,11 @@ public record PaymentInfo
     public string? OppositionWithdrawalCost { get; set; }
     public string? OppositionWithdrawalServiceFee { get; set; }
     public string? OppositionWithdrawalServiceID { get; set; }
+    
+    //Trademark Journal
+    public string? TrademarkJournalCost { get; set; }
+    public string? TrademarkJournalServiceFee { get; set; }
+    public string? TrademarkJournalServiceID { get; set; }
 }
 
 public record PaymentRecord
@@ -1974,4 +2000,15 @@ public class Notification
     public ApplicationStatuses? NewStatus { get; set; }
     public FormApplicationTypes? ApplicationType { get; set; }
     public string? ApplicationId { get; set; }
+}
+
+public class PublicationJournal
+{
+    [BsonId] public string Id { get; set; } = Guid.NewGuid().ToString();
+    public FileTypes FileType { get; set; }
+    public string Batch { get; set; }
+    public string DocumentUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime JournalReleaseDate { get; set; }
+    public string BatchedBy { get; set; }
 }

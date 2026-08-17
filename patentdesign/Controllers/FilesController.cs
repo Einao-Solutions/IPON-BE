@@ -696,6 +696,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(res);
     }
+
     [HttpPost("DenyRecordal")]
     public async Task<IActionResult> DenyRecordal([FromBody] TreatRecordalDto recordalApp)
     {
