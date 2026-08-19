@@ -8317,6 +8317,7 @@ public class FilesServices
             AssignorNationality = assignee.AssignorNationality ?? assignor.country,
             AuthorizationLetterUrl = assignee.AuthorizationLetterUrl,
             AssignmentDeedUrl = assignee.AssignmentDeedUrl,
+            documentUrl = assignee.documentUrl,
         };
 
         return assigneeDetails;
@@ -9102,6 +9103,7 @@ public class FilesServices
 
                 break;
         }
+
         return clerical;
     }
 
@@ -9482,7 +9484,8 @@ public class FilesServices
         var update = new ClericalUpdateDetailsDto
         {
             UpdateType = clerical.UpdateType,
-            PaymentId = clerical.PaymentRRR
+            PaymentId = clerical.PaymentRRR,
+            documentUrl = clerical?.documentUrl
         };
         switch (clerical.UpdateType)
         {
