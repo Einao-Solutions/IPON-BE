@@ -69,8 +69,8 @@ public class FilesServices
     private PublicationServices _publicationServices;
     private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    private string attachmentBaseUrl = "https://integration.iponigeria.com";
-     //private string attachmentBaseUrl = "http://localhost:5044";
+    //private string attachmentBaseUrl = "https://integration.iponigeria.com";
+     private string attachmentBaseUrl = "";  // Use relative URL (will resolve to current domain)
 
     public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
@@ -1897,8 +1897,10 @@ public class FilesServices
                     ContentType = item.contentType,
                     Data = item.data
                 });
-                uris.Add(
-                    $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}");
+
+                // Use relative URL for compatibility across local, dev, and prod
+                var attachmentUrl = $"/api/files/GetAttachment?fileId={trustedFileName}";
+                uris.Add(attachmentUrl);
             }
         }
         return uris;
@@ -6229,6 +6231,9 @@ public class FilesServices
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
+
+        if (file == null) return null;
+
         var regUser = file.RegisteredUsers?.FirstOrDefault(a => a.Id == appId);
         return regUser;
 
@@ -8286,6 +8291,46 @@ public class FilesServices
             return false;
         }
     }
+    /// <summary>
+    /// Converts old hardcoded URLs to relative URLs for compatibility across all environments
+    /// </summary>
+    private string ConvertToRelativeUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return url;
+
+        // Check if it's already a relative URL
+        if (url.StartsWith("/"))
+            return url;
+
+        try
+        {
+            // Extract fileId from URLs like: 
+            // https://integration.iponigeria.com/api/files/getAttachment?fileId=abc123.pdf
+            // OR https://integration.iponigeria.com/api/files/GetAttachment?fileId=abc123.pdf
+            if (url.Contains("getAttachment") || url.Contains("GetAttachment"))
+            {
+                // Parse as URI
+                var uri = new Uri(url);
+                // Get query string parameter
+                var query = uri.Query.TrimStart('?');
+                var fileId = query.Replace("fileId=", "").Split("&")[0];
+
+                if (!string.IsNullOrEmpty(fileId))
+                {
+                    return $"/api/files/GetAttachment?fileId={fileId}";
+                }
+            }
+        }
+        catch
+        {
+            // If parsing fails, return original URL
+            return url;
+        }
+
+        return url;
+    }
+
     public async Task<AssignmentAppDto> GetAssignmentApplication(string fileId, string appId)
     {
         var file = await _fillingCollection
@@ -8296,10 +8341,32 @@ public class FilesServices
         if (file == null) throw new KeyNotFoundException("File not found");
 
         var assignee = file.Assignees?.FirstOrDefault(a => a.Id == appId);
-        var assignor = file.ApplicationHistory[0].Applicants[0];
-        Console.WriteLine(JsonSerializer.Serialize(assignor));
-
         if (assignee == null) throw new KeyNotFoundException("Assignee not found");
+
+        // Get the assignor from ApplicationHistory Applicants (new structure) or file.applicants (existing structure)
+        ApplicantInfo assignor = null;
+
+        // First, try to get from ApplicationHistory[0].Applicants (new structure)
+        if (file.ApplicationHistory != null && file.ApplicationHistory.Count > 0)
+        {
+            var firstApplication = file.ApplicationHistory[0];
+            if (firstApplication?.Applicants != null && firstApplication.Applicants.Count > 0)
+            {
+                assignor = firstApplication.Applicants[0];
+            }
+        }
+
+        // If not found, try file.applicants (existing applications structure)
+        if (assignor == null && file.applicants != null && file.applicants.Count > 0)
+        {
+            assignor = file.applicants[0];
+        }
+
+        // If still not found, throw error
+        if (assignor == null)
+        {
+            throw new KeyNotFoundException("Applicant/Assignor not found in application history or file");
+        }
 
         var assigneeDetails = new AssignmentAppDto
         {
@@ -8315,9 +8382,10 @@ public class FilesServices
             AssignorAddress = assignee.AssignorAddress ?? assignor.Address,
             AssignorPhone = assignee.AssignorPhone ?? assignor.Phone,
             AssignorNationality = assignee.AssignorNationality ?? assignor.country,
-            AuthorizationLetterUrl = assignee.AuthorizationLetterUrl,
-            AssignmentDeedUrl = assignee.AssignmentDeedUrl,
-            documentUrl = assignee.documentUrl,
+            // Convert old absolute URLs to relative URLs for both new and existing assignments
+            AuthorizationLetterUrl = ConvertToRelativeUrl(assignee.AuthorizationLetterUrl),
+            AssignmentDeedUrl = ConvertToRelativeUrl(assignee.AssignmentDeedUrl),
+            documentUrl = ConvertToRelativeUrl(assignee.documentUrl),
         };
 
         return assigneeDetails;
