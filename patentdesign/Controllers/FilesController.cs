@@ -695,9 +695,20 @@ public class FilesController(FilesServices fileService) : ControllerBase
             return NotFound();
         }
         return Ok(res);
-    }
+        }
 
-    [HttpPost("DenyRecordal")]
+        [HttpPost("UpdateAssignmentHistory")]
+        public async Task<IActionResult> UpdateAssignmentHistory([FromBody] UpdateAssignmentHistoryDto dto)
+        {
+            var res = await fileService.UpdateAssignmentHistoryEntry(dto);
+            if (!res)
+            {
+                return NotFound(new { success = false, message = "File or assignment history entry not found." });
+            }
+            return Ok(new { success = true });
+        }
+
+        [HttpPost("DenyRecordal")]
     public async Task<IActionResult> DenyRecordal([FromBody] TreatRecordalDto recordalApp)
     {
         var res = await fileService.DenyRecordal(recordalApp);

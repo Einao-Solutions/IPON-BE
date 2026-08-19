@@ -34,16 +34,24 @@ namespace patentdesign.Controllers
             try
             {
                 var result = await adminServices.CreateApplicationHistory(applicationHistoryDto);
-                if (result)
+                if (result != null)
                 {
-                    return Ok(result);
+                    return Ok(new { success = true, data = result, message = "Application history created successfully" });
                 }
 
-                return BadRequest(new { message = "Failed to create application history" });
+                return BadRequest(new { success = false, message = "Failed to create application history" });
             }
             catch (ArgumentException ex)
             {
-                return BadRequest(new { message = ex.Message });
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
             }
         }
 
@@ -85,9 +93,25 @@ namespace patentdesign.Controllers
         [HttpPatch("ApplicationHistory")]
         public async Task<IActionResult> UpdateApplicationHistory([FromBody] UpdateApplicationHistoryDto dto)
         {
-            var updated = await adminServices.UpdateApplicationHistory(dto);
-            if (updated) return Ok(updated);
-            return NotFound(new { message = "Application history not updated" });
+            try
+            {
+                var updated = await adminServices.UpdateApplicationHistory(dto);
+                if (updated != null)
+                    return Ok(new { success = true, data = updated, message = "Application history updated successfully" });
+                return NotFound(new { success = false, message = "Application history not found" });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
         }
 
         [Authorize(Roles = "SuperAdmin")]
