@@ -14857,7 +14857,7 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var applicantEmail = applicant.Email ?? string.Empty;
         var applicantPhone = applicant.Phone ?? string.Empty;
             var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-            var rrr = await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
             if (rrr is null)
             {

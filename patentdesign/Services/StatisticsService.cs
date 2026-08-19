@@ -1473,26 +1473,42 @@ public class StatisticsService
     private async Task<List<AppUser>> GetSupportOfficersAsync(SupportScope scope)
     {
         var filter = Builders<AppUser>.Filter;
-        var accountFilter = filter.Eq(x => x.AccountType, AccountType.Officer);
 
-        FilterDefinition<AppUser> roleFilter = scope switch
+        FilterDefinition<AppUser> scopedFilter = scope switch
         {
-            SupportScope.Trademark => filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport),
-            SupportScope.Patent => filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
-            SupportScope.Design => filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
-            SupportScope.Technical => filter.Or(
-                filter.AnyEq(x => x.UserRoles, Roles.Tech),
-                filter.Eq(x => x.AccountType, AccountType.Tech)
+            SupportScope.Trademark => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Officer),
+                filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport)
+            ),
+            SupportScope.Patent => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Officer),
+                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport)
+            ),
+            SupportScope.Design => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Officer),
+                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport)
+            ),
+            SupportScope.Technical => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Tech),
+                filter.AnyEq(x => x.UserRoles, Roles.Tech)
             ),
             _ => filter.Or(
-                filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport),
-                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
-                filter.AnyEq(x => x.UserRoles, Roles.Tech),
-                filter.Eq(x => x.AccountType, AccountType.Tech)
+                filter.And(
+                    filter.Eq(x => x.AccountType, AccountType.Officer),
+                    filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport)
+                ),
+                filter.And(
+                    filter.Eq(x => x.AccountType, AccountType.Officer),
+                    filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport)
+                ),
+                filter.And(
+                    filter.Eq(x => x.AccountType, AccountType.Tech),
+                    filter.AnyEq(x => x.UserRoles, Roles.Tech)
+                )
             )
         };
 
-        return await _userCollection.Find(filter.And(accountFilter, roleFilter)).ToListAsync();
+        return await _userCollection.Find(scopedFilter).ToListAsync();
     }
 
     private static List<FinanceMonthlyBreakdownDto> BuildMonthlyBreakdown(DateTime startDate, DateTime endDate, List<PaymentRecord> payments, Func<PaymentRecord, double> feeSelector)

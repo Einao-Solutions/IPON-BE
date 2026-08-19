@@ -658,7 +658,6 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             _log.LogWarning("GetDetailsByOrderId called with an empty orderId");
             return null;
         }
-
         const string merchantId = "6230040240";
         const string apiKey = "192753";
         var test = orderId + apiKey + merchantId;
