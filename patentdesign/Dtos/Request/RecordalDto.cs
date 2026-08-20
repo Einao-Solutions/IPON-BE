@@ -163,6 +163,7 @@ namespace patentdesign.Dtos.Request
         public string? AssigneeAddress { get; set; }
         public string? AssignorNationality { get; set; }
         public string? AssigneeNationality { get; set; }
+        public string? documentUrl { get; set; }
         public string? userId { get; set; }
     }
 }

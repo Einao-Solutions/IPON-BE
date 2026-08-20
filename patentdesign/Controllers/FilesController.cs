@@ -1679,12 +1679,24 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpGet("GetAssignmentApplication")]
     public async Task<IActionResult> GetAssignmentApplication([FromQuery] string fileId, [FromQuery] string appId)
     {
-        var res = await fileService.GetAssignmentApplication(fileId, appId);
-        if (res == null)
+        try
         {
-            return NotFound();
+            var res = await fileService.GetAssignmentApplication(fileId, appId);
+            if (res == null)
+            {
+                return NotFound();
+            }
+            // Return ONLY the 2 documents - no form data
+            return Ok(new 
+            { 
+                assignmentDeedUrl = res.AssignmentDeedUrl,
+                authorizationLetterUrl = res.AuthorizationLetterUrl
+            });
         }
-        return Ok(res);
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
     }
     [HttpPost("AssignmentApplication")]
     public async Task<IActionResult> AssignmentApplication([FromForm] AssignmentAppDto data)
