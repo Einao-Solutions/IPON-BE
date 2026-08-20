@@ -206,5 +206,239 @@ namespace PatentDesign.Tests.Services
             Assert.NotEmpty(fileId);
             Assert.Contains("http://localhost:5000", expectedUrl);
         }
+
+        [Fact]
+        public async Task GetAssignmentApplication_WithValidFileAndAppId_ShouldReturnAssignmentDetails()
+        {
+            // Arrange
+            string fileId = "F/TM/O/2016/88119";
+            string appId = "569446bf-6fa1-4bcc-b36e-267aeb6840be";
+
+            var applicant = new Applicant { Name = "John Assignor", Email = "john@example.com", Address = "123 Main St", Phone = "555-0001", country = "USA" };
+            var applicationHistory = new ApplicationHistory { Applicants = new List<Applicant> { applicant } };
+
+            var assignee = new Assignee
+            {
+                Id = appId,
+                Name = "Jane Assignee",
+                Email = "jane@example.com",
+                Address = "456 Oak Ave",
+                Phone = "555-0002",
+                Nationality = "Canada",
+                AuthorizationLetterUrl = "http://example.com/auth.pdf",
+                AssignmentDeedUrl = "http://example.com/deed.pdf",
+                documentUrl = "http://example.com/doc.pdf"
+            };
+
+            var filing = new Filling
+            {
+                FileId = fileId,
+                ApplicationHistory = new List<ApplicationHistory> { applicationHistory },
+                Assignees = new List<Assignee> { assignee }
+            };
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new[] { filing });
+            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true)
+                .ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act
+            var result = await _filesServices.GetAssignmentApplication(fileId, appId);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.Equal(fileId, result.FileId);
+            Assert.Equal("Jane Assignee", result.AssigneeName);
+            Assert.Equal("Jane Assignee", result.AssigneeEmail ?? result.AssigneeEmail);
+        }
+
+        [Fact]
+        public async Task GetAssignmentApplication_WithMissingFile_ShouldThrowKeyNotFoundException()
+        {
+            // Arrange
+            string fileId = "NONEXISTENT";
+            string appId = "569446bf-6fa1-4bcc-b36e-267aeb6840be";
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new Filling[] { });
+            cursor.Setup(c => c.MoveNextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act & Assert
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => 
+                _filesServices.GetAssignmentApplication(fileId, appId));
+        }
+
+        [Fact]
+        public async Task GetAssignmentApplication_WithMissingAssignee_ShouldThrowKeyNotFoundException()
+        {
+            // Arrange
+            string fileId = "F/TM/O/2016/88119";
+            string appId = "invalid-app-id";
+
+            var applicant = new Applicant { Name = "John Assignor", Email = "john@example.com", Address = "123 Main St", Phone = "555-0001", country = "USA" };
+            var applicationHistory = new ApplicationHistory { Applicants = new List<Applicant> { applicant } };
+
+            var filing = new Filling
+            {
+                FileId = fileId,
+                ApplicationHistory = new List<ApplicationHistory> { applicationHistory },
+                Assignees = new List<Assignee>() // Empty assignees
+            };
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new[] { filing });
+            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true)
+                .ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act & Assert
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => 
+                _filesServices.GetAssignmentApplication(fileId, appId));
+        }
+
+        [Fact]
+        public async Task GetAssignmentApplication_WithMissingApplicationHistory_ShouldThrowKeyNotFoundException()
+        {
+            // Arrange
+            string fileId = "F/TM/O/2016/88119";
+            string appId = "569446bf-6fa1-4bcc-b36e-267aeb6840be";
+
+            var assignee = new Assignee
+            {
+                Id = appId,
+                Name = "Jane Assignee",
+                Email = "jane@example.com"
+            };
+
+            var filing = new Filling
+            {
+                FileId = fileId,
+                ApplicationHistory = null, // No application history
+                Assignees = new List<Assignee> { assignee }
+            };
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new[] { filing });
+            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true)
+                .ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act & Assert
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => 
+                _filesServices.GetAssignmentApplication(fileId, appId));
+        }
+
+        [Fact]
+        public async Task GetAssignmentApplication_WithEmptyApplicants_ShouldThrowKeyNotFoundException()
+        {
+            // Arrange
+            string fileId = "F/TM/O/2016/88119";
+            string appId = "569446bf-6fa1-4bcc-b36e-267aeb6840be";
+
+            var applicationHistory = new ApplicationHistory { Applicants = new List<Applicant>() }; // Empty applicants
+
+            var assignee = new Assignee
+            {
+                Id = appId,
+                Name = "Jane Assignee",
+                Email = "jane@example.com"
+            };
+
+            var filing = new Filling
+            {
+                FileId = fileId,
+                ApplicationHistory = new List<ApplicationHistory> { applicationHistory },
+                Assignees = new List<Assignee> { assignee }
+            };
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new[] { filing });
+            cursor.SetupSequence(c => c.MoveNextAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true)
+                .ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act & Assert
+            await Assert.ThrowsAsync<KeyNotFoundException>(() => 
+                _filesServices.GetAssignmentApplication(fileId, appId));
+        }
+
+        [Fact]
+        public async Task GetRegUserApplication_WithMissingFile_ShouldReturnNull()
+        {
+            // Arrange
+            string fileId = "NONEXISTENT";
+            string appId = "some-app-id";
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new Filling[] { });
+            cursor.Setup(c => c.MoveNextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act
+            var result = await _filesServices.GetRegUserApplication(fileId, appId);
+
+            // Assert
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public async Task GetMergerApplication_WithMissingFile_ShouldReturnNull()
+        {
+            // Arrange
+            string fileId = "NONEXISTENT";
+            string appId = "some-app-id";
+
+            var cursor = new Mock<IAsyncCursor<Filling>>();
+            cursor.Setup(c => c.Current).Returns(new Filling[] { });
+            cursor.Setup(c => c.MoveNextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+            _mockFillingCollection.Setup(c => c.FindAsync(
+                It.IsAny<FilterDefinition<Filling>>(),
+                It.IsAny<FindOptions<Filling>>(),
+                It.IsAny<CancellationToken>()))
+                .ReturnsAsync(cursor.Object);
+
+            // Act
+            var result = await _filesServices.GetMergerApplication(fileId, appId);
+
+            // Assert
+            Assert.Null(result);
+        }
     }
 }
