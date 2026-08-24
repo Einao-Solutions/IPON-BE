@@ -7914,30 +7914,89 @@ public class FilesServices
         return (true, "Withdrawal request submitted successfully.");
     }
 
-    public async Task<object?> GetWithdrawalDetailsAsync(string fileId)
+    public async Task<WithdrawalDetailsDto?> GetWithdrawalDetailsAsync(string fileId)
     {
+        if (string.IsNullOrWhiteSpace(fileId))
+        {
+            _log.LogWarning("GetWithdrawalDetailsAsync called with empty fileId");
+            return null;
+        }
+
         var file = await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
         if (file == null)
+        {
+            _log.LogInformation("File not found for fileId: {FileId}", fileId);
             return null;
+        }
 
-        var withdrawalDate = file.WithdrawalDate;
-        var withdrawalRequestDate = file.WithdrawalRequestDate;
+        // Find the withdrawal request application info
+        var withdrawalApp = file.ApplicationHistory?
+            .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
 
-        var withdrawalLetterAttachments = file.Attachments?
-            .Where(a => a.name == "withdrawal_letter")
-            .Select(a => new { a.name, a.url })
-            .ToList();
+        if (withdrawalApp == null)
+        {
+            _log.LogInformation("No withdrawal request found for fileId: {FileId}", fileId);
+            return null;
+        }
 
-        var supportingDocumentAttachments = file.Attachments?
-            .Where(a => a.name == "withdrawal_supporting_documents")
-            .Select(a => new { a.name, a.url })
-            .ToList();
+        // Get payment information if available
+        string? paymentId = null;
+        if (!string.IsNullOrWhiteSpace(withdrawalApp.PaymentId))
+        {
+            paymentId = withdrawalApp.PaymentId;
+        }
+        else
+        {
+            // Try to retrieve from payment records
+            var paymentRecord = await _paymentService.GetPaymentRecordByFileIdAsync(fileId, "File Withdrawal");
+            if (paymentRecord?.RemitaResponse != null)
+            {
+                paymentId = paymentRecord.RemitaResponse.rrr ?? paymentRecord.Id;
+            }
+        }
 
-        return new
+        // Build withdrawal letter attachments
+        var withdrawalLetterAttachments = new List<DocumentAttachmentDto>();
+        var withdrawalLetterAttachment = file.Attachments?
+            .FirstOrDefault(a => a.name == "withdrawal_letter");
+
+        if (withdrawalLetterAttachment?.url != null && withdrawalLetterAttachment.url.Count > 0)
+        {
+            foreach (var url in withdrawalLetterAttachment.url)
+            {
+                withdrawalLetterAttachments.Add(new DocumentAttachmentDto
+                {
+                    Name = withdrawalLetterAttachment.name,
+                    Url = url
+                });
+            }
+        }
+
+        // Build supporting document attachments
+        var supportingDocumentAttachments = new List<DocumentAttachmentDto>();
+        var supportingDocAttachment = file.Attachments?
+            .FirstOrDefault(a => a.name == "withdrawal_supporting_documents");
+
+        if (supportingDocAttachment?.url != null && supportingDocAttachment.url.Count > 0)
+        {
+            foreach (var url in supportingDocAttachment.url)
+            {
+                supportingDocumentAttachments.Add(new DocumentAttachmentDto
+                {
+                    Name = supportingDocAttachment.name,
+                    Url = url
+                });
+            }
+        }
+
+        return new WithdrawalDetailsDto
         {
             FileId = file.FileId,
-            WithdrawalDate = withdrawalDate,
-            WithdrawalRequestDate = withdrawalRequestDate,
+            FileType = file.Type.ToString(),
+            WithdrawalRequestDate = file.WithdrawalRequestDate,
+            WithdrawalDate = file.WithdrawalDate,
+            ApplicationStatus = withdrawalApp.CurrentStatus.ToString(),
+            PaymentId = paymentId,
             WithdrawalLetterAttachments = withdrawalLetterAttachments,
             SupportingDocumentAttachments = supportingDocumentAttachments
         };
@@ -15078,4 +15137,67 @@ private async Task<(string, string)?> SignDocument(string designation)
         }
         return (signatory.Name, signatory.Id);
     }
+
+    /// <summary>
+    /// Gets a file by file number/ID
+    /// </summary>
+    public async Task<Filling> GetByFileNumberAsync(string fileId)
+    {
+        return await _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// Updates a file in the database
+    /// </summary>
+    public async Task UpdateFileAsync(Filling file)
+    {
+        await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+    }
+
+    /// <summary>
+    /// Saves a file attachment and returns the URL
+    /// </summary>
+    public async Task<string> SaveFileAttachmentAsync(IFormFile file, string fileId, string attachmentType)
+    {
+        if (file == null || file.Length == 0)
+            throw new ArgumentException("File is required");
+
+        try
+        {
+            // Get file extension
+            var extension = Path.GetExtension(file.FileName).TrimStart('.');
+            if (string.IsNullOrEmpty(extension))
+                extension = "pdf";
+
+            // Create unique filename
+            var uniqueFileName = Path.GetRandomFileName();
+            uniqueFileName = Path.ChangeExtension(uniqueFileName, extension);
+
+            // Read file bytes
+            using (var memoryStream = new MemoryStream())
+            {
+                await file.CopyToAsync(memoryStream);
+                var fileData = memoryStream.ToArray();
+
+                // Store in database
+                var attachmentInfo = new AttachmentInfo
+                {
+                    Id = uniqueFileName,
+                    ContentType = file.ContentType ?? "application/octet-stream",
+                    Data = fileData
+                };
+
+                await _attachmentCollection.InsertOneAsync(attachmentInfo);
+            }
+
+            // Return relative URL
+            return $"/api/files/GetAttachment?fileId={uniqueFileName}";
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error saving file attachment: {FileName}", file.FileName);
+            throw;
+        }
+    }
+
 }

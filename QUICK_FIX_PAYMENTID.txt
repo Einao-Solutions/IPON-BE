@@ -1,0 +1,63 @@
+═══════════════════════════════════════════════════════════════════════════════
+					🔴 HTTP 400 ERROR - QUICK FIX
+═══════════════════════════════════════════════════════════════════════════════
+
+ERROR MESSAGE:
+  "PaymentId":["The PaymentId field is required."]
+
+CAUSE:
+  Frontend is not sending PaymentId in FormData
+
+───────────────────────────────────────────────────────────────────────────────
+
+QUICK FIX (1 LINE TO ADD):
+
+In your +page.svelte, in the code that creates FormData for withdrawal request:
+
+❌ BEFORE:
+   const formData = new FormData();
+   formData.append('FileId', filingObject.fileId);
+   formData.append('FileType', filingObject.type);
+   formData.append('WithdrawalLetter', withdrawalLetterFile);
+
+✅ AFTER:
+   const formData = new FormData();
+   formData.append('FileId', filingObject.fileId);
+   formData.append('FileType', filingObject.type);
+   formData.append('PaymentId', app.paymentId);  // ← ADD THIS LINE
+   formData.append('WithdrawalLetter', withdrawalLetterFile);
+
+───────────────────────────────────────────────────────────────────────────────
+
+WHERE TO FIND IT:
+
+Your console log shows:
+  +page.svelte:874 🔵 DEBUG: FormData entries:
+
+Search your +page.svelte for the code around line 874
+Look for where FormData is being created and appended
+
+───────────────────────────────────────────────────────────────────────────────
+
+WHAT VALUE TO USE:
+
+From the app object you showed:
+  paymentId: 'IPONMW638628027993694711'
+
+Use this value from your app state:
+  formData.append('PaymentId', app.paymentId);
+
+───────────────────────────────────────────────────────────────────────────────
+
+AFTER YOU FIX IT:
+
+Your FormData will have:
+  ✅ FileId
+  ✅ FileType
+  ✅ PaymentId         ← NEW!
+  ✅ WithdrawalLetter
+  ✅ SupportingDocuments
+
+Then HTTP 200 will return and you'll get the success response!
+
+═══════════════════════════════════════════════════════════════════════════════
