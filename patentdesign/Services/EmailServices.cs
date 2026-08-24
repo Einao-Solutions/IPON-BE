@@ -1,11 +1,11 @@
-using MailKit.Net.Smtp;
-using MailKit.Security;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
-using MimeKit;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Utils;
+using Resend;
+using System.Text.Json;
 using static QRCoder.PayloadGenerator;
 
 namespace patentdesign.Services;
@@ -13,10 +13,14 @@ namespace patentdesign.Services;
 public class EmailServices
 {
     private readonly EmailSettings _settings;
+    private readonly IConfiguration _configuration;
+    private readonly IResend _resend;
     private readonly ILogger<EmailServices> _log;
-    public EmailServices(IOptions<EmailSettings> settings, ILogger<EmailServices> log)
+    public EmailServices(IOptions<EmailSettings> settings, IConfiguration configuration, IResend resend, ILogger<EmailServices> log)
     {
         _settings = settings.Value;
+        _configuration = configuration;
+        _resend = resend;
         _log = log;
     }
 
@@ -24,146 +28,48 @@ public class EmailServices
     {
         _log.LogInformation("Preparing email to {Recipient} with subject '{Subject}' (Type: {EmailType})",
             dto.To, dto.Subject, dto.EmailType);
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
-        message.To.Add(new MailboxAddress("",dto.To));
-        message.Subject = dto.Subject;
-        string body = "";
-        switch (dto.EmailType)
-        { 
-            case EmailType.Opposition:
-                body = PopulateOppositionMail(dto.OppositionMail);
-                break;
-            case EmailType.RenewalEarlyReminder:
-                body = PopulateRenewalReminder(dto.RenewalReminder);
-                break;
-            case EmailType.CounterStatement:
-                body = PopulateCounterStatementMail(dto.CounterStatementMail);
-                break;
-            case EmailType.OppositionConfirmation:
-                body = PopulateOppositionConfirmationMail(dto.OppositionConfirmationMail);
-                break;
-            case EmailType.StatutoryDeclaration:
-                body = PopulateStatutoryDeclarationMail(dto.StatutoryDeclarationMail);
-                break;
-            case EmailType.WithdrawalNotification:
-                body = PopulateWithdrawalNotificationMail(dto.WithdrawalNotificationMail);
-                break;
-            case EmailType.WithdrawalApproved:
-                body = PopulateWithdrawalApprovedMail(dto.WithdrawalApprovedMail);
-                break;
-            case EmailType.WithdrawalRefused:
-                body = PopulateWithdrawalRefusedMail(dto.WithdrawalRefusedMail);
-                break;
-            case EmailType.WithdrawalApprovedApplicant:
-                body = PopulateWithdrawalApprovedApplicantMail(dto.WithdrawalApprovedApplicantMail);
-                break;
-            case EmailType.WithdrawalRefusedApplicant:
-                body = PopulateWithdrawalRefusedApplicantMail(dto.WithdrawalRefusedApplicantMail);
-                break;
-            case EmailType.ResetPassword:
-                body = ResetPasswordMail(dto.ResetPasswordMail);
-                break;
-            case EmailType.StatusUpdate:
-                break;
-        }
 
-        var builder = new BodyBuilder();
-        builder.HtmlBody = body;
+        var templateId = GetTemplateId(dto.EmailType);
+        var variables = BuildTemplateVariables(dto);
 
-        if (dto.EmailType == EmailType.RenewalEarlyReminder || dto.EmailType == EmailType.ResetPassword)
+        var message = new EmailMessage
         {
-            AttachMinistryLogo(builder);
-        }
-
-        message.Body = builder.ToMessageBody();
-
-        using (var client = new SmtpClient(new MailKit.ProtocolLogger(Console.OpenStandardError())))
+            From = $"{GetSenderName()} <{GetSenderEmail()}>",
+            Subject = dto.Subject,
+            Template = new EmailMessageTemplate
+            {
+                TemplateId = templateId,
+                Variables = variables
+            }
+        };
+        message.To.Add(dto.To);
+        if (!string.IsNullOrWhiteSpace(dto.CarbonCopy))
         {
-            client.AuthenticationMechanisms.Remove("XOAUTH2");
-            client.Timeout = 60000;
-
-            try
-            {
-                _log.LogDebug("Connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-
-                await client.ConnectAsync(
-                    _settings.SmtpServer,
-                    _settings.Port,
-                    SecureSocketOptions.SslOnConnect);
-
-                await client.AuthenticateAsync(_settings.Username, _settings.Password);
-
-                await client.SendAsync(message);
-                _log.LogInformation("Email sent successfully to {Recipient}", dto.To);
-            }
-            catch (System.Threading.Tasks.TaskCanceledException ex)
-            {
-                _log.LogError(ex, "SMTP connection timed out to {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-                throw new ApplicationException(
-                    $"SMTP connection timed out to '{_settings.SmtpServer}:{_settings.Port}'. " +
-                    "Check DNS resolution, outbound firewall rules, and that the port/TLS mode matches the server.", ex);
-            }
-            catch(System.Net.Sockets.SocketException ex)
-            {
-                _log.LogError(ex, "Socket error connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-                throw new ApplicationException(
-                    $"Failed to connect to SMTP server '{_settings.SmtpServer}:{_settings.Port}'. " +
-                    $"Verify host, port, firewall, and TLS settings. Details: {ex.Message}", ex);
-            }
-            catch (SslHandshakeException ex)
-            {
-                _log.LogError(ex, "SSL/TLS handshake failed with SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-                throw new ApplicationException(
-                    "SSL/TLS handshake with SMTP server failed. " +
-                    "This often indicates a TLS mode mismatch (implicit SSL vs STARTTLS) or certificate issues.", ex);
-            }
-            catch (MailKit.ServiceNotAuthenticatedException ex)
-            {
-                _log.LogError(ex, "SMTP authentication failed for user {Username}", _settings.Username);
-                throw new ApplicationException(
-                    "SMTP authentication failed. Verify username/password and that SMTP auth is enabled.", ex);
-            }
-            finally
-            {
-                if (client.IsConnected)
-                    await client.DisconnectAsync(true);
-            }
+            message.Cc.Add(dto.CarbonCopy);
         }
-        
+
+        try
+        {
+            await _resend.EmailSendAsync(message);
+            _log.LogInformation("Email sent successfully via Resend to {Recipient}", dto.To);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Resend email failed for {Recipient}", dto.To);
+            throw;
+        }
     }
+
     public async Task SendBulkEmailAsync(BulkEmailDto dto)
     {
         var batchSize = 20;
         var delayMs = 2000;
         _log.LogInformation("Starting bulk email send to {RecipientCount} recipients with subject '{Subject}'",
             dto.Recipients.Count, dto.Subject);
+        var templateId = GetTemplateId(EmailType.Announcement);
 
-        string template = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\Announcement.html";
-        using (var reader = new StreamReader(filePath))
-        {
-            template = reader.ReadToEnd();
-        }
-
-        var logoPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "ministry.png");
-        var logoExists = File.Exists(logoPath);
-        if (!logoExists)
-        {
-            _log.LogWarning("Announcement logo was not found at {LogoPath}", logoPath);
-        }
-
-        using var client = new SmtpClient();
         try
         {
-            _log.LogDebug("Connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-            await client.ConnectAsync(
-                _settings.SmtpServer,
-                _settings.Port,
-                SecureSocketOptions.SslOnConnect);
-
-            await client.AuthenticateAsync(_settings.Username, _settings.Password);
-
             var recipients = dto.Recipients;
             int sentCount = 0;
             for (int i = 0; i < recipients.Count; i += batchSize)
@@ -173,24 +79,24 @@ public class EmailServices
 
                 foreach (var recipient in batch)
                 {
-                    var message = new MimeMessage();
-                    message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
-                    message.To.Add(new MailboxAddress(recipient.Value, recipient.Key));
-                    message.Subject = dto.Subject;
-
-                    var html = template.Replace("{{UserName}}", recipient.Value)
-                        .Replace("{{Message}}", dto.Body)
-                        .Replace("{{CurrentYear}}", DateTime.UtcNow.Year.ToString());
-
-                    var builder = new BodyBuilder { HtmlBody = html };
-                    if (logoExists)
+                    var message = new EmailMessage
                     {
-                        var logo = builder.LinkedResources.Add(logoPath);
-                        logo.ContentId = "ministry-logo";
-                    }
+                        From = $"{GetSenderName()} <{GetSenderEmail()}>",
+                        Subject = dto.Subject,
+                        Template = new EmailMessageTemplate
+                        {
+                            TemplateId = templateId,
+                            Variables = new Dictionary<string, object>
+                            {
+                                ["UserName"] = recipient.Value,
+                                ["Message"] = dto.Body,
+                                ["CurrentYear"] = DateTime.UtcNow.Year.ToString()
+                            }
+                        }
+                    };
+                    message.To.Add(recipient.Key);
 
-                    message.Body = builder.ToMessageBody();
-                    await client.SendAsync(message);
+                    await _resend.EmailSendAsync(message);
                     sentCount++;
                 }
 
@@ -202,27 +108,107 @@ public class EmailServices
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Bulk email failed during send to {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+            _log.LogError(ex, "Bulk email failed during Resend send operation");
             throw;
-        }
-        finally
-        {
-            if (client.IsConnected)
-                await client.DisconnectAsync(true);
         }
     }
 
-    private void AttachMinistryLogo(BodyBuilder builder)
+    private string GetTemplateId(EmailType emailType)
     {
-        var logoPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "ministry.png");
-        if (File.Exists(logoPath))
+        var key = $"RESEND_TEMPLATE_{emailType}".ToUpperInvariant();
+        var templateId = _configuration[key];
+        if (string.IsNullOrWhiteSpace(templateId))
         {
-            var logo = builder.LinkedResources.Add(logoPath);
-            logo.ContentId = "ministry-logo";
-            return;
+            throw new InvalidOperationException($"Resend template id is missing for email type '{emailType}'. Expected config key: '{key}'.");
         }
 
-        _log.LogWarning("Email logo was not found at {LogoPath}", logoPath);
+        return templateId;
+    }
+
+    private Dictionary<string, object> BuildTemplateVariables(EmailDto dto)
+    {
+        object? source = null;
+        switch (dto.EmailType)
+        {
+            case EmailType.Opposition:
+                source = dto.OppositionMail;
+                break;
+            case EmailType.RenewalEarlyReminder:
+            case EmailType.RenewalDueNotice:
+                source = dto.RenewalReminder;
+                break;
+            case EmailType.CounterStatement:
+                source = dto.CounterStatementMail;
+                break;
+            case EmailType.OppositionConfirmation:
+                source = dto.OppositionConfirmationMail;
+                break;
+            case EmailType.StatutoryDeclaration:
+                source = dto.StatutoryDeclarationMail;
+                break;
+            case EmailType.WithdrawalNotification:
+                source = dto.WithdrawalNotificationMail;
+                break;
+            case EmailType.WithdrawalApproved:
+                source = dto.WithdrawalApprovedMail;
+                break;
+            case EmailType.WithdrawalRefused:
+                source = dto.WithdrawalRefusedMail;
+                break;
+            case EmailType.WithdrawalApprovedApplicant:
+                source = dto.WithdrawalApprovedApplicantMail;
+                break;
+            case EmailType.WithdrawalRefusedApplicant:
+                source = dto.WithdrawalRefusedApplicantMail;
+                break;
+            case EmailType.ResetPassword:
+                source = dto.ResetPasswordMail;
+                break;
+            case EmailType.WelcomeVerification:
+                source = dto.WelcomeVerificationMail;
+                break;
+            case EmailType.StatusUpdate:
+                source = dto.StatusUpdateMail;
+                break;
+        }
+
+        var data = source is null
+            ? new Dictionary<string, object?>()
+            : ToDictionary(source);
+
+        data["Subject"] = dto.Subject;
+        data["Body"] = dto.Body;
+        data["CurrentYear"] = DateTime.UtcNow.Year.ToString();
+        return data.ToDictionary(kvp => kvp.Key, kvp => (object)(kvp.Value ?? string.Empty));
+    }
+
+    private static Dictionary<string, object?> ToDictionary(object value)
+    {
+        var json = JsonSerializer.Serialize(value);
+        return JsonSerializer.Deserialize<Dictionary<string, object?>>(json)
+               ?? new Dictionary<string, object?>();
+    }
+
+    private string GetSenderEmail()
+    {
+        var senderEmail = _configuration["RESEND_FROM_EMAIL"];
+        if (string.IsNullOrWhiteSpace(senderEmail))
+        {
+            senderEmail = _settings.SenderEmail;
+        }
+
+        return senderEmail;
+    }
+
+    private string GetSenderName()
+    {
+        var senderName = _configuration["RESEND_FROM_NAME"];
+        if (string.IsNullOrWhiteSpace(senderName))
+        {
+            senderName = _settings.SenderName;
+        }
+
+        return senderName;
     }
 
     private string PopulateOppositionConfirmationMail(OppositionConfirmationMail dto)

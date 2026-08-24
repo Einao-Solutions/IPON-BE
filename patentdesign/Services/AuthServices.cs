@@ -11,6 +11,7 @@ using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
+using patentdesign.Utils;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Authentication;
 using System.Security.Claims;
@@ -27,11 +28,13 @@ namespace patentdesign.Services
         private static IMongoCollection<Filling> _fillingCollection;
         private MongoClient _mongoClient;
         private EmailServices _emailServices;
+        private readonly ResendUtils _resendUtils;
         private readonly ILogger<AuthServices> _log;
-        public AuthServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices, ILogger<AuthServices> log)
+        public AuthServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, IConfiguration config, EmailServices emailServices, ResendUtils resendUtils, ILogger<AuthServices> log)
         {
             _config = config;
             _log = log;
+            _resendUtils = resendUtils;
 
             var s = patentDesignDbSettings.Value;
             _users = db.GetCollection<AppUser>("appUsers");
@@ -57,6 +60,7 @@ namespace patentdesign.Services
                 }
 
                 var hashedPassword = BCrypt.Net.BCrypt.HashPassword(req.Password);
+                var verificationToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 
                 var user = new AppUser
                 {
@@ -71,9 +75,30 @@ namespace patentdesign.Services
                     UserRoles = new List<Roles> { Roles.User },
                     CreatedAt = DateTime.UtcNow,
                     Name = req.BusinessName ?? req.FirstName + " " + req.LastName,
+                    EmailVerificationToken = verificationToken,
+                    EmailVerificationTokenExpiry = DateTime.UtcNow.AddDays(2)
                 };
 
                 await _users.InsertOneAsync(user);
+
+                try
+                {
+                    await _resendUtils.AddUserToResendAsync(user);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "Failed to add user {Email} to Resend contacts", emailNormalized);
+                }
+
+                try
+                {
+                    await SendVerificationEmailAsync(user, emailNormalized, verificationToken);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "Failed to send welcome verification email to {Email}", emailNormalized);
+                }
+
                 _log.LogInformation("User {Email} created successfully with Id {UserId}", emailNormalized, user.Id);
                 return true;
             }
@@ -87,6 +112,86 @@ namespace patentdesign.Services
                 _log.LogError(ex, "Unexpected error creating user {Email}", req.Email);
                 return false;
             }
+        }
+
+        public async Task<bool> RequestEmailVerification(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return false;
+
+            var emailNormalized = email.Trim().ToLowerInvariant();
+            _log.LogInformation("Email verification requested for {Email}", emailNormalized);
+
+            var user = await _users.Find(u => u.Email == emailNormalized).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                _log.LogWarning("Email verification request failed — user {Email} not found", emailNormalized);
+                return false;
+            }
+
+            if (user.isVerified)
+            {
+                _log.LogInformation("Email verification request skipped — user {Email} is already verified", emailNormalized);
+                return true;
+            }
+
+            var verificationToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+            var update = Builders<AppUser>.Update
+                .Set(u => u.EmailVerificationToken, verificationToken)
+                .Set(u => u.EmailVerificationTokenExpiry, DateTime.UtcNow.AddDays(2));
+
+            await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+
+            await SendVerificationEmailAsync(user, emailNormalized, verificationToken);
+            _log.LogInformation("Email verification link sent to {Email}", emailNormalized);
+            return true;
+        }
+
+        public async Task<bool> VerifyEmail(string email, string token)
+        {
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(token)) return false;
+
+            var emailNormalized = email.Trim().ToLowerInvariant();
+            _log.LogInformation("Processing email verification for {Email}", emailNormalized);
+
+            var user = await _users.Find(u =>
+                u.Email == emailNormalized &&
+                u.EmailVerificationToken == token &&
+                u.EmailVerificationTokenExpiry > DateTime.UtcNow
+            ).FirstOrDefaultAsync();
+
+            if (user == null)
+            {
+                _log.LogWarning("Email verification failed — invalid or expired token for {Email}", emailNormalized);
+                return false;
+            }
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.isVerified, true)
+                .Unset(u => u.EmailVerificationToken)
+                .Unset(u => u.EmailVerificationTokenExpiry)
+                .Set(u => u.LastUpdatedAt, DateTime.UtcNow);
+
+            var result = await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+            return result.ModifiedCount > 0;
+        }
+
+        private async Task SendVerificationEmailAsync(AppUser user, string emailNormalized, string verificationToken)
+        {
+            var portalBaseUrl = _config["PORTAL_BASE_URL"] ?? "https://portal.iponigeria.com";
+            var verifyLink = $"{portalBaseUrl.TrimEnd('/')}/auth/verify-email?token={Uri.EscapeDataString(verificationToken)}&email={Uri.EscapeDataString(emailNormalized)}";
+            var mail = new EmailDto
+            {
+                EmailType = EmailType.WelcomeVerification,
+                WelcomeVerificationMail = new WelcomeVerificationMail
+                {
+                    UserName = user.Name ?? user.FirstName,
+                    VerificationLink = verifyLink
+                },
+                To = emailNormalized,
+                Subject = "Welcome to IPO Nigeria - Verify your email"
+            };
+
+            await _emailServices.SendMail(mail);
         }
 
         private string GenerateJwtToken(AppUser user)

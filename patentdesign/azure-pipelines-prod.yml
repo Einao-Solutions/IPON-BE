@@ -66,6 +66,9 @@ stages:
               SMTP_SERVER               = "$(SMTP_SERVER)"
               SMTP_USERNAME             = "$(SMTP_USERNAME)"
               SMTP_PASSWORD             = "$(SMTP_PASSWORD)"
+              RESEND_APIKEY             = "$(RESEND_APIKEY)"
+              RESEND_FROM_EMAIL         = "$(RESEND_FROM_EMAIL)"
+              RESEND_FROM_NAME          = "$(RESEND_FROM_NAME)"
           }
 
           Write-Host "Clearing existing environment variables for App Pool: $appPool"

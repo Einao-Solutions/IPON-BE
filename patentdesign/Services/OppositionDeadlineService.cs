@@ -15,23 +15,23 @@ namespace patentdesign.Services;
 /// </summary>
 public class OppositionDeadlineService : BackgroundService
 {
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<OppositionDeadlineService> _log;
     private readonly IMongoCollection<Opposition> _oppositionCollection;
     private readonly IMongoCollection<Filling> _fillingCollection;
     private readonly IMongoCollection<CounterStatement> _counterStatementCollection;
     private readonly IMongoCollection<StatutoryDeclaration> _statutoryDeclarationCollection;
-    private readonly EmailServices _emailServices;
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
     private const int DeadlineDays = 30;
 
     public OppositionDeadlineService(
+        IServiceScopeFactory scopeFactory,
         IMongoDatabase db,
         IOptions<PatentDesignDBSettings> dbSettings,
-        ILogger<OppositionDeadlineService> logger,
-        EmailServices emailServices)
+        ILogger<OppositionDeadlineService> logger)
     {
+        _scopeFactory = scopeFactory;
         _log = logger;
-        _emailServices = emailServices;
 
         var s = dbSettings.Value;
         _oppositionCollection = db.GetCollection<Opposition>(s.OppositionCollectionName);
@@ -133,7 +133,7 @@ public class OppositionDeadlineService : BackgroundService
 
                 if (!string.IsNullOrEmpty(applicantEmail))
                 {
-                    await _emailServices.SendMail(new EmailDto
+                    await SendMailAsync(new EmailDto
                     {
                         To = applicantEmail,
                         Subject = "Application Abandoned - Counter Statement Deadline Expired",
@@ -158,7 +158,7 @@ public class OppositionDeadlineService : BackgroundService
                 var opposerEmail = opp.Email;
                 if (!string.IsNullOrEmpty(opposerEmail))
                 {
-                    await _emailServices.SendMail(new EmailDto
+                    await SendMailAsync(new EmailDto
                     {
                         To = opposerEmail,
                         Subject = "Opposition Resolved - Application Abandoned",
@@ -275,7 +275,7 @@ public class OppositionDeadlineService : BackgroundService
                 // Notify applicant (good news — opposition withdrawn)
                 if (!string.IsNullOrEmpty(applicantEmail))
                 {
-                    await _emailServices.SendMail(new EmailDto
+                    await SendMailAsync(new EmailDto
                     {
                         To = applicantEmail,
                         Subject = "Opposition Withdrawn - Statutory Declaration Deadline Expired",
@@ -299,7 +299,7 @@ public class OppositionDeadlineService : BackgroundService
                 var opposerEmail = opp.Email;
                 if (!string.IsNullOrEmpty(opposerEmail))
                 {
-                    await _emailServices.SendMail(new EmailDto
+                    await SendMailAsync(new EmailDto
                     {
                         To = opposerEmail,
                         Subject = "Opposition Withdrawn - Statutory Declaration Not Filed",
@@ -326,5 +326,12 @@ public class OppositionDeadlineService : BackgroundService
         }
 
         _log.LogInformation($"OppositionDeadlineService: Withdrew {withdrawnCount} opposition(s) due to SD deadline expiry");
+    }
+
+    private async Task SendMailAsync(EmailDto email)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var emailServices = scope.ServiceProvider.GetRequiredService<EmailServices>();
+        await emailServices.SendMail(email);
     }
 }

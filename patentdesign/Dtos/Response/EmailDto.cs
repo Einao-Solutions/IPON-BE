@@ -22,6 +22,7 @@ public class EmailDto
     public WithdrawalApprovedApplicantMail? WithdrawalApprovedApplicantMail { get; set; }
     public WithdrawalRefusedApplicantMail? WithdrawalRefusedApplicantMail { get; set; }
     public RenewalReminder? RenewalReminder { get; set; }
+    public WelcomeVerificationMail? WelcomeVerificationMail { get; set; }
 }
 
 public class BulkEmailDto
@@ -134,6 +135,12 @@ public class ResetPasswordMail
 {
     public string UserName { get; set; }
     public string ResetLink { get; set; }
+}
+
+public class WelcomeVerificationMail
+{
+    public string UserName { get; set; } = string.Empty;
+    public string VerificationLink { get; set; } = string.Empty;
 }
 
 public class StatusUpdateMail
