@@ -26,6 +26,7 @@ namespace patentdesign.Dtos.Response
         public ApplicationStatuses? FileStatus { get; set; }
         public string? Applicant { get; set; }
         public string? PaymentId { get; set; }
+        public string? ApplicationId { get; set; }
         public string? Cost { get; set; }
 
     }
