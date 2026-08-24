@@ -2654,4 +2654,16 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(result);
     }
+
+    [HttpPost("CreateRestorationApplication")]
+    public async Task<IActionResult> CreateRestorationApplication([FromQuery] string fileId, [FromQuery] string userId, [FromQuery] string? paymentId)
+    {
+        var result = await fileService.CreateRestorationApplication(fileId, userId, paymentId);
+        if (result == null)
+        {
+            return BadRequest("Failed to create restoration application.");
+        }
+
+        return Ok(result);
+    }
 }
