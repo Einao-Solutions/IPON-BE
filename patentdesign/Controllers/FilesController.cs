@@ -695,8 +695,20 @@ public class FilesController(FilesServices fileService) : ControllerBase
             return NotFound();
         }
         return Ok(res);
-    }
-    [HttpPost("DenyRecordal")]
+        }
+
+        [HttpPost("UpdateAssignmentHistory")]
+        public async Task<IActionResult> UpdateAssignmentHistory([FromBody] UpdateAssignmentHistoryDto dto)
+        {
+            var res = await fileService.UpdateAssignmentHistoryEntry(dto);
+            if (!res)
+            {
+                return NotFound(new { success = false, message = "File or assignment history entry not found." });
+            }
+            return Ok(new { success = true });
+        }
+
+        [HttpPost("DenyRecordal")]
     public async Task<IActionResult> DenyRecordal([FromBody] TreatRecordalDto recordalApp)
     {
         var res = await fileService.DenyRecordal(recordalApp);
@@ -1667,12 +1679,24 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpGet("GetAssignmentApplication")]
     public async Task<IActionResult> GetAssignmentApplication([FromQuery] string fileId, [FromQuery] string appId)
     {
-        var res = await fileService.GetAssignmentApplication(fileId, appId);
-        if (res == null)
+        try
         {
-            return NotFound();
+            var res = await fileService.GetAssignmentApplication(fileId, appId);
+            if (res == null)
+            {
+                return NotFound();
+            }
+            // Return ONLY the 2 documents - no form data
+            return Ok(new 
+            { 
+                assignmentDeedUrl = res.AssignmentDeedUrl,
+                authorizationLetterUrl = res.AuthorizationLetterUrl
+            });
         }
-        return Ok(res);
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
     }
     [HttpPost("AssignmentApplication")]
     public async Task<IActionResult> AssignmentApplication([FromForm] AssignmentAppDto data)
@@ -2628,6 +2652,18 @@ public class FilesController(FilesServices fileService) : ControllerBase
         {
             return BadRequest("Failed to calculate restoration cost. File may not exist or is not eligible for restoration.");
         }
+        return Ok(result);
+    }
+
+    [HttpPost("CreateRestorationApplication")]
+    public async Task<IActionResult> CreateRestorationApplication([FromQuery] string fileId, [FromQuery] string userId, [FromQuery] string? paymentId)
+    {
+        var result = await fileService.CreateRestorationApplication(fileId, userId, paymentId);
+        if (result == null)
+        {
+            return BadRequest("Failed to create restoration application.");
+        }
+
         return Ok(result);
     }
 }

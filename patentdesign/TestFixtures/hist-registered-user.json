@@ -1,0 +1,16 @@
+{
+  "id": "app-456",
+  "applicationType": 7,
+  "applicationDate": "2026-08-02T00:00:00Z",
+  "currentStatus": 2,
+  "paymentId": "PAY456",
+  "fileNumber": "TM/2024/00002",
+  "newValue": {
+    "name": "Jane Applicant",
+    "email": "jane@example.com",
+    "phone": "+2348001112222",
+    "nationality": "Nigerian",
+    "address": "10 Market St, Lagos",
+    "attachments": []
+  }
+}

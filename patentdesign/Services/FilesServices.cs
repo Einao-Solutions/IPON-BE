@@ -69,8 +69,8 @@ public class FilesServices
     private PublicationServices _publicationServices;
     private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    private string attachmentBaseUrl = "https://integration.iponigeria.com";
-     //private string attachmentBaseUrl = "http://localhost:5044";
+    //private string attachmentBaseUrl = "https://integration.iponigeria.com";
+     private string attachmentBaseUrl = "";  // Use relative URL (will resolve to current domain)
 
     public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
@@ -1897,8 +1897,10 @@ public class FilesServices
                     ContentType = item.contentType,
                     Data = item.data
                 });
-                uris.Add(
-                    $"{attachmentBaseUrl}/api/files/getAttachment?fileId={trustedFileName}");
+
+                // Use relative URL for compatibility across local, dev, and prod
+                var attachmentUrl = $"/api/files/GetAttachment?fileId={trustedFileName}";
+                uris.Add(attachmentUrl);
             }
         }
         return uris;
@@ -2823,8 +2825,10 @@ public class FilesServices
             }
             
             var applicant = file.applicants.FirstOrDefault();
-            var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
-            //var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            // Temporary: disable late-renewal surcharge and use normal renewal cost.
+            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            // Former logic (kept for re-enable):
+            // var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.LateTrademarkRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
 
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Trademark Renewal", applicant.Name, applicant.Email, applicant.Phone);
@@ -2844,7 +2848,7 @@ public class FilesServices
                 PaymentId = rrr ?? "",
                 ServiceFee = cost.Item3,
                 IsLateRenewal = lateRenewal,
-                LateRenewalCost = "0",
+                LateRenewalCost = null,
                 IsRenewalEligible = file?.IsRenewalEligible
             };
             return renew;
@@ -3470,13 +3474,30 @@ public class FilesServices
             NormalizeOwnershipHistory(file);
             return file;
         }
-        var result = _fillingCollection.Find(d => d.Id == fileId)
-            .Project(d => d.ApplicationHistory.FirstOrDefault(f => f.id == applicationId)).FirstOrDefault();
-        if (result != null && result.ApplicationType == FormApplicationTypes.Ownership)
+        var fileDoc = _fillingCollection.Find(d => d.Id == fileId).FirstOrDefault();
+        var result = fileDoc?.ApplicationHistory?.FirstOrDefault(f => f.id == applicationId);
+        if (result == null) return null;
+
+        if (result.ApplicationType == FormApplicationTypes.Ownership)
         {
             result.OldValue = CoerceOwnershipValue(result.OldValue);
             result.NewValue = CoerceOwnershipValue(result.NewValue);
         }
+
+        // For recordal application types the SuperAdmin UI expects a shaped `hist` payload
+        // with a top-level `assignment` block (type 5) and camelCase old/new value keys so
+        // its forms can pre-fill directly. Falling back to the raw ApplicationInfo for all
+        // other types preserves existing consumer behaviour.
+        switch (result.ApplicationType)
+        {
+            case FormApplicationTypes.Assignment:       // 5
+            case FormApplicationTypes.RegisteredUser:   // 7
+            case FormApplicationTypes.Merger:           // 8
+            case FormApplicationTypes.ChangeOfName:     // 9
+            case FormApplicationTypes.ChangeOfAddress:  // 10
+                return Utils.ApplicationHistoryShaper.Shape(result, fileDoc?.FileId);
+        }
+
         return result;
     }
 
@@ -3784,38 +3805,36 @@ public class FilesServices
             {
                 ["id"] = !string.IsNullOrWhiteSpace(data.oldId) ? data.oldId : oldOwnerId,
                 ["name"] = resolvedOldName,
-                ["correspondence"] = new Dictionary<string, object?>
-                {
-                    ["name"] = data.oldCorrespondence?.name,
-                    ["email"] = data.oldCorrespondence?.email,
-                    ["phone"] = data.oldCorrespondence?.phone,
-                    ["address"] = data.oldCorrespondence?.address,
-                    ["state"] = data.oldCorrespondence?.state,
-                },
+                ["email"] = data.oldCorrespondence?.email,
+                ["phone"] = data.oldCorrespondence?.phone,
+                ["address"] = data.oldCorrespondence?.address,
+                ["state"] = data.oldCorrespondence?.state,
+                ["nationality"] = existing.Correspondence?.Nationality
             };
 
             var newValue = new Dictionary<string, object?>
             {
                 ["id"] = data.newOwner,
                 ["name"] = resolvedNewName,
-                ["correspondence"] = new Dictionary<string, object?>
+                ["email"] = data.newCorrespondence?.email,
+                ["phone"] = data.newCorrespondence?.phone,
+                ["address"] = data.newCorrespondence?.address,
+                ["state"] = data.newCorrespondence?.state,
+                ["nationality"] = data.newCorrespondence?.Nationality,
+                ["attachments"] = new List<Dictionary<string, object?>>
                 {
-                    ["name"] = data.newCorrespondence?.name,
-                    ["email"] = data.newCorrespondence?.email,
-                    ["phone"] = data.newCorrespondence?.phone,
-                    ["address"] = data.newCorrespondence?.address,
-                    ["state"] = data.newCorrespondence?.state,
-                },
-                ["poa"] = new Dictionary<string, object?>
-                {
-                    ["fileName"] = sanitizedOriginalName,
-                    ["contentType"] = poa.contentType,
-                    ["url"] = poaUrl,
-                },
+                    new()
+                    {
+                        ["fileName"] = sanitizedOriginalName,
+                        ["contentType"] = poa.contentType,
+                        ["url"] = poaUrl,
+                    }
+                }
             };
 
-            // Preserve existing file status for the new history row.
-            var currentStatus = existing.FileStatus;
+            var applicationType = data.applicationType ?? FormApplicationTypes.Ownership;
+            var applicationDate = data.applicationDate ?? DateTime.UtcNow;
+            var currentStatus = data.currentStatus ?? existing.FileStatus;
 
             // ---- Update the Filling: owner, correspondence, attachments list, audit trail -----
             var filter = Builders<Filling>.Filter.Eq(x => x.FileId, data.fileId);
@@ -3829,10 +3848,11 @@ public class FilesServices
                 }),
                 Builders<Filling>.Update.Push(x => x.ApplicationHistory, new ApplicationInfo()
                 {
-                    ApplicationType = FormApplicationTypes.Ownership,
-                    ApplicationDate = DateTime.UtcNow,
+                    ApplicationType = applicationType,
+                    ApplicationDate = applicationDate,
                     CurrentStatus = currentStatus,
-                    PaymentId = null,
+                    PaymentId = data.paymentId,
+                    CertificatePaymentId = data.certificatePaymentId,
                     FieldToChange = "ownership",
                     OldValue = oldValue,
                     NewValue = newValue,
@@ -3840,7 +3860,7 @@ public class FilesServices
                     [
                         new ApplicationHistory()
                         {
-                            Date = DateTime.UtcNow,
+                            Date = applicationDate,
                             beforeStatus = ApplicationStatuses.AwaitingConfirmation,
                             afterStatus = currentStatus,
                             User = data.userName,
@@ -3991,6 +4011,228 @@ public class FilesServices
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Ensures every Assignment entry in a file's application history carries a fully populated
+    /// ASSIGNOR block (previous owner) and ASSIGNEE block (new owner) so the SuperAdmin Assignment
+    /// form can render both sides. Data is sourced (in priority order) from the entry's existing
+    /// oldValue/newValue, then the stored <see cref="AssignmentType"/> object, and finally the
+    /// file's current applicant (the owner on record). Both the preferred <c>assignment</c> object
+    /// and the legacy <c>oldValue</c>/<c>newValue</c> fallback keys are written.
+    /// </summary>
+    private static void NormalizeAssignmentHistory(Filling? file)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        var currentOwner = file.applicants?.FirstOrDefault();
+
+        static string? Get(object? payload, params string[] names)
+            => patentdesign.Utils.ApplicationHistoryShaper.TryGetPayloadString(payload, names);
+
+        // Reads a value from a nested object (e.g. oldValue.correspondence.email) after coercion.
+        static string? GetNested(object? payload, string container, params string[] names)
+        {
+            if (payload is IDictionary<string, object?> dict)
+            {
+                foreach (var kv in dict)
+                {
+                    if (string.Equals(kv.Key, container, StringComparison.OrdinalIgnoreCase))
+                        return Get(kv.Value, names);
+                }
+            }
+            return null;
+        }
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            // Handle both Assignment (type 5) and Ownership (type 6) recordals — the SuperAdmin
+            // Assignment form renders either as an assignor/assignee transfer.
+            if (entry == null ||
+                (entry.ApplicationType != FormApplicationTypes.Assignment &&
+                 entry.ApplicationType != FormApplicationTypes.Ownership))
+                continue;
+
+            // Coerce Bson/JsonElement payloads into plain dictionaries first (same helper the
+            // Ownership normalizer uses) so reads are reliable and the reassigned values below
+            // serialize cleanly under System.Text.Json.
+            entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+            entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+
+            var a = entry.Assignment;
+
+            // ASSIGNOR — the current owner before the transfer.
+            var assignorName        = Get(entry.OldValue, "assignorName", "name") ?? a?.assignorName ?? currentOwner?.Name;
+            var assignorEmail       = Get(entry.OldValue, "assignorEmail", "email") ?? GetNested(entry.OldValue, "correspondence", "email") ?? currentOwner?.Email;
+            var assignorPhone       = Get(entry.OldValue, "assignorPhone", "phone") ?? GetNested(entry.OldValue, "correspondence", "phone") ?? currentOwner?.Phone;
+            var assignorNationality = Get(entry.OldValue, "assignorNationality", "nationality") ?? GetNested(entry.OldValue, "correspondence", "state") ?? currentOwner?.country;
+            var assignorAddress     = Get(entry.OldValue, "assignorAddress", "address") ?? GetNested(entry.OldValue, "correspondence", "address") ?? a?.assignorAddress ?? currentOwner?.Address;
+            var assignorCountry     = Get(entry.OldValue, "assignorCountry", "country") ?? a?.assignorCountry ?? currentOwner?.country;
+
+            // ASSIGNEE — the new owner.
+            var assigneeName        = Get(entry.NewValue, "assigneeName", "name") ?? a?.assigneeName;
+            var assigneeEmail       = Get(entry.NewValue, "assigneeEmail", "email") ?? GetNested(entry.NewValue, "correspondence", "email");
+            var assigneePhone       = Get(entry.NewValue, "assigneePhone", "phone") ?? GetNested(entry.NewValue, "correspondence", "phone");
+            var assigneeNationality = Get(entry.NewValue, "assigneeNationality", "nationality") ?? GetNested(entry.NewValue, "correspondence", "state");
+            var assigneeAddress     = Get(entry.NewValue, "assigneeAddress", "address") ?? GetNested(entry.NewValue, "correspondence", "address") ?? a?.assigneeAddress;
+            var assigneeCountry     = Get(entry.NewValue, "assigneeCountry", "country") ?? a?.assigneeCountry;
+
+            var dateOfAssignment = Get(entry.NewValue, "dateOfAssignment")
+                ?? (a != null && a.dateOfAssignment != default ? a.dateOfAssignment.ToString("yyyy-MM-dd") : null);
+            var deedUrl = Get(entry.NewValue, "assignmentDeedUrl", "deedOfAgreementUrl") ?? a?.deedOfAgreementUrl;
+            var authUrl = Get(entry.NewValue, "authorizationLetterUrl") ?? a?.authorizationLetterUrl;
+
+            // Merge (do NOT clobber): keep existing keys such as `correspondence` and `poa`
+            // that the Ownership view relies on, while ADDING the assignor/assignee alias keys
+            // the SuperAdmin Assignment form reads.
+            var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+            var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+
+            void Set(IDictionary<string, object?> d, string key, object? val)
+            {
+                if (val != null || !d.ContainsKey(key)) d[key] = val;
+            }
+
+            Set(oldDict, "name", assignorName);
+            Set(oldDict, "email", assignorEmail);
+            Set(oldDict, "phone", assignorPhone);
+            Set(oldDict, "nationality", assignorNationality);
+            Set(oldDict, "address", assignorAddress);
+            Set(oldDict, "country", assignorCountry);
+            Set(oldDict, "assignorName", assignorName);
+            Set(oldDict, "assignorEmail", assignorEmail);
+            Set(oldDict, "assignorPhone", assignorPhone);
+            Set(oldDict, "assignorNationality", assignorNationality);
+            Set(oldDict, "assignorAddress", assignorAddress);
+            Set(oldDict, "assignorCountry", assignorCountry);
+            entry.OldValue = oldDict;
+
+            var attachments = new List<Dictionary<string, object?>>();
+            if (!string.IsNullOrWhiteSpace(deedUrl))
+                attachments.Add(new() { ["fileName"] = "Deed of Assignment", ["contentType"] = "application/pdf", ["url"] = deedUrl });
+            if (!string.IsNullOrWhiteSpace(authUrl))
+                attachments.Add(new() { ["fileName"] = "Authorization Letter", ["contentType"] = "application/pdf", ["url"] = authUrl });
+
+            Set(newDict, "assigneeName", assigneeName);
+            Set(newDict, "assigneeEmail", assigneeEmail);
+            Set(newDict, "assigneePhone", assigneePhone);
+            Set(newDict, "assigneeNationality", assigneeNationality);
+            Set(newDict, "assigneeAddress", assigneeAddress);
+            Set(newDict, "assigneeCountry", assigneeCountry);
+            Set(newDict, "name", assigneeName);
+            Set(newDict, "address", assigneeAddress);
+            Set(newDict, "country", assigneeCountry);
+            Set(newDict, "dateOfAssignment", dateOfAssignment);
+            if (attachments.Count > 0) Set(newDict, "attachments", attachments);
+            entry.NewValue = newDict;
+
+            // Preferred path: a fully-populated `assignment` object (serialized camelCase).
+            entry.Assignment = new AssignmentType
+            {
+                Id                     = a?.Id ?? Guid.NewGuid().ToString(),
+                assignorName           = assignorName ?? string.Empty,
+                assignorAddress        = assignorAddress ?? string.Empty,
+                assignorCountry        = assignorCountry ?? string.Empty,
+                assignorEmail          = assignorEmail ?? string.Empty,
+                assignorPhone          = assignorPhone ?? string.Empty,
+                assignorNationality    = assignorNationality ?? string.Empty,
+                assigneeName           = assigneeName ?? string.Empty,
+                assigneeAddress        = assigneeAddress ?? string.Empty,
+                assigneeCountry        = assigneeCountry ?? string.Empty,
+                assigneeEmail          = assigneeEmail ?? string.Empty,
+                assigneePhone          = assigneePhone ?? string.Empty,
+                assigneeNationality    = assigneeNationality ?? string.Empty,
+                authorizationLetterUrl = authUrl ?? string.Empty,
+                deedOfAgreementUrl     = deedUrl ?? string.Empty,
+                assignmentDeedUrl      = deedUrl ?? string.Empty,
+                dateOfAssignment       = a?.dateOfAssignment ?? default,
+                receiptUrl             = a?.receiptUrl,
+                acceptanceUrl          = a?.acceptanceUrl,
+                rejectionUrl           = a?.rejectionUrl,
+                acknowledgementUrl     = a?.acknowledgementUrl,
+                message                = a?.message,
+            };
+        }
+    }
+
+    // Populates newValue/oldValue for the remaining recordal types so the SuperAdmin forms fill in:
+    //   7  RegisteredUser  -> newValue { name, email, phone, nationality, address }
+    //   8  Merger          -> newValue { name, email, phone, dateOfMerger, nationality, address }
+    //   9  ChangeOfName    -> newValue { newName } ; oldValue { name }
+    //   10 ChangeOfAddress -> newValue { newAddress } ; oldValue { address }
+    private static void NormalizeRecordalHistory(Filling? file)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        var currentOwner = file.applicants?.FirstOrDefault();
+
+        static string? Get(object? payload, params string[] names)
+            => patentdesign.Utils.ApplicationHistoryShaper.TryGetPayloadString(payload, names);
+
+        static void Set(IDictionary<string, object?> d, string key, object? val)
+        {
+            if (val != null || !d.ContainsKey(key)) d[key] = val;
+        }
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            if (entry == null) continue;
+
+            switch (entry.ApplicationType)
+            {
+                case FormApplicationTypes.RegisteredUser:
+                {
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(newDict, "name", Get(entry.NewValue, "name") ?? currentOwner?.Name ?? string.Empty);
+                    Set(newDict, "email", Get(entry.NewValue, "email") ?? currentOwner?.Email ?? string.Empty);
+                    Set(newDict, "phone", Get(entry.NewValue, "phone") ?? currentOwner?.Phone ?? string.Empty);
+                    Set(newDict, "nationality", Get(entry.NewValue, "nationality") ?? currentOwner?.country ?? string.Empty);
+                    Set(newDict, "address", Get(entry.NewValue, "address") ?? currentOwner?.Address ?? string.Empty);
+                    entry.NewValue = newDict;
+                    break;
+                }
+                case FormApplicationTypes.Merger:
+                {
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(newDict, "name", Get(entry.NewValue, "name") ?? currentOwner?.Name ?? string.Empty);
+                    Set(newDict, "email", Get(entry.NewValue, "email") ?? currentOwner?.Email ?? string.Empty);
+                    Set(newDict, "phone", Get(entry.NewValue, "phone") ?? currentOwner?.Phone ?? string.Empty);
+                    Set(newDict, "dateOfMerger", Get(entry.NewValue, "dateOfMerger") ?? string.Empty);
+                    Set(newDict, "nationality", Get(entry.NewValue, "nationality") ?? currentOwner?.country ?? string.Empty);
+                    Set(newDict, "address", Get(entry.NewValue, "address") ?? currentOwner?.Address ?? string.Empty);
+                    entry.NewValue = newDict;
+                    break;
+                }
+                case FormApplicationTypes.ChangeOfName:
+                {
+                    entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(oldDict, "name", Get(entry.OldValue, "name") ?? currentOwner?.Name ?? string.Empty);
+                    Set(newDict, "newName", Get(entry.NewValue, "newName", "name") ?? string.Empty);
+                    entry.OldValue = oldDict;
+                    entry.NewValue = newDict;
+                    break;
+                }
+                case FormApplicationTypes.ChangeOfAddress:
+                {
+                    entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+                    entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+                    var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+                    Set(oldDict, "address", Get(entry.OldValue, "address") ?? currentOwner?.Address ?? string.Empty);
+                    Set(newDict, "newAddress", Get(entry.NewValue, "newAddress", "address") ?? string.Empty);
+                    entry.OldValue = oldDict;
+                    entry.NewValue = newDict;
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
     }
 
     private static (Dictionary<string, object?>? old, Dictionary<string, object?>? @new) ParseLegacyOwnershipMessage(string message)
@@ -5886,8 +6128,37 @@ public class FilesServices
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
                 ApplicationDate = DateTime.Now,
                 PaymentId = regUser.rrr,
-                FieldToChange = "Registered Users Application",
-                NewValue = "",
+                FieldToChange = "registeredUser",
+                OldValue = new Dictionary<string, object?>
+                {
+                    ["title"]        = file.Type == FileTypes.Design ? file.TitleOfDesign : file.Type == FileTypes.Patent ? file.TitleOfInvention : file.TitleOfTradeMark,
+                    ["fileNumber"]   = file.FileId,
+                    ["fileType"]     = file.Type.ToString(),
+                    ["productClass"] = file.TrademarkClass,
+                    ["rtmNumber"]    = file.RtmNumber,
+                    ["name"]        = applicant?.Name,
+                    ["email"]       = applicant?.Email,
+                    ["phone"]       = applicant?.Phone,
+                    ["address"]     = applicant?.Address,
+                    ["nationality"] = applicant?.country,
+                },
+                NewValue = new Dictionary<string, object?>
+                {
+                    ["name"]        = regUser.Name,
+                    ["email"]       = regUser.Email,
+                    ["phone"]       = regUser.Phone,
+                    ["address"]     = regUser.Address,
+                    ["nationality"] = regUser.Nationality,
+                    ["attachments"] = new List<Dictionary<string, object?>>
+                    {
+                        new()
+                        {
+                            ["fileName"]    = "Registered User Document",
+                            ["contentType"] = "application/pdf",
+                            ["url"]         = docUrl,
+                        }
+                    }
+                },
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
@@ -5962,6 +6233,9 @@ public class FilesServices
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, fileId))
             .FirstOrDefaultAsync();
+
+        if (file == null) return null;
+
         var regUser = file.RegisteredUsers?.FirstOrDefault(a => a.Id == appId);
         return regUser;
 
@@ -6234,8 +6508,38 @@ public class FilesServices
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
                 ApplicationDate = DateTime.Now,
                 PaymentId = mergerApp.rrr,
-                FieldToChange = "Merger Application",
-                NewValue = "",
+                FieldToChange = "merger",
+                OldValue = new Dictionary<string, object?>
+                {
+                    ["title"]        = file.Type == FileTypes.Design ? file.TitleOfDesign : file.Type == FileTypes.Patent ? file.TitleOfInvention : file.TitleOfTradeMark,
+                    ["fileNumber"]   = file.FileId,
+                    ["fileType"]     = file.Type.ToString(),
+                    ["productClass"] = file.TrademarkClass,
+                    ["rtmNumber"]    = file.RtmNumber,
+                    ["name"]        = applicant?.Name,
+                    ["email"]       = applicant?.Email,
+                    ["phone"]       = applicant?.Phone,
+                    ["address"]     = applicant?.Address,
+                    ["nationality"] = applicant?.country,
+                },
+                NewValue = new Dictionary<string, object?>
+                {
+                    ["name"]        = mergerApp.Name,
+                    ["email"]       = mergerApp.Email,
+                    ["phone"]       = mergerApp.Phone,
+                    ["address"]     = mergerApp.Address,
+                    ["nationality"] = mergerApp.Nationality,
+                    ["mergerDate"]  = mergerApp.MergerDate,
+                    ["attachments"] = new List<Dictionary<string, object?>>
+                    {
+                        new()
+                        {
+                            ["fileName"]    = "Merger Document",
+                            ["contentType"] = "application/pdf",
+                            ["url"]         = docUrl,
+                        }
+                    }
+                },
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
@@ -6502,11 +6806,35 @@ public class FilesServices
                 ApplicationDate = DateTime.Now,
                 PaymentId = newData.rrr,
                 FieldToChange = newData.ChangeType == "Name"
-                    ? "Change of Applicant Name"
-                    : "Change of Applicant Address",
-                NewValue = newData.ChangeType == "Name"
-                    ? newData.NewName
-                    : newData.NewAddress,
+                    ? "changeOfName"
+                    : "changeOfAddress",
+                OldValue = new Dictionary<string, object?>
+                {
+                    ["title"]        = file.Type == FileTypes.Design ? file.TitleOfDesign : file.Type == FileTypes.Patent ? file.TitleOfInvention : file.TitleOfTradeMark,
+                    ["fileNumber"]   = file.FileId,
+                    ["fileType"]     = file.Type.ToString(),
+                    ["productClass"] = file.TrademarkClass,
+                    ["rtmNumber"]    = file.RtmNumber,
+                    ["name"]        = applicant?.Name,
+                    ["email"]       = applicant?.Email,
+                    ["phone"]       = applicant?.Phone,
+                    ["address"]     = applicant?.Address,
+                    ["nationality"] = applicant?.country,
+                },
+                NewValue = new Dictionary<string, object?>
+                {
+                    ["newName"]    = newData.ChangeType == "Name" ? newData.NewName : null,
+                    ["newAddress"] = newData.ChangeType == "Address" ? newData.NewAddress : null,
+                    ["attachments"] = new List<Dictionary<string, object?>>
+                    {
+                        new()
+                        {
+                            ["fileName"]    = newData.document != null ? Path.GetFileName(newData.document.FileName) : "Supporting Document",
+                            ["contentType"] = newData.document?.ContentType ?? "application/pdf",
+                            ["url"]         = docUrl,
+                        }
+                    }
+                },
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
@@ -7965,6 +8293,46 @@ public class FilesServices
             return false;
         }
     }
+    /// <summary>
+    /// Converts old hardcoded URLs to relative URLs for compatibility across all environments
+    /// </summary>
+    private string ConvertToRelativeUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return url;
+
+        // Check if it's already a relative URL
+        if (url.StartsWith("/"))
+            return url;
+
+        try
+        {
+            // Extract fileId from URLs like: 
+            // https://integration.iponigeria.com/api/files/getAttachment?fileId=abc123.pdf
+            // OR https://integration.iponigeria.com/api/files/GetAttachment?fileId=abc123.pdf
+            if (url.Contains("getAttachment") || url.Contains("GetAttachment"))
+            {
+                // Parse as URI
+                var uri = new Uri(url);
+                // Get query string parameter
+                var query = uri.Query.TrimStart('?');
+                var fileId = query.Replace("fileId=", "").Split("&")[0];
+
+                if (!string.IsNullOrEmpty(fileId))
+                {
+                    return $"/api/files/GetAttachment?fileId={fileId}";
+                }
+            }
+        }
+        catch
+        {
+            // If parsing fails, return original URL
+            return url;
+        }
+
+        return url;
+    }
+
     public async Task<AssignmentAppDto> GetAssignmentApplication(string fileId, string appId)
     {
         var file = await _fillingCollection
@@ -7975,10 +8343,32 @@ public class FilesServices
         if (file == null) throw new KeyNotFoundException("File not found");
 
         var assignee = file.Assignees?.FirstOrDefault(a => a.Id == appId);
-        var assignor = file.ApplicationHistory[0].Applicants[0];
-        Console.WriteLine(JsonSerializer.Serialize(assignor));
-
         if (assignee == null) throw new KeyNotFoundException("Assignee not found");
+
+        // Get the assignor from ApplicationHistory Applicants (new structure) or file.applicants (existing structure)
+        ApplicantInfo assignor = null;
+
+        // First, try to get from ApplicationHistory[0].Applicants (new structure)
+        if (file.ApplicationHistory != null && file.ApplicationHistory.Count > 0)
+        {
+            var firstApplication = file.ApplicationHistory[0];
+            if (firstApplication?.Applicants != null && firstApplication.Applicants.Count > 0)
+            {
+                assignor = firstApplication.Applicants[0];
+            }
+        }
+
+        // If not found, try file.applicants (existing applications structure)
+        if (assignor == null && file.applicants != null && file.applicants.Count > 0)
+        {
+            assignor = file.applicants[0];
+        }
+
+        // If still not found, throw error
+        if (assignor == null)
+        {
+            throw new KeyNotFoundException("Applicant/Assignor not found in application history or file");
+        }
 
         var assigneeDetails = new AssignmentAppDto
         {
@@ -7994,8 +8384,10 @@ public class FilesServices
             AssignorAddress = assignee.AssignorAddress ?? assignor.Address,
             AssignorPhone = assignee.AssignorPhone ?? assignor.Phone,
             AssignorNationality = assignee.AssignorNationality ?? assignor.country,
-            AuthorizationLetterUrl = assignee.AuthorizationLetterUrl,
-            AssignmentDeedUrl = assignee.AssignmentDeedUrl,
+            // Convert old absolute URLs to relative URLs for both new and existing assignments
+            AuthorizationLetterUrl = ConvertToRelativeUrl(assignee.AuthorizationLetterUrl),
+            AssignmentDeedUrl = ConvertToRelativeUrl(assignee.AssignmentDeedUrl),
+            documentUrl = ConvertToRelativeUrl(assignee.documentUrl),
         };
 
         return assigneeDetails;
@@ -8781,6 +9173,7 @@ public class FilesServices
 
                 break;
         }
+
         return clerical;
     }
 
@@ -9161,7 +9554,8 @@ public class FilesServices
         var update = new ClericalUpdateDetailsDto
         {
             UpdateType = clerical.UpdateType,
-            PaymentId = clerical.PaymentRRR
+            PaymentId = clerical.PaymentRRR,
+            documentUrl = clerical?.documentUrl
         };
         switch (clerical.UpdateType)
         {
@@ -9480,6 +9874,93 @@ public class FilesServices
     }
 
 
+    // Persists SuperAdmin edits to the Assignor/Assignee details of an existing
+    // Assignment (applicationType 5) application history entry.
+    public async Task<bool> UpdateAssignmentHistoryEntry(UpdateAssignmentHistoryDto dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.FileNumber) || string.IsNullOrWhiteSpace(dto.ApplicationId))
+            return false;
+
+        try
+        {
+            var filter = Builders<Filling>.Filter.Or(
+                Builders<Filling>.Filter.Eq(f => f.FileId, dto.FileNumber),
+                Builders<Filling>.Filter.Eq(f => f.RtmNumber, dto.FileNumber)
+            );
+
+            var file = await _fillingCollection.Find(filter).FirstOrDefaultAsync();
+            if (file?.ApplicationHistory == null) return false;
+
+            var entry = file.ApplicationHistory.FirstOrDefault(h => h.id == dto.ApplicationId);
+            if (entry == null) return false;
+
+            // Only overwrite a value when the admin actually supplied one (non-null); this keeps
+            // any existing data intact for fields the admin left untouched.
+            static string Coalesce(string? incoming, string? existing) =>
+                incoming ?? existing ?? string.Empty;
+
+            var existing = entry.Assignment;
+
+            entry.Assignment = new AssignmentType
+            {
+                Id                     = existing?.Id ?? Guid.NewGuid().ToString(),
+                assignorName           = Coalesce(dto.AssignorName, existing?.assignorName),
+                assignorEmail          = Coalesce(dto.AssignorEmail, existing?.assignorEmail),
+                assignorPhone          = Coalesce(dto.AssignorPhone, existing?.assignorPhone),
+                assignorNationality    = Coalesce(dto.AssignorNationality, existing?.assignorNationality),
+                assignorAddress        = Coalesce(dto.AssignorAddress, existing?.assignorAddress),
+                assignorCountry        = Coalesce(dto.AssignorCountry, existing?.assignorCountry),
+                assigneeName           = Coalesce(dto.AssigneeName, existing?.assigneeName),
+                assigneeEmail          = Coalesce(dto.AssigneeEmail, existing?.assigneeEmail),
+                assigneePhone          = Coalesce(dto.AssigneePhone, existing?.assigneePhone),
+                assigneeNationality    = Coalesce(dto.AssigneeNationality, existing?.assigneeNationality),
+                assigneeAddress        = Coalesce(dto.AssigneeAddress, existing?.assigneeAddress),
+                assigneeCountry        = Coalesce(dto.AssigneeCountry, existing?.assigneeCountry),
+                authorizationLetterUrl = existing?.authorizationLetterUrl ?? string.Empty,
+                deedOfAgreementUrl     = existing?.deedOfAgreementUrl ?? string.Empty,
+                assignmentDeedUrl      = existing?.assignmentDeedUrl,
+                dateOfAssignment       = existing?.dateOfAssignment ?? default,
+                receiptUrl             = existing?.receiptUrl,
+                acceptanceUrl          = existing?.acceptanceUrl,
+                rejectionUrl           = existing?.rejectionUrl,
+                acknowledgementUrl     = existing?.acknowledgementUrl,
+                message                = existing?.message,
+            };
+
+            // Keep the legacy oldValue/newValue fallbacks in sync so any consumer that reads them
+            // (including the SuperAdmin form's fallback path) sees the same edited values.
+            var oldDict = entry.OldValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+            oldDict["name"]        = entry.Assignment.assignorName;
+            oldDict["email"]       = entry.Assignment.assignorEmail;
+            oldDict["phone"]       = entry.Assignment.assignorPhone;
+            oldDict["nationality"] = entry.Assignment.assignorNationality;
+            oldDict["address"]     = entry.Assignment.assignorAddress;
+            oldDict["country"]     = entry.Assignment.assignorCountry;
+            entry.OldValue = oldDict;
+
+            var newDict = entry.NewValue as IDictionary<string, object?> ?? new Dictionary<string, object?>();
+            newDict["assigneeName"]        = entry.Assignment.assigneeName;
+            newDict["assigneeEmail"]       = entry.Assignment.assigneeEmail;
+            newDict["assigneePhone"]       = entry.Assignment.assigneePhone;
+            newDict["assigneeNationality"] = entry.Assignment.assigneeNationality;
+            newDict["assigneeAddress"]     = entry.Assignment.assigneeAddress;
+            newDict["assigneeCountry"]     = entry.Assignment.assigneeCountry;
+            if (!string.IsNullOrWhiteSpace(dto.DateOfAssignment))
+                newDict["dateOfAssignment"] = dto.DateOfAssignment;
+            entry.NewValue = newDict;
+
+            var update = Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory);
+            var result = await _fillingCollection.UpdateOneAsync(filter, update);
+            return result.ModifiedCount > 0 || result.MatchedCount > 0;
+        }
+        catch (Exception e)
+        {
+            _log.LogError(e, $"Error updating assignment history entry for FileNumber: {dto.FileNumber}, ApplicationId: {dto.ApplicationId}");
+            return false;
+        }
+    }
+
+
     public async Task<FileUpdateDto?> GetAllFileDetails(string fileNumber)
     {
         if (string.IsNullOrWhiteSpace(fileNumber))
@@ -9496,6 +9977,8 @@ public class FilesServices
             if (filling == null) return null;
 
             NormalizeOwnershipHistory(filling);
+            NormalizeAssignmentHistory(filling);
+            NormalizeRecordalHistory(filling);
 
             var designs = filling.Attachments?
                      .Where(a => a.name == "designs")
@@ -14519,10 +15002,6 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
             throw new KeyNotFoundException("User not found");
         }
 
-        var userName = !string.IsNullOrWhiteSpace(user.Name)
-            ? user.Name
-            : $"{user.FirstName} {user.LastName}".Trim();
-
         var applicant = file.applicants?.FirstOrDefault();
         if (applicant is null)
         {
@@ -14533,43 +15012,15 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         var applicantName = applicant.Name ?? string.Empty;
         var applicantEmail = applicant.Email ?? string.Empty;
         var applicantPhone = applicant.Phone ?? string.Empty;
-            var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
-            var rrr = await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
-                "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
-            if (rrr is null)
-            {
-                _log.LogError("Failed to Generate RRR");
-                throw new NullReferenceException();
-            }
-            var app = new ApplicationInfo
+        var cost = _remitaPaymentUtils.GetCost(PaymentTypes.FileRestoration, file.Type, file.FilingCountry ?? "", file.DesignType, null);
+            var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
+            "Payment for Trademark File Restoration", applicantName, applicantEmail, applicantPhone);
+        if (rrr is null)
         {
-            ApplicationDate = DateTime.Now,
-            CurrentStatus = ApplicationStatuses.AwaitingPayment,
-            ExpiryDate = null,
-            LicenseType = "",
-            ApplicationType = FormApplicationTypes.Restoration,
-            PaymentId = rrr,
-            StatusHistory =
-            [
-                new ApplicationHistory
-                {
-                    Date = DateTime.Now,
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.PendingRenewal,
-                    Message = "File Restoration initiated, awaiting payment",
-                    UserId = userId,
-                    User = userName
-                }
-            ],
-        };
+            _log.LogError("Failed to Generate RRR");
+            throw new NullReferenceException();
+        }
 
-        file.FileStatus = ApplicationStatuses.PendingRenewal;
-
-        await _fillingCollection.UpdateOneAsync(
-            Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
-            Builders<Filling>.Update.Push(f => f.ApplicationHistory, app)
-        );
-        _log.LogInformation("Restoration application created and awaiting payment.");
         var restore = new RestorationDto
         {
             Applicant = applicantName,
@@ -14585,7 +15036,132 @@ public async Task<RestorationDto> FileRestorationCost(string fileId, string user
         _log.LogError(e, "Failed to create restoration application");
         throw;
     }
+}
+
+public async Task<RestorationDto> CreateRestorationApplication(string fileId, string userId, string? paymentId)
+{
+    _log.LogInformation("Creating restoration application for {FileId}", fileId);
+
+    var file = await _fillingCollection.Find(f => f.FileId == fileId).FirstOrDefaultAsync();
+    if (file == null || file.FileStatus != ApplicationStatuses.Inactive)
+    {
+        _log.LogError("File not found or not inactive for restoration application creation");
+        throw new Exception("File is either Active or Not found");
     }
+
+    // Free restoration mode (active): auto-generate pseudo payment reference if none is supplied.
+    if (string.IsNullOrWhiteSpace(paymentId))
+    {
+        var safeFileId = Regex.Replace(fileId, "[^A-Za-z0-9]+", "-").Trim('-');
+        var shortGuid = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        paymentId = $"FR-{safeFileId}-{DateTime.UtcNow:yyyyMMddHHmmss}-{shortGuid}";
+    }
+
+    // Paid restoration mode (disabled for now): enforce real payment reference.
+    // if (string.IsNullOrWhiteSpace(paymentId))
+    // {
+    //     throw new ArgumentException("Missing paymentId");
+    // }
+
+    var existing = file.ApplicationHistory?.FirstOrDefault(a =>
+        a.ApplicationType == FormApplicationTypes.Restoration &&
+        string.Equals(a.PaymentId, paymentId, StringComparison.OrdinalIgnoreCase));
+
+    if (existing != null)
+    {
+        return new RestorationDto
+        {
+            Applicant = file.applicants?.FirstOrDefault()?.Name,
+            FileNumber = fileId,
+            PaymentId = paymentId,
+            ApplicationId = existing.id,
+            FileStatus = file.FileStatus,
+            Cost = null
+        };
+    }
+
+    var user = await _userCollection
+        .Find(Builders<AppUser>.Filter.Eq(u => u.Id, userId))
+        .FirstOrDefaultAsync();
+    if (user is null)
+    {
+        _log.LogError("User not found for restoration application creation");
+        throw new KeyNotFoundException("User not found");
+    }
+
+    var userName = !string.IsNullOrWhiteSpace(user.Name)
+        ? user.Name
+        : $"{user.FirstName} {user.LastName}".Trim();
+
+    var app = new ApplicationInfo
+    {
+        ApplicationDate = DateTime.Now,
+        CurrentStatus = ApplicationStatuses.PendingRenewal,
+        ExpiryDate = null,
+        LicenseType = "",
+        ApplicationType = FormApplicationTypes.Restoration,
+        PaymentId = paymentId,
+        StatusHistory =
+        [
+            new ApplicationHistory
+            {
+                Date = DateTime.Now,
+                beforeStatus = ApplicationStatuses.None,
+                afterStatus = ApplicationStatuses.PendingRenewal,
+                Message = "File Restoration initiated (free), awaiting renewal application",
+                UserId = userId,
+                User = userName
+            }
+        ],
+    };
+
+    // Paid restoration mode (disabled for now): keep application/file at AwaitingPayment until payment confirmation step.
+    // var app = new ApplicationInfo
+    // {
+    //     ApplicationDate = DateTime.Now,
+    //     CurrentStatus = ApplicationStatuses.AwaitingPayment,
+    //     ExpiryDate = null,
+    //     LicenseType = "",
+    //     ApplicationType = FormApplicationTypes.Restoration,
+    //     PaymentId = paymentId,
+    //     StatusHistory =
+    //     [
+    //         new ApplicationHistory
+    //         {
+    //             Date = DateTime.Now,
+    //             beforeStatus = ApplicationStatuses.None,
+    //             afterStatus = ApplicationStatuses.AwaitingPayment,
+    //             Message = "File Restoration initiated, awaiting payment",
+    //             UserId = userId,
+    //             User = userName
+    //         }
+    //     ],
+    // };
+
+    // file.FileStatus = ApplicationStatuses.AwaitingPayment;
+
+    file.FileStatus = ApplicationStatuses.PendingRenewal;
+
+    await _fillingCollection.UpdateOneAsync(
+        Builders<Filling>.Filter.Eq(f => f.FileId, fileId),
+        Builders<Filling>.Update.Combine(
+            Builders<Filling>.Update.Push(f => f.ApplicationHistory, app),
+            Builders<Filling>.Update.Set(f => f.FileStatus, file.FileStatus)
+        )
+    );
+
+    _log.LogInformation("Restoration application created and awaiting payment.");
+
+    return new RestorationDto
+    {
+        Applicant = file.applicants?.FirstOrDefault()?.Name,
+        FileNumber = fileId,
+        PaymentId = paymentId,
+        ApplicationId = app.id,
+        FileStatus = file.FileStatus,
+        Cost = null
+    };
+}
 
 private async Task<(string, string)?> SignDocument(string designation)
     {

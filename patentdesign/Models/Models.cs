@@ -426,10 +426,11 @@ public record ClericalUpdate
     public List<string>? OldDesignCreatorNationalities { get; set; }
     public List<string>? NewDesignCreatorNationalities { get; set; }
     public List<string>? OldDesignAttachmentUrls { get; set; }
-    public List<string>? NewDesignAttachmentUrls { get; set; }
-    public string? NewRepresentation { get; set; }
-    public string? OldRepresentation { get; set; }
-}
+         public List<string>? NewDesignAttachmentUrls { get; set; }
+         public string? NewRepresentation { get; set; }
+         public string? OldRepresentation { get; set; }
+         public string? documentUrl { get; set; }
+    }
 
 public record Appeal
 {
@@ -549,6 +550,7 @@ public record Assignee
     public string FileId { get; set; }
     public string? AuthorizationLetterUrl { get; set; } = null;
     public string? AssignmentDeedUrl { get; set; } = null;
+    public string? documentUrl { get; set; } = null;
     public bool? isApproved { get; set; } = false;
 }
 public record RegisteredUser
@@ -562,6 +564,8 @@ public record RegisteredUser
     public string Nationality { get; set; } = "";
     public string FileId { get; set; }
     public bool? isApproved { get; set; } = false;
+    public string? rrr { get; set; }
+    public string? documentUrl { get; set; }
 
 }
 public enum TradeMarkLogo
@@ -601,6 +605,7 @@ public record ApplicationInfo
     public DateOnly? ExpiryDate { get; set; }
     [JsonPropertyName("paymentId")]
     public string? PaymentId { get; set; }
+    [JsonPropertyName("certificatePaymentId")]
     public string? CertificatePaymentId { get; set; }
 
     [JsonPropertyName("applicationDate")]
@@ -617,6 +622,7 @@ public record ApplicationInfo
     [JsonPropertyName("statusHistory")]
     public List<ApplicationHistory> StatusHistory { get; set; } = [];
     public List<ApplicationLetters> ApplicationLetters { get; set; } = [];
+    [JsonPropertyName("assignment")]
     public AssignmentType? Assignment { get; set; }
     public string? RegisteredUser { get; set; } = null;
     public List<ApplicantInfo>? Applicants { get; set; } 
@@ -1297,6 +1303,15 @@ public record AssignmentType
     public string? rejectionUrl { get; set; }
     public string? acknowledgementUrl { get; set; }
     public string? message { get; set; }
+
+    // Snapshot contact fields surfaced to the SuperAdmin Assignment form (assignor/assignee blocks).
+    public string? assignorEmail { get; set; }
+    public string? assignorPhone { get; set; }
+    public string? assignorNationality { get; set; }
+    public string? assigneeEmail { get; set; }
+    public string? assigneePhone { get; set; }
+    public string? assigneeNationality { get; set; }
+    public string? assignmentDeedUrl { get; set; }
 }
 
 public record AssignmentHistory

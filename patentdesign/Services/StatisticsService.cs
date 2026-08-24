@@ -852,6 +852,19 @@ public class StatisticsService
             var officerById = supportOfficers
                 .Where(x => !string.IsNullOrWhiteSpace(x.Id))
                 .ToDictionary(x => x.Id, x => x, StringComparer.OrdinalIgnoreCase);
+            var officerIdentifierToId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var officer in supportOfficers)
+            {
+                if (!string.IsNullOrWhiteSpace(officer.Id))
+                {
+                    officerIdentifierToId[officer.Id] = officer.Id;
+                }
+
+                if (!string.IsNullOrWhiteSpace(officer.CreatorId) && !string.IsNullOrWhiteSpace(officer.Id))
+                {
+                    officerIdentifierToId[officer.CreatorId] = officer.Id;
+                }
+            }
 
             var officerMetrics = supportOfficers
                 .Select(x => new SupportPerformanceOfficerEntryDto
@@ -881,7 +894,7 @@ public class StatisticsService
                     .Where(c => !string.IsNullOrWhiteSpace(c.SenderId))
                     .Select(c => c.SenderId)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Where(senderId => officerById.ContainsKey(senderId))
+                    .Where(senderId => officerIdentifierToId.ContainsKey(senderId))
                     .ToList();
 
                 if (responders.Count > 0)
@@ -889,10 +902,11 @@ public class StatisticsService
                     respondedTicketSet.Add(ticketId);
                     foreach (var responderId in responders)
                     {
-                        if (!responseByOfficer.TryGetValue(responderId, out var responseSet))
+                        var officerId = officerIdentifierToId[responderId];
+                        if (!responseByOfficer.TryGetValue(officerId, out var responseSet))
                         {
                             responseSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                            responseByOfficer[responderId] = responseSet;
+                            responseByOfficer[officerId] = responseSet;
                         }
 
                         responseSet.Add(ticketId);
@@ -904,14 +918,16 @@ public class StatisticsService
                     !string.IsNullOrWhiteSpace(ticket.resolution.StaffId) &&
                     ticket.resolution.Date >= range.StartDate &&
                     ticket.resolution.Date <= range.EndDate &&
-                    officerById.ContainsKey(ticket.resolution.StaffId))
+                    officerIdentifierToId.ContainsKey(ticket.resolution.StaffId))
                 {
                     closedTicketSet.Add(ticketId);
 
-                    if (!closedByOfficer.TryGetValue(ticket.resolution.StaffId, out var closedSet))
+                    var officerId = officerIdentifierToId[ticket.resolution.StaffId];
+
+                    if (!closedByOfficer.TryGetValue(officerId, out var closedSet))
                     {
                         closedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        closedByOfficer[ticket.resolution.StaffId] = closedSet;
+                        closedByOfficer[officerId] = closedSet;
                     }
 
                     closedSet.Add(ticketId);
@@ -935,7 +951,7 @@ public class StatisticsService
                 officer.ClosedTickets = closedCount;
                 officer.ResponseRate = totalTickets == 0 ? 0 : Math.Round(respondedCount * 100d / totalTickets, 1);
                 officer.ClosureRate = totalTickets == 0 ? 0 : Math.Round(closedCount * 100d / totalTickets, 1);
-                officer.PerformanceScore = Math.Round((officer.ResponseRate * 0.6) + (officer.ClosureRate * 0.4), 1);
+                officer.PerformanceScore = Math.Round((officer.ResponseRate * 0.9) + (officer.ClosureRate * 0.1), 1);
             }
 
             periods.Add(new SupportPerformancePeriodResultDto
@@ -1457,26 +1473,42 @@ public class StatisticsService
     private async Task<List<AppUser>> GetSupportOfficersAsync(SupportScope scope)
     {
         var filter = Builders<AppUser>.Filter;
-        var accountFilter = filter.Eq(x => x.AccountType, AccountType.Officer);
 
-        FilterDefinition<AppUser> roleFilter = scope switch
+        FilterDefinition<AppUser> scopedFilter = scope switch
         {
-            SupportScope.Trademark => filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport),
-            SupportScope.Patent => filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
-            SupportScope.Design => filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
-            SupportScope.Technical => filter.Or(
-                filter.AnyEq(x => x.UserRoles, Roles.Tech),
-                filter.Eq(x => x.AccountType, AccountType.Tech)
+            SupportScope.Trademark => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Officer),
+                filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport)
+            ),
+            SupportScope.Patent => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Officer),
+                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport)
+            ),
+            SupportScope.Design => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Officer),
+                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport)
+            ),
+            SupportScope.Technical => filter.And(
+                filter.Eq(x => x.AccountType, AccountType.Tech),
+                filter.AnyEq(x => x.UserRoles, Roles.Tech)
             ),
             _ => filter.Or(
-                filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport),
-                filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport),
-                filter.AnyEq(x => x.UserRoles, Roles.Tech),
-                filter.Eq(x => x.AccountType, AccountType.Tech)
+                filter.And(
+                    filter.Eq(x => x.AccountType, AccountType.Officer),
+                    filter.AnyEq(x => x.UserRoles, Roles.TrademarkSupport)
+                ),
+                filter.And(
+                    filter.Eq(x => x.AccountType, AccountType.Officer),
+                    filter.AnyEq(x => x.UserRoles, Roles.PatentDesignSupport)
+                ),
+                filter.And(
+                    filter.Eq(x => x.AccountType, AccountType.Tech),
+                    filter.AnyEq(x => x.UserRoles, Roles.Tech)
+                )
             )
         };
 
-        return await _userCollection.Find(filter.And(accountFilter, roleFilter)).ToListAsync();
+        return await _userCollection.Find(scopedFilter).ToListAsync();
     }
 
     private static List<FinanceMonthlyBreakdownDto> BuildMonthlyBreakdown(DateTime startDate, DateTime endDate, List<PaymentRecord> payments, Func<PaymentRecord, double> feeSelector)
