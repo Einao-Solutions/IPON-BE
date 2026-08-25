@@ -139,7 +139,7 @@ public class ResetPasswordMail
 
 public class WelcomeVerificationMail
 {
-    public string UserName { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
     public string VerificationLink { get; set; } = string.Empty;
 }
 

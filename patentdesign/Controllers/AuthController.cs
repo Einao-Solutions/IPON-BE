@@ -70,6 +70,18 @@ namespace patentdesign.Controllers
             return Ok(new { message = "Verification email sent" });
         }
 
+        [HttpPost("ResendVerificationEmail")]
+        public async Task<IActionResult> ResendVerificationEmail([FromBody] string email)
+        {
+            var result = await authServices.ResendEmailVerification(email);
+            if (!result)
+            {
+                return BadRequest("Resend verification email request failed");
+            }
+
+            return Ok(new { message = "Verification email resent" });
+        }
+
         [HttpPost("VerifyEmail")]
         public async Task<IActionResult> VerifyEmail([FromQuery] string email, [FromQuery] string token)
         {

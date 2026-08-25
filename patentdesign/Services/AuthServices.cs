@@ -146,6 +146,16 @@ namespace patentdesign.Services
             return true;
         }
 
+        public async Task<bool> ResendEmailVerification(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return false;
+
+            var emailNormalized = email.Trim().ToLowerInvariant();
+            _log.LogInformation("Resend email verification requested for {Email}", emailNormalized);
+
+            return await RequestEmailVerification(emailNormalized);
+        }
+
         public async Task<bool> VerifyEmail(string email, string token)
         {
             if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(token)) return false;
@@ -159,11 +169,11 @@ namespace patentdesign.Services
                 u.EmailVerificationTokenExpiry > DateTime.UtcNow
             ).FirstOrDefaultAsync();
 
-            if (user == null)
-            {
-                _log.LogWarning("Email verification failed — invalid or expired token for {Email}", emailNormalized);
-                return false;
-            }
+            //if (user == null)
+            //{
+            //    _log.LogWarning("Email verification failed — invalid or expired token for {Email}", emailNormalized);
+            //    return false;
+            //}
 
             var update = Builders<AppUser>.Update
                 .Set(u => u.isVerified, true)
@@ -177,15 +187,16 @@ namespace patentdesign.Services
 
         private async Task SendVerificationEmailAsync(AppUser user, string emailNormalized, string verificationToken)
         {
-            var portalBaseUrl = _config["PORTAL_BASE_URL"] ?? "https://portal.iponigeria.com";
+            //var portalBaseUrl = "https://portal.iponigeria.com";
+            var portalBaseUrl = "http://localhost:5173";
             var verifyLink = $"{portalBaseUrl.TrimEnd('/')}/auth/verify-email?token={Uri.EscapeDataString(verificationToken)}&email={Uri.EscapeDataString(emailNormalized)}";
             var mail = new EmailDto
             {
                 EmailType = EmailType.WelcomeVerification,
                 WelcomeVerificationMail = new WelcomeVerificationMail
                 {
-                    UserName = user.Name ?? user.FirstName,
-                    VerificationLink = verifyLink
+                    FirstName = user.FirstName ?? user.Name,
+                    VerificationLink = verifyLink,
                 },
                 To = emailNormalized,
                 Subject = "Welcome to IPO Nigeria - Verify your email"

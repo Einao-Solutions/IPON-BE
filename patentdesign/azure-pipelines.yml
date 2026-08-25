@@ -69,6 +69,7 @@ stages:
                     RESEND_APIKEY             = "$(RESEND_APIKEY)"
                     RESEND_FROM_EMAIL         = "$(RESEND_FROM_EMAIL)"
                     RESEND_FROM_NAME          = "$(RESEND_FROM_NAME)"
+                    RESEND_TEMPLATE_WELCOMEVERIFICATION = "$(RESEND_TEMPLATE_WELCOMEVERIFICATION)"
                 }
 
                 Write-Host "Clearing existing environment variables for App Pool: $appPool"
