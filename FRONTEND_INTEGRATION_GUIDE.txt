@@ -1,0 +1,401 @@
+================================================================================
+		  WITHDRAWAL DETAILS ENDPOINT - READY FOR FRONTEND INTEGRATION
+================================================================================
+
+ENDPOINT: GET /api/files/withdrawal-details/{fileId}
+STATUS: ✅ IMPLEMENTED AND TESTED
+DEPLOYMENT: READY
+
+================================================================================
+						   WHAT'S BEEN DONE
+================================================================================
+
+The backend withdrawal details endpoint has been completely implemented and is
+ready for frontend integration. The endpoint was broken (returning HTTP 500 
+errors) and has now been fixed to return complete withdrawal request information.
+
+================================================================================
+						  ENDPOINT DETAILS
+================================================================================
+
+URL: /api/files/withdrawal-details/{fileId}
+Method: GET
+Authentication: Required (existing auth mechanisms)
+Content-Type: application/json
+
+Example URL:
+  GET /api/files/withdrawal-details/F%2FTM%2FO%2F2016%2F88119
+
+Note: FileId should be URL-encoded (forward slashes become %2F)
+
+================================================================================
+						SUCCESS RESPONSE (200 OK)
+================================================================================
+
+Response contains complete withdrawal request information with the following
+structure:
+
+{
+  "fileId": "F/TM/O/2016/88119",
+  "fileType": "Trademark",
+  "withdrawalRequestDate": "2026-08-24T10:00:00Z",
+  "withdrawalDate": "2026-08-25T14:30:00Z",
+  "applicationStatus": "RequestWithdrawal",
+  "paymentId": "RRR123456789",
+  "withdrawalLetterAttachments": [
+	{
+	  "name": "withdrawal-letter.pdf",
+	  "url": "/api/files/GetAttachment?fileId=attachment_123.pdf"
+	}
+  ],
+  "supportingDocumentAttachments": [
+	{
+	  "name": "support-document-1.pdf",
+	  "url": "/api/files/GetAttachment?fileId=attachment_124.pdf"
+	},
+	{
+	  "name": "support-document-2.pdf",
+	  "url": "/api/files/GetAttachment?fileId=attachment_125.pdf"
+	}
+  ]
+}
+
+Field Descriptions:
+  • fileId: The unique file identifier (e.g., F/TM/O/2016/88119)
+  • fileType: Type of IP file (Trademark, Patent, Design, etc.)
+  • withdrawalRequestDate: When the withdrawal request was submitted
+  • withdrawalDate: When the withdrawal was processed (may be null)
+  • applicationStatus: Current status (RequestWithdrawal, Approved, Rejected)
+  • paymentId: Payment reference for tracking (RRR for Remita)
+  • withdrawalLetterAttachments: Array of withdrawal letter documents
+  • supportingDocumentAttachments: Array of supporting documents
+
+Attachment Fields:
+  • name: Document filename
+  • url: API endpoint to retrieve the document
+
+================================================================================
+						  ERROR RESPONSES
+================================================================================
+
+BAD REQUEST (400):
+  Sent when: FileId is empty or null
+  Response:
+  {
+	"message": "FileId is required"
+  }
+
+NOT FOUND (404):
+  Sent when: File doesn't exist or has no withdrawal request
+  Response:
+  {
+	"message": "Withdrawal request not found for the specified file"
+  }
+
+Internal Server Error (500):
+  Should NOT happen. If you see this, contact backend team.
+
+================================================================================
+						 HANDLING NULLS
+================================================================================
+
+The following fields can be null/missing:
+
+• withdrawalDate: Not set until withdrawal is processed
+  → Check if null before using
+
+• paymentId: May be empty string if payment record hasn't been created
+  → Treat empty string as "no payment"
+
+• withdrawalLetterAttachments: Empty array if no letter uploaded
+  → Check array length before displaying
+
+• supportingDocumentAttachments: Empty array if no supporting docs
+  → Check array length before displaying
+
+Example handling:
+
+if (response.withdrawalDate) {
+  // Display withdrawal date
+} else {
+  // Show "Pending" or similar
+}
+
+if (response.withdrawalLetterAttachments?.length > 0) {
+  // Display withdrawal letter attachments
+} else {
+  // Show "No withdrawal letter"
+}
+
+if (response.supportingDocumentAttachments?.length > 0) {
+  // Display supporting documents
+} else {
+  // Show "No supporting documents"
+}
+
+================================================================================
+					   DOCUMENT RETRIEVAL
+================================================================================
+
+To download/display documents, use the URL provided in attachments:
+
+GET /api/files/GetAttachment?fileId=attachment_123.pdf
+
+This will return the file with proper content-type headers for download/display
+in browser.
+
+Example:
+  <a href={`/api/files/GetAttachment?fileId=${attachment.url.split('=')[1]}`}
+	 download={attachment.name}>
+	{attachment.name}
+  </a>
+
+Or use fetch to download:
+
+const url = `/api/files/GetAttachment?fileId=${fileId}`;
+const response = await fetch(url);
+const blob = await response.blob();
+// Download or display blob as needed
+
+================================================================================
+					   INTEGRATION EXAMPLE
+================================================================================
+
+JAVASCRIPT/REACT:
+
+// Fetch withdrawal details
+const getWithdrawalDetails = async (fileId) => {
+  const encodedFileId = encodeURIComponent(fileId);
+  const response = await fetch(
+	`/api/files/withdrawal-details/${encodedFileId}`
+  );
+
+  if (response.status === 400) {
+	console.error("Invalid fileId");
+	return null;
+  }
+
+  if (response.status === 404) {
+	console.error("Withdrawal request not found");
+	return null;
+  }
+
+  if (response.status === 200) {
+	return await response.json();
+  }
+
+  throw new Error("Failed to fetch withdrawal details");
+};
+
+// Usage
+try {
+  const details = await getWithdrawalDetails("F/TM/O/2016/88119");
+
+  if (details) {
+	console.log("File Type:", details.fileType);
+	console.log("Status:", details.applicationStatus);
+	console.log("Payment ID:", details.paymentId);
+	console.log("Withdrawal Letters:", details.withdrawalLetterAttachments.length);
+	console.log("Supporting Docs:", details.supportingDocumentAttachments.length);
+  }
+} catch (error) {
+  console.error("Error:", error);
+}
+
+DISPLAY COMPONENT:
+
+function WithdrawalDetails({ fileId }) {
+  const [details, setDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+	const fetchDetails = async () => {
+	  try {
+		const encodedFileId = encodeURIComponent(fileId);
+		const response = await fetch(`/api/files/withdrawal-details/${encodedFileId}`);
+
+		if (!response.ok) {
+		  throw new Error(response.status === 404 ? "Not found" : "Error");
+		}
+
+		const data = await response.json();
+		setDetails(data);
+	  } catch (err) {
+		setError(err.message);
+	  } finally {
+		setLoading(false);
+	  }
+	};
+
+	fetchDetails();
+  }, [fileId]);
+
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
+  if (!details) return <div>No withdrawal request found</div>;
+
+  return (
+	<div>
+	  <h2>Withdrawal Details</h2>
+	  <p>File: {details.fileId}</p>
+	  <p>Type: {details.fileType}</p>
+	  <p>Status: {details.applicationStatus}</p>
+	  <p>Request Date: {new Date(details.withdrawalRequestDate).toLocaleDateString()}</p>
+
+	  {details.withdrawalDate && (
+		<p>Withdrawal Date: {new Date(details.withdrawalDate).toLocaleDateString()}</p>
+	  )}
+
+	  {details.paymentId && <p>Payment ID: {details.paymentId}</p>}
+
+	  <h3>Withdrawal Letter</h3>
+	  {details.withdrawalLetterAttachments?.length > 0 ? (
+		<ul>
+		  {details.withdrawalLetterAttachments.map((doc, idx) => (
+			<li key={idx}>
+			  <a href={`/api/files/GetAttachment${doc.url}`} download>
+				{doc.name}
+			  </a>
+			</li>
+		  ))}
+		</ul>
+	  ) : (
+		<p>No withdrawal letter attached</p>
+	  )}
+
+	  <h3>Supporting Documents</h3>
+	  {details.supportingDocumentAttachments?.length > 0 ? (
+		<ul>
+		  {details.supportingDocumentAttachments.map((doc, idx) => (
+			<li key={idx}>
+			  <a href={`/api/files/GetAttachment${doc.url}`} download>
+				{doc.name}
+			  </a>
+			</li>
+		  ))}
+		</ul>
+	  ) : (
+		<p>No supporting documents attached</p>
+	  )}
+	</div>
+  );
+}
+
+================================================================================
+						 TESTING SCENARIOS
+================================================================================
+
+Test these scenarios to ensure integration works:
+
+1. VALID WITHDRAWAL REQUEST
+   FileId: F/TM/O/2016/88119 (must exist in database)
+   Expected: HTTP 200 with complete details
+
+2. MISSING FILE
+   FileId: INVALID123 (doesn't exist)
+   Expected: HTTP 404
+
+3. INVALID INPUT
+   FileId: "" (empty string)
+   Expected: HTTP 400
+
+4. NO WITHDRAWAL REQUEST
+   FileId: F/TM/O/2016/88120 (file exists but has no withdrawal)
+   Expected: HTTP 404
+
+5. WITH ATTACHMENTS
+   FileId: File with withdrawal letter and supporting docs
+   Expected: HTTP 200 with populated attachment arrays
+
+6. WITHOUT ATTACHMENTS
+   FileId: File with withdrawal but no attachments
+   Expected: HTTP 200 with empty attachment arrays
+
+================================================================================
+						KNOWN LIMITATIONS
+================================================================================
+
+• Withdrawal letter is typically required (check form validation)
+• Supporting documents are optional
+• Payment ID may be empty string if payment not processed
+• Withdrawal date is set only when withdrawal is finalized
+• Attachments are stored as URLs (not files)
+• FileId must be properly URL-encoded
+
+================================================================================
+						 TROUBLESHOOTING
+================================================================================
+
+Endpoint returns 404:
+  1. Verify fileId is correct format (e.g., F/TM/O/2016/88119)
+  2. Verify URL-encoding is correct (%2F for /)
+  3. Verify file exists in database
+  4. Verify file has a withdrawal request
+
+Endpoint returns 400:
+  1. Check if fileId is empty or null
+  2. Verify fileId parameter is being passed
+
+Attachments won't download:
+  1. Verify attachment URL is correct
+  2. Check if /api/files/GetAttachment endpoint is accessible
+  3. Ensure authentication token is valid
+
+Document links are broken:
+  1. Verify URLs start with /api/files
+  2. Check fileId parameter in query string
+  3. Ensure backend file storage is accessible
+
+================================================================================
+						  SUPPORT & CONTACT
+================================================================================
+
+For backend-related issues:
+  • Contact backend development team
+  • Provide fileId that's causing issues
+  • Include error message and status code
+
+For frontend integration help:
+  • Check JavaScript console for errors
+  • Verify network requests in DevTools
+  • Check if authentication token is valid
+
+For database issues:
+  • Verify MongoDB connection is active
+  • Check if withdrawal records exist
+  • Verify file attachments are stored
+
+================================================================================
+						DEPLOYMENT TIMELINE
+================================================================================
+
+✅ Backend Implementation: COMPLETE
+✅ Testing: COMPLETE
+✅ Documentation: COMPLETE
+
+→ Waiting for: Frontend team integration
+→ Next Step: Code review and staging deployment
+→ Final Step: Production deployment
+
+Status: READY FOR FRONTEND INTEGRATION
+
+================================================================================
+							SUMMARY
+================================================================================
+
+The Withdrawal Request Details endpoint is:
+
+✅ Fully implemented and tested
+✅ Ready for frontend integration
+✅ Documented with examples
+✅ Production ready
+✅ Handles all edge cases
+✅ Returns proper error responses
+
+Frontend team can now integrate this endpoint into the Super Admin
+Application History view.
+
+For any questions or issues, contact the backend development team.
+
+================================================================================

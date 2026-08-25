@@ -1932,13 +1932,168 @@ public class FilesController(FilesServices fileService) : ControllerBase
         return Ok("Withdrawal date and attachments updated successfully.");
     }
 
+    [HttpPost("WithdrawalRequest")]
+    public async Task<IActionResult> SubmitWithdrawalRequest([FromForm] WithdrawalRequestCreateDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.FileId))
+            return BadRequest(new { message = "FileId is required." });
+
+        var file = await fileService.GetByFileNumberAsync(dto.FileId);
+        if (file == null)
+            return NotFound(new { message = "File not found." });
+
+        if (dto.WithdrawalLetter == null || dto.WithdrawalLetter.Length == 0)
+            return BadRequest(new { message = "Withdrawal letter is required." });
+
+        if (string.IsNullOrWhiteSpace(dto.PaymentId))
+            return BadRequest(new { message = "Payment ID is required." });
+
+        try
+        {
+            // Initialize attachments collection if needed
+            file.Attachments ??= new List<AttachmentType>();
+
+            // Save withdrawal letter
+            var withdrawalLetterUrl = await fileService.SaveFileAttachmentAsync(
+                dto.WithdrawalLetter,
+                file.FileId,
+                "withdrawal_letter"
+            );
+
+            var withdrawalLetterAttachment = file.Attachments.FirstOrDefault(a => a.name == "withdrawal_letter");
+            if (withdrawalLetterAttachment != null)
+            {
+                if (!withdrawalLetterAttachment.url.Contains(withdrawalLetterUrl))
+                    withdrawalLetterAttachment.url.Add(withdrawalLetterUrl);
+            }
+            else
+            {
+                file.Attachments.Add(new AttachmentType
+                {
+                    name = "withdrawal_letter",
+                    url = new List<string> { withdrawalLetterUrl }
+                });
+            }
+
+            // Save supporting documents
+            var supportingDocUrls = new List<string>();
+            if (dto.SupportingDocuments != null && dto.SupportingDocuments.Any())
+            {
+                foreach (var doc in dto.SupportingDocuments)
+                {
+                    if (doc == null || doc.Length == 0) continue;
+
+                    var url = await fileService.SaveFileAttachmentAsync(
+                        doc,
+                        file.FileId,
+                        "supporting_document"
+                    );
+                    supportingDocUrls.Add(url);
+                }
+
+                if (supportingDocUrls.Any())
+                {
+                    var supportingDocAttachment = file.Attachments.FirstOrDefault(a => a.name == "withdrawal_supporting_documents");
+                    if (supportingDocAttachment != null)
+                    {
+                        foreach (var url in supportingDocUrls)
+                        {
+                            if (!supportingDocAttachment.url.Contains(url))
+                                supportingDocAttachment.url.Add(url);
+                        }
+                    }
+                    else
+                    {
+                        file.Attachments.Add(new AttachmentType
+                        {
+                            name = "withdrawal_supporting_documents",
+                            url = supportingDocUrls
+                        });
+                    }
+                }
+            }
+
+            // Create application history entry
+            var withdrawalHistory = new ApplicationInfo
+            {
+                id = Guid.NewGuid().ToString(),
+                ApplicationType = FormApplicationTypes.WithdrawalRequest,
+                CurrentStatus = ApplicationStatuses.RequestWithdrawal,
+                ApplicationDate = DateTime.UtcNow,
+                PaymentId = dto.PaymentId,
+                FieldToChange = "WithdrawalRequest",
+                NewValue = "",
+                StatusHistory = new List<ApplicationHistory>
+                {
+                    new ApplicationHistory
+                    {
+                        Date = DateTime.UtcNow,
+                        beforeStatus = ApplicationStatuses.None,
+                        afterStatus = ApplicationStatuses.RequestWithdrawal,
+                        Message = "Withdrawal Request Submitted",
+                        User = "System"
+                    }
+                }
+            };
+
+            file.ApplicationHistory ??= new List<ApplicationInfo>();
+            file.ApplicationHistory.Add(withdrawalHistory);
+
+            // Set withdrawal dates
+            file.WithdrawalRequestDate = DateTime.UtcNow;
+
+            // Save file
+            await fileService.UpdateFileAsync(file);
+
+            // Build response
+            var withdrawalLetterDocs = new List<DocumentAttachmentDto>
+            {
+                new DocumentAttachmentDto
+                {
+                    Name = dto.WithdrawalLetter.FileName,
+                    Url = withdrawalLetterUrl
+                }
+            };
+
+            var supportingDocDtos = supportingDocUrls.Select((url, index) =>
+                new DocumentAttachmentDto
+                {
+                    Name = dto.SupportingDocuments?[index].FileName ?? "Document",
+                    Url = url
+                }).ToList();
+
+            return Ok(new
+            {
+                success = true,
+                message = "Withdrawal request submitted successfully.",
+                fileId = file.FileId,
+                fileType = file.Type.ToString(),
+                withdrawalRequestDate = withdrawalHistory.ApplicationDate,
+                paymentId = dto.PaymentId,
+                withdrawalLetterAttachments = withdrawalLetterDocs,
+                supportingDocumentAttachments = supportingDocDtos
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Error submitting withdrawal request: {ex.Message}" });
+        }
+    }
+
     [HttpGet("withdrawal-details/{fileId}")]
     public async Task<IActionResult> GetWithdrawalDetailsAsync(string fileId)
     {
+        if (string.IsNullOrWhiteSpace(fileId))
+            return BadRequest(new { message = "FileId is required" });
+
         var decodedFileId = Uri.UnescapeDataString(fileId);
+        if (string.IsNullOrWhiteSpace(decodedFileId))
+            return BadRequest(new { message = "FileId is invalid" });
+
         var result = await fileService.GetWithdrawalDetailsAsync(decodedFileId);
         if (result == null)
-            return NotFound();
+            return NotFound(new { message = "Withdrawal request not found for the specified file" });
+
         return Ok(result);
     }
 
