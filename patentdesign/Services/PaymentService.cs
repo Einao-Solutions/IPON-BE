@@ -230,6 +230,31 @@ public class PaymentService
 
         await _payments.InsertOneAsync(payment);
     }
+
+    public async Task<PaymentRecord?> GetPaymentRecordByFileIdAsync(string fileId, string? paymentType = null)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(fileId))
+                return null;
+
+            var filterBuilder = Builders<PaymentRecord>.Filter;
+            var filter = filterBuilder.Eq(p => p.FileId, fileId);
+
+            if (!string.IsNullOrWhiteSpace(paymentType))
+            {
+                filter = filterBuilder.And(filter, filterBuilder.Eq(p => p.PaymentType, paymentType));
+            }
+
+            var paymentRecord = await _payments.Find(filter).SortByDescending(p => p.Date).FirstOrDefaultAsync();
+            return paymentRecord;
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error retrieving payment record for FileId {FileId}", fileId);
+            return null;
+        }
+    }
     private async Task<PayxResponse?> VerifyPayx(string paymentId)
     {
         _log.LogInformation($"Verifying payx Id: {paymentId}...");

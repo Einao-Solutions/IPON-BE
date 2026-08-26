@@ -1754,15 +1754,8 @@ public class LettersServices
                 var logoUrl = representation.url[0];
                 if (!string.IsNullOrWhiteSpace(logoUrl) && !logoUrl.Equals("NULL", StringComparison.OrdinalIgnoreCase))
                 {
-                    try
-                    {
-                        images = await (new HttpClient()).GetByteArrayAsync(logoUrl);
-                    }
-                    catch (HttpRequestException)
-                    {
-                        Console.WriteLine("Image not found or invalid URL.");
-                        images = [];
-                    }
+                    var logoBytes = await DownloadAttachmentBytesAsync(logoUrl, file.FileId);
+                    images = logoBytes is { Length: > 0 } ? logoBytes : [];
                 }
             }
             data = new AcknowledgementModelTrademark(file, "uri", images, receipt).GeneratePdf();
