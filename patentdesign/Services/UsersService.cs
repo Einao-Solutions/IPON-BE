@@ -225,4 +225,5 @@ public class UsersService
         var otherApplications = user.OtherApplications ?? new List<ApplicationInfo>();
         return otherApplications;
     }
+
 }
