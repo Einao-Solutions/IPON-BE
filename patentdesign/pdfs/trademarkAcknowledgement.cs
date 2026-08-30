@@ -202,7 +202,7 @@ namespace patentdesign
                             }
                             else
                             {
-                                c.Item().Text("Word Mark").FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                                c.Item().Text(model.TrademarkLogo.GetDisplayName()).FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             }
                         });
                         table.Cell().Element(Block).Column(c => {
