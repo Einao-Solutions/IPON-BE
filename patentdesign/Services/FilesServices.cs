@@ -69,8 +69,9 @@ public class FilesServices
     private PublicationServices _publicationServices;
     private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    private string attachmentBaseUrl = "https://integration.iponigeria.com";
-    //private string attachmentBaseUrl = "";  // Use relative URL (will resolve to current domain)
+
+    //private string attachmentBaseUrl = "https://integration.iponigeria.com";
+    private string attachmentBaseUrl = "https://localhost:5044";  // Use relative URL (will resolve to current domain)
 
     public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
@@ -1911,7 +1912,8 @@ public class FilesServices
 
                 // Use relative URL for compatibility across local, dev, and prod
                 var attachmentUrl = $"/api/files/GetAttachment?fileId={trustedFileName}";
-                uris.Add(attachmentUrl);
+                var attUrl = attachmentBaseUrl + $"/api/files/GetAttachment?fileId={trustedFileName}";
+                uris.Add(attUrl);
             }
         }
         return uris;
