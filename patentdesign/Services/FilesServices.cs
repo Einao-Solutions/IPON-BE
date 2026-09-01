@@ -69,8 +69,9 @@ public class FilesServices
     private PublicationServices _publicationServices;
     private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    //private string attachmentBaseUrl = "https://integration.iponigeria.com";
-     private string attachmentBaseUrl = "";  // Use relative URL (will resolve to current domain)
+
+    private string attachmentBaseUrl = "https://integration.iponigeria.com";
+    //private string attachmentBaseUrl = "https://localhost:5044";  // Use relative URL (will resolve to current domain)
 
     public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
@@ -135,14 +136,25 @@ public class FilesServices
     public async Task CreateFileAsync(Filling newFile)
     {
         var baseFileId = newFile.FileId;
+        _log.LogInformation("Starting file creation. Base FileId {BaseFileId}, Type {FileType}", baseFileId, newFile.Type);
+
+        var attempts = 0;
         do
         {
+            attempts++;
             newFile.FileId = string.Join("/", [baseFileId, Guid.NewGuid().ToString("N")[..8]]);
+
+            if (attempts > 1)
+            {
+                _log.LogWarning("FileId collision detected for base {BaseFileId}. Retry attempt {Attempt} with candidate {CandidateFileId}",
+                    baseFileId, attempts, newFile.FileId);
+            }
         }
         while (await _fillingCollection.Find(x => x.FileId == newFile.FileId).AnyAsync());
 
         _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
+        _log.LogInformation("File created successfully with FileId {FileId} after {Attempts} attempt(s)", newFile.FileId, attempts);
     }
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
@@ -1900,7 +1912,8 @@ public class FilesServices
 
                 // Use relative URL for compatibility across local, dev, and prod
                 var attachmentUrl = $"/api/files/GetAttachment?fileId={trustedFileName}";
-                uris.Add(attachmentUrl);
+                var attUrl = attachmentBaseUrl + $"/api/files/GetAttachment?fileId={trustedFileName}";
+                uris.Add(attUrl);
             }
         }
         return uris;
@@ -2908,11 +2921,6 @@ public class FilesServices
         if (tradeData.Type is FileTypes.TradeMark)
         {
             byte[] images = [];
-
-            // foreach (var url in tradeData.Attachments.FirstOrDefault(x => x.name == "designs").url)
-            // {
-            //     images.Add(await (new HttpClient()).GetByteArrayAsync(url));
-            // }
             data = new AcknowledgementModelTrademark(tradeData, "uri", images, receipt).GeneratePdf();
         }
 
@@ -3150,12 +3158,18 @@ public class FilesServices
 
     public async Task<(byte[], string, string)?> GetAttachment(string fileId)
     {
+        _log.LogInformation("Fetching attachment for FileId {FileId}", fileId);
+
         var filter = Builders<AttachmentInfo>.Filter.Eq(x => x.Id, fileId);
         var attachmentInfo = await _attachmentCollection.Find(filter).Limit(1).ToListAsync();
-        if (attachmentInfo != null)
+        if (attachmentInfo != null && attachmentInfo.Count > 0)
         {
+            _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
+                fileId, attachmentInfo[0].ContentType);
             return (attachmentInfo[0].Data, attachmentInfo[0].ContentType, attachmentInfo[0].Id);
         }
+
+        _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
         return null;
     }
 
