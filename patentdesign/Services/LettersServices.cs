@@ -70,26 +70,33 @@ public class LettersServices
         if (string.IsNullOrWhiteSpace(url))
             return null;
 
+        var originalUrl = url.Trim();
+        var requestUrl = originalUrl;
+        if (!Uri.TryCreate(requestUrl, UriKind.Absolute, out _))
+        {
+            requestUrl = $"{AttachmentBaseUrl.TrimEnd('/')}/{requestUrl.TrimStart('/')}";
+        }
+
         using var http = new HttpClient();
         try
         {
-            var bytes = await http.GetByteArrayAsync(url);
+            var bytes = await http.GetByteArrayAsync(requestUrl);
             if (bytes != null && bytes.Length > 0)
             {
-                Console.WriteLine($"[{fileIdForLog}] Successfully loaded attachment from: {url}");
+                Console.WriteLine($"[{fileIdForLog}] Successfully loaded attachment from: {requestUrl}");
                 return bytes;
             }
-            Console.WriteLine($"[{fileIdForLog}] Warning: attachment URL returned empty data: {url}");
+            Console.WriteLine($"[{fileIdForLog}] Warning: attachment URL returned empty data: {requestUrl}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{fileIdForLog}] Primary download failed for {url}: {ex.Message}");
+            Console.WriteLine($"[{fileIdForLog}] Primary download failed for {requestUrl}: {ex.Message}");
         }
 
         // Self-heal: if the stored URL is a getAttachment link, retry against
         // the current environment's base URL. This handles records whose host
         // was baked in on another machine (commonly http://localhost:5044).
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
+        if (!Uri.TryCreate(requestUrl, UriKind.Absolute, out var parsed))
             return null;
 
         var path = parsed.AbsolutePath ?? string.Empty;
@@ -113,7 +120,7 @@ public class LettersServices
             var bytes = await http.GetByteArrayAsync(rehosted);
             if (bytes != null && bytes.Length > 0)
             {
-                Console.WriteLine($"[{fileIdForLog}] Self-heal succeeded: original={url} retried={rehosted}");
+                Console.WriteLine($"[{fileIdForLog}] Self-heal succeeded: original={originalUrl} retried={rehosted}");
                 return bytes;
             }
             Console.WriteLine($"[{fileIdForLog}] Self-heal returned empty data for: {rehosted}");

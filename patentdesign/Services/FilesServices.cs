@@ -2921,11 +2921,6 @@ public class FilesServices
         if (tradeData.Type is FileTypes.TradeMark)
         {
             byte[] images = [];
-
-            // foreach (var url in tradeData.Attachments.FirstOrDefault(x => x.name == "designs").url)
-            // {
-            //     images.Add(await (new HttpClient()).GetByteArrayAsync(url));
-            // }
             data = new AcknowledgementModelTrademark(tradeData, "uri", images, receipt).GeneratePdf();
         }
 
