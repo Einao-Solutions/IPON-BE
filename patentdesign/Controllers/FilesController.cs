@@ -7,6 +7,7 @@ using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
+using patentdesign.Utils;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
@@ -505,10 +506,16 @@ public class FilesController(FilesServices fileService) : ControllerBase
     }
 
     [HttpGet("GetFileWithdrawalCost")]
-    public async Task<IActionResult> GetFileWithdrawalCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
+    public async Task<IActionResult> GetFileWithdrawalCost([FromQuery] string fileId, [FromQuery] string fileType)
     {
+        // Normalize fileType from various formats (Patent/patent/0, Design/design/1, TradeMark/trademark/tm/2)
+        if (!FileTypeNormalizer.TryNormalizeFileType(fileType, out var normalizedFileType))
+        {
+            return BadRequest(new { message = $"Invalid fileType: '{fileType}'. Accepted values: Patent/patent/0, Design/design/1, TradeMark/Trademark/trademark/trade mark/trade-mark/tm/2" });
+        }
+
         var decodedFileId = Uri.UnescapeDataString(fileId);
-        var res = await fileService.GetFileWithdrawalCost(decodedFileId, fileType);
+        var res = await fileService.GetFileWithdrawalCost(decodedFileId, normalizedFileType);
 
         if (res == null)
         {
