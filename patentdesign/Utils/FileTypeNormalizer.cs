@@ -52,8 +52,8 @@ public static class FileTypeNormalizer
             return true;
         }
 
-        // TradeMark: 2 (various formats)
-        if (input == "trademark" || input == "trademarktm" || input == "tm" || input == "trademark")
+        // TradeMark: 2 (various formats: trademark, TradeMark, trade mark, trade-mark, tm, TM)
+        if (input == "trademark" || input == "tm")
         {
             normalizedType = FileTypes.TradeMark;
             return true;

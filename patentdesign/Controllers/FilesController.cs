@@ -1933,6 +1933,15 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpPost("withdrawal-request")]
     public async Task<IActionResult> WithdrawalRequest([FromBody] WithdrawalRequestDto dto)
     {
+        // Normalize fileType if provided
+        if (!string.IsNullOrWhiteSpace(dto.FileType))
+        {
+            if (!FileTypeNormalizer.TryNormalizeFileType(dto.FileType, out var normalizedFileType))
+            {
+                return BadRequest(new { message = $"Invalid fileType: '{dto.FileType}'. Accepted values: Patent/patent/0, Design/design/1, TradeMark/Trademark/trademark/trade mark/trade-mark/tm/2" });
+            }
+        }
+
         var (success, message) = await fileService.WithdrawalRequestAsync(dto);
         if (!success)
             return NotFound("File not found");
@@ -1945,6 +1954,15 @@ public class FilesController(FilesServices fileService) : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.FileId))
             return BadRequest(new { message = "FileId is required." });
 
+        // Normalize fileType if provided (from query string or form)
+        if (!string.IsNullOrWhiteSpace(dto.FileType))
+        {
+            if (!FileTypeNormalizer.TryNormalizeFileType(dto.FileType, out var normalizedFileType))
+            {
+                return BadRequest(new { message = $"Invalid fileType: '{dto.FileType}'. Accepted values: Patent/patent/0, Design/design/1, TradeMark/Trademark/trademark/trade mark/trade-mark/tm/2" });
+            }
+        }
+
         var file = await fileService.GetByFileNumberAsync(dto.FileId);
         if (file == null)
             return NotFound(new { message = "File not found." });
@@ -1952,8 +1970,9 @@ public class FilesController(FilesServices fileService) : ControllerBase
         if (dto.WithdrawalLetter == null || dto.WithdrawalLetter.Length == 0)
             return BadRequest(new { message = "Withdrawal letter is required." });
 
-        if (string.IsNullOrWhiteSpace(dto.PaymentId))
-            return BadRequest(new { message = "Payment ID is required." });
+        // PaymentId is optional - can be added later if needed
+        // if (string.IsNullOrWhiteSpace(dto.PaymentId))
+        //     return BadRequest(new { message = "Payment ID is required." });
 
         try
         {
@@ -2072,7 +2091,8 @@ public class FilesController(FilesServices fileService) : ControllerBase
             return Ok(new
             {
                 success = true,
-                message = "Withdrawal request submitted successfully.",
+                message = "Withdrawal request submitted. Please wait while your payment is being verified.",
+                status = "RequestWithdrawal",
                 fileId = file.FileId,
                 fileType = file.Type.ToString(),
                 withdrawalRequestDate = withdrawalHistory.ApplicationDate,
@@ -2111,7 +2131,11 @@ public class FilesController(FilesServices fileService) : ControllerBase
         if (!success)
             return NotFound(new { message });
 
-        return Ok(new { message });
+        return Ok(new 
+        { 
+            message,
+            status = dto.Approve ? "Withdrawn" : "Rejected"
+        });
     }
 
     [HttpPost("offline-renewal/submit")]

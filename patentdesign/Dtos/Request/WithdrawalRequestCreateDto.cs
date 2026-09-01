@@ -16,6 +16,12 @@ public class WithdrawalRequestCreateDto
     public string? PaymentId { get; set; }
 
     /// <summary>
+    /// File type (optional, can be passed via query string)
+    /// Accepts: Patent/patent/0, Design/design/1, TradeMark/Trademark/trademark/trade mark/trade-mark/tm/2
+    /// </summary>
+    public string? FileType { get; set; }
+
+    /// <summary>
     /// Withdrawal letter file
     /// </summary>
     public IFormFile? WithdrawalLetter { get; set; }

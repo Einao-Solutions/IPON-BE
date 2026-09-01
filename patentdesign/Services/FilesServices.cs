@@ -7824,8 +7824,7 @@ public class FilesServices
             throw new Exception("No Payment Id found");
         }
 
-        // Save dates
-        file.WithdrawalDate = DateTime.Now;
+        // Only set withdrawal request date; actual withdrawal date set on approval
         file.WithdrawalRequestDate = DateTime.Now;
 
         // Handle attachments
@@ -7883,37 +7882,12 @@ public class FilesServices
             }
         }
 
-        // Application history
-        var applicant = file.applicants.FirstOrDefault();
-        var withdrawalHistory = new ApplicationInfo
-        {
-            id = Guid.NewGuid().ToString(),
-            ApplicationType = FormApplicationTypes.WithdrawalRequest,
-            CurrentStatus = ApplicationStatuses.RequestWithdrawal,
-            ApplicationDate = DateTime.Now,
-            PaymentId = dto.PaymentRRR,
-            FieldToChange = "Withdrawal Request",
-            NewValue = "",
-            StatusHistory = new List<ApplicationHistory>
-            {
-                new ApplicationHistory
-                {
-                    Date = DateTime.Now,
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.RequestWithdrawal,
-                    Message = "Withdrawal Request Submitted",
-                    User = user.Name,
-                    UserId = user.Id
-                }
-            }
-        };
-
-        file.ApplicationHistory ??= new List<ApplicationInfo>();
-        file.ApplicationHistory.Add(withdrawalHistory);
+        // Application history will be created only AFTER admin approves
+        // We do NOT save ApplicationHistory at submission time
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
         _log.LogInformation("Withdrawal request completed for FileId {FileId}", dto.FileId);
-        return (true, "Withdrawal request submitted successfully.");
+        return (true, "Withdrawal request submitted. Awaiting payment verification and admin review.");
     }
 
     public async Task<WithdrawalDetailsDto?> GetWithdrawalDetailsAsync(string fileId)
@@ -8016,12 +7990,27 @@ public class FilesServices
 
         var applicant = file.applicants.FirstOrDefault();
 
-        // Find the ApplicationInfo for WithdrawalRequest
+        // Find the ApplicationInfo for WithdrawalRequest, or create it if it doesn't exist
         var withdrawalApp = file.ApplicationHistory
-            .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
+            ?.FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
 
         if (withdrawalApp == null)
-            return (false, "No withdrawal request found");
+        {
+            // Create ApplicationInfo ONLY when admin makes decision
+            withdrawalApp = new ApplicationInfo
+            {
+                id = Guid.NewGuid().ToString(),
+                ApplicationType = FormApplicationTypes.WithdrawalRequest,
+                ApplicationDate = DateTime.Now,
+                PaymentId = null,  // Will be updated if we had the RRR stored
+                FieldToChange = "Withdrawal Request",
+                NewValue = "",
+                StatusHistory = new List<ApplicationHistory>()
+            };
+
+            file.ApplicationHistory ??= new List<ApplicationInfo>();
+            file.ApplicationHistory.Add(withdrawalApp);
+        }
 
         // Prepare new status history entry
         var newStatus = new ApplicationHistory
@@ -8040,9 +8029,12 @@ public class FilesServices
         // Update current status
         withdrawalApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
 
-        // If approved, update file status to Withdrawn
+        // If approved, update file status to Withdrawn and set withdrawal date
         if (approve)
+        {
             file.FileStatus = ApplicationStatuses.Withdrawn;
+            file.WithdrawalDate = DateTime.Now;  // Set withdrawal date ONLY on approval
+        }
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
@@ -8067,7 +8059,7 @@ public class FilesServices
         };
         SavePerformance(performance);
 
-        return (true, approve ? "Withdrawal request approved" : "Withdrawal request refused");
+        return (true, approve ? "Withdrawal approved and file has been successfully withdrawn." : "Withdrawal request has been rejected.");
     }
 
     public async Task<object?> GetFilePublicationDetailsAsync(string fileId)
