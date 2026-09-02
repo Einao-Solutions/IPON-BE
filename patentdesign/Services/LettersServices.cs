@@ -1834,18 +1834,16 @@ public class LettersServices
         if (fileData.Type is FileTypes.TradeMark)
         {
             byte[] image = [];
-            try
+            var representation = fileData.Attachments?.FirstOrDefault(e => e.name == "representation");
+            if ((fileData.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) &&
+                representation?.url != null && representation.url.Count > 0)
             {
-                if ((fileData.TrademarkLogo is TradeMarkLogo.WordandDevice or TradeMarkLogo.Device) ||
-                    fileData.Attachments.FirstOrDefault(e => e.name == "representation") != null)
+                var logoUrl = representation.url[0];
+                if (!string.IsNullOrWhiteSpace(logoUrl) && !logoUrl.Equals("NULL", StringComparison.OrdinalIgnoreCase))
                 {
-                    image = await (new HttpClient()).GetByteArrayAsync(fileData.Attachments
-                        .First(r => r.name == "representation").url[0]);
+                    var logoBytes = await DownloadAttachmentBytesAsync(logoUrl, fileData.FileId);
+                    image = logoBytes is { Length: > 0 } ? logoBytes : [];
                 }
-            }
-            catch (Exception)
-            {
-                image = [];
             }
 
             data = new AcceptanceModelTrademark(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", sigdata, examinerName, image).GeneratePdf();
