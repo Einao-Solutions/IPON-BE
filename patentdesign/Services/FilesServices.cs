@@ -5903,6 +5903,39 @@ public class FilesServices
                 data.Item1, data.Item3, data.Item2, "File Withdrawal",
                 applicant.Name, applicant.Email, applicant.Phone);
 
+            // Create ApplicationInfo with AwaitingPayment status when invoice is generated
+            fileInfo.ApplicationHistory ??= new List<ApplicationInfo>();
+            var existingWithdrawalApp = fileInfo.ApplicationHistory
+                .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
+
+            if (existingWithdrawalApp == null)
+            {
+                var withdrawalApp = new ApplicationInfo
+                {
+                    id = Guid.NewGuid().ToString(),
+                    ApplicationType = FormApplicationTypes.WithdrawalRequest,
+                    ApplicationDate = DateTime.Now,
+                    CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                    PaymentId = paymentId,
+                    FieldToChange = "Withdrawal Request",
+                    NewValue = "",
+                    StatusHistory = new List<ApplicationHistory>
+                    {
+                        new ApplicationHistory
+                        {
+                            Date = DateTime.Now,
+                            Message = "Withdrawal request initiated - awaiting payment",
+                            beforeStatus = ApplicationStatuses.None,
+                            afterStatus = ApplicationStatuses.AwaitingPayment,
+                            User = applicant.Name,
+                            UserId = ""
+                        }
+                    }
+                };
+                fileInfo.ApplicationHistory.Add(withdrawalApp);
+                await _fillingCollection.ReplaceOneAsync(x => x.Id == fileInfo.Id, fileInfo);
+            }
+
             var fileWithdrawalCost = new RecordalDto
             {
                 Amount = data.Item1,
@@ -7896,12 +7929,23 @@ public class FilesServices
             }
         }
 
-        // Application history will be created only AFTER admin approves
-        // We do NOT save ApplicationHistory at submission time
+        // Application history with AwaitingPayment was already created in GetFileWithdrawalCost
+        // Only update it if payment details need to be added or renewed
+        file.ApplicationHistory ??= new List<ApplicationInfo>();
+
+        var existingWithdrawalApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
+
+        if (existingWithdrawalApp != null)
+        {
+            // Update the PaymentId with the confirmed RRR
+            existingWithdrawalApp.PaymentId = dto.PaymentRRR;
+        }
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
         _log.LogInformation("Withdrawal request completed for FileId {FileId}", dto.FileId);
         return (true, "Withdrawal request submitted. Awaiting payment verification and admin review.");
+
     }
 
     public async Task<WithdrawalDetailsDto?> GetWithdrawalDetailsAsync(string fileId)
@@ -8004,34 +8048,38 @@ public class FilesServices
 
         var applicant = file.applicants.FirstOrDefault();
 
-        // Find the ApplicationInfo for WithdrawalRequest, or create it if it doesn't exist
+        // Find the ApplicationInfo for WithdrawalRequest
         var withdrawalApp = file.ApplicationHistory
             ?.FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
 
         if (withdrawalApp == null)
         {
-            // Create ApplicationInfo ONLY when admin makes decision
-            withdrawalApp = new ApplicationInfo
-            {
-                id = Guid.NewGuid().ToString(),
-                ApplicationType = FormApplicationTypes.WithdrawalRequest,
-                ApplicationDate = DateTime.Now,
-                PaymentId = null,  // Will be updated if we had the RRR stored
-                FieldToChange = "Withdrawal Request",
-                NewValue = "",
-                StatusHistory = new List<ApplicationHistory>()
-            };
+            // This should not happen as it's created in WithdrawalRequestAsync, but handle it
+            return (false, "No withdrawal request found");
+        }
 
-            file.ApplicationHistory ??= new List<ApplicationInfo>();
-            file.ApplicationHistory.Add(withdrawalApp);
+        // Check if payment has been completed before approving
+        if (approve)
+        {
+            var paymentRecord = await _paymentService.GetPaymentRecordByFileIdAsync(file.FileId, "File Withdrawal");
+            if (paymentRecord == null || paymentRecord.RemitaResponse == null)
+            {
+                return (false, "Payment record not found. Payment must be completed before approval.");
+            }
+
+            // Verify payment status is successful (status = "00" indicates success)
+            if (paymentRecord.RemitaResponse.status != "00")
+            {
+                return (false, $"Payment verification failed. Status: {paymentRecord.RemitaResponse.status}");
+            }
         }
 
         // Prepare new status history entry
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
-            Message = approve ? "Withdrawal request approved" : "Withdrawal request refused",
-            beforeStatus = ApplicationStatuses.RequestWithdrawal,
+            Message = approve ? "Payment confirmed - withdrawal request approved" : "Withdrawal request refused",
+            beforeStatus = ApplicationStatuses.AwaitingPayment,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
             User = staff.Name,
             UserId = userId
