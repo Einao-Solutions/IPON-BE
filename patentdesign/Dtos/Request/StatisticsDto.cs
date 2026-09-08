@@ -57,6 +57,8 @@ namespace patentdesign.Dtos.Request
         public int? EndYear { get; set; }
         public int? StartMonth { get; set; }
         public int? EndMonth { get; set; }
+        public DateOnly? StartDate { get; set; }
+        public DateOnly? EndDate { get; set; }
         public int? StartOffset { get; set; }
         public int? EndOffset { get; set; }
         public string? OffsetUnit { get; set; }
