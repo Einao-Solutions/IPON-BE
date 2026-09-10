@@ -238,21 +238,21 @@ builder.Services.AddProblemDetails();
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<PaymentUtils>();
-builder.Services.AddSingleton<OppositionService>();
-builder.Services.AddSingleton<FilesServices>();
-builder.Services.AddSingleton<LettersServices>();
-builder.Services.AddSingleton<TicketServices>();
-builder.Services.AddSingleton<UsersService>();
-builder.Services.AddSingleton<FinanceService>();
-builder.Services.AddSingleton<AssignmentService>();
-builder.Services.AddSingleton<PaymentService>();
-builder.Services.AddSingleton<MigrationService>();
+builder.Services.AddScoped<OppositionService>();
+builder.Services.AddScoped<FilesServices>();
+builder.Services.AddScoped<LettersServices>();
+builder.Services.AddScoped<TicketServices>();
+builder.Services.AddScoped<UsersService>();
+builder.Services.AddScoped<FinanceService>();
+builder.Services.AddScoped<AssignmentService>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<MigrationService>();
 builder.Services.AddSingleton<EmailServices>();
-builder.Services.AddSingleton<AuthServices>();
-builder.Services.AddSingleton<AdminServices>();
-builder.Services.AddSingleton<StatisticsService>();
-builder.Services.AddSingleton<PublicationServices>();
-builder.Services.AddSingleton<NotificationServices>();
+builder.Services.AddScoped<AuthServices>();
+builder.Services.AddScoped<AdminServices>();
+builder.Services.AddScoped<StatisticsService>();
+builder.Services.AddScoped<PublicationServices>();
+builder.Services.AddScoped<NotificationServices>();
 
 //------------------- Background Jobs ------------------
 //builder.Services.AddHostedService<PublishTrademarkJob>();
@@ -265,7 +265,8 @@ var app = builder.Build();
 // ------------------ One-off DB backfill ------------------
 try
 {
-    var oppSvc = app.Services.GetRequiredService<OppositionService>();
+    using var scope = app.Services.CreateScope();
+    var oppSvc = scope.ServiceProvider.GetRequiredService<OppositionService>();
     await oppSvc.BackfillOppositionCreatorIds();
 }
 catch (Exception ex)
