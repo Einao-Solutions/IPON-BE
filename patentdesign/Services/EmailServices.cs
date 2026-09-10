@@ -1,441 +1,363 @@
-using MailKit.Net.Smtp;
-using MailKit.Security;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using MimeKit;
 using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Utils;
-using static QRCoder.PayloadGenerator;
+using Resend;
+using System.Globalization;
+using System.Net.Mail;
+using System.Reflection;
 
 namespace patentdesign.Services;
 
 public class EmailServices
 {
+    private static readonly IReadOnlyDictionary<EmailType, string> TemplateKeys = new Dictionary<EmailType, string>
+    {
+        [EmailType.Opposition] = "RESEND_TEMPLATE_OPPOSITION",
+        [EmailType.RenewalEarlyReminder] = "RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER",
+        [EmailType.RenewalDueNotice] = "RESEND_TEMPLATE_RENEWAL_DUE_NOTICE",
+        [EmailType.CounterStatement] = "RESEND_TEMPLATE_COUNTER_STATEMENT",
+        [EmailType.OppositionConfirmation] = "RESEND_TEMPLATE_OPPOSITION_CONFIRMATION",
+        [EmailType.StatutoryDeclaration] = "RESEND_TEMPLATE_STATUTORY_DECLARATION",
+        [EmailType.WithdrawalNotification] = "RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION",
+        [EmailType.WithdrawalApproved] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED",
+        [EmailType.WithdrawalRefused] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED",
+        [EmailType.WithdrawalApprovedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED_APPLICANT",
+        [EmailType.WithdrawalRefusedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT",
+        [EmailType.ResetPassword] = "RESEND_TEMPLATE_RESET_PASSWORD",
+        [EmailType.WelcomeVerification] = "RESEND_TEMPLATE_WELCOMEVERIFICATION",
+        [EmailType.StatusUpdate] = "RESEND_TEMPLATE_STATUS_UPDATE"
+    };
+
     private readonly EmailSettings _settings;
+    private readonly IConfiguration _configuration;
+    private readonly IResend _resend;
     private readonly ILogger<EmailServices> _log;
-    public EmailServices(IOptions<EmailSettings> settings, ILogger<EmailServices> log)
+
+    public EmailServices(
+        IOptions<EmailSettings> settings,
+        IConfiguration configuration,
+        IResend resend,
+        ILogger<EmailServices> log)
     {
         _settings = settings.Value;
+        _configuration = configuration;
+        _resend = resend;
         _log = log;
     }
 
-    public async Task SendMail(EmailDto dto)
+    /// <summary>
+    /// Sends a transactional email using a Resend template.
+    /// </summary>
+    public async Task SendMail(EmailDto dto, string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
-        _log.LogInformation("Preparing email to {Recipient} with subject '{Subject}' (Type: {EmailType})",
-            dto.To, dto.Subject, dto.EmailType);
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
-        message.To.Add(new MailboxAddress("",dto.To));
-        message.Subject = dto.Subject;
-        string body = "";
-        switch (dto.EmailType)
-        { 
-            case EmailType.Opposition:
-                body = PopulateOppositionMail(dto.OppositionMail);
-                break;
-            case EmailType.RenewalEarlyReminder:
-                body = PopulateRenewalReminder(dto.RenewalReminder);
-                break;
-            case EmailType.CounterStatement:
-                body = PopulateCounterStatementMail(dto.CounterStatementMail);
-                break;
-            case EmailType.OppositionConfirmation:
-                body = PopulateOppositionConfirmationMail(dto.OppositionConfirmationMail);
-                break;
-            case EmailType.StatutoryDeclaration:
-                body = PopulateStatutoryDeclarationMail(dto.StatutoryDeclarationMail);
-                break;
-            case EmailType.WithdrawalNotification:
-                body = PopulateWithdrawalNotificationMail(dto.WithdrawalNotificationMail);
-                break;
-            case EmailType.WithdrawalApproved:
-                body = PopulateWithdrawalApprovedMail(dto.WithdrawalApprovedMail);
-                break;
-            case EmailType.WithdrawalRefused:
-                body = PopulateWithdrawalRefusedMail(dto.WithdrawalRefusedMail);
-                break;
-            case EmailType.WithdrawalApprovedApplicant:
-                body = PopulateWithdrawalApprovedApplicantMail(dto.WithdrawalApprovedApplicantMail);
-                break;
-            case EmailType.WithdrawalRefusedApplicant:
-                body = PopulateWithdrawalRefusedApplicantMail(dto.WithdrawalRefusedApplicantMail);
-                break;
-            case EmailType.ResetPassword:
-                body = ResetPasswordMail(dto.ResetPasswordMail);
-                break;
-            case EmailType.StatusUpdate:
-                break;
-        }
-
-        var builder = new BodyBuilder();
-        builder.HtmlBody = body;
-
-        if (dto.EmailType == EmailType.RenewalEarlyReminder || dto.EmailType == EmailType.ResetPassword)
+        ArgumentNullException.ThrowIfNull(dto);
+        if (!MailAddress.TryCreate(dto.To, out _))
         {
-            AttachMinistryLogo(builder);
+            throw new ArgumentException(
+                "A valid email recipient is required.",
+                nameof(dto.To));
         }
 
-        message.Body = builder.ToMessageBody();
+        _log.LogInformation(
+            "Preparing Resend template email to {Recipient}. Email Type: {EmailType}",
+            dto.To,
+            dto.EmailType);
 
-        using (var client = new SmtpClient(new MailKit.ProtocolLogger(Console.OpenStandardError())))
+        var templateId = GetTemplateId(dto.EmailType);
+        var variables = BuildTemplateVariables(dto);
+
+        var message = new EmailMessage
         {
-            client.AuthenticationMechanisms.Remove("XOAUTH2");
-            client.Timeout = 60000;
+            From = $"{GetSenderName()} <{GetSenderEmail()}>",
 
-            try
+            Template = new EmailMessageTemplate
             {
-                _log.LogDebug("Connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+                TemplateId = templateId,
+                Variables = variables
+            }
+        };
 
-                await client.ConnectAsync(
-                    _settings.SmtpServer,
-                    _settings.Port,
-                    SecureSocketOptions.SslOnConnect);
+        message.To.Add(dto.To);
 
-                await client.AuthenticateAsync(_settings.Username, _settings.Password);
-
-                await client.SendAsync(message);
-                _log.LogInformation("Email sent successfully to {Recipient}", dto.To);
-            }
-            catch (System.Threading.Tasks.TaskCanceledException ex)
-            {
-                _log.LogError(ex, "SMTP connection timed out to {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-                throw new ApplicationException(
-                    $"SMTP connection timed out to '{_settings.SmtpServer}:{_settings.Port}'. " +
-                    "Check DNS resolution, outbound firewall rules, and that the port/TLS mode matches the server.", ex);
-            }
-            catch(System.Net.Sockets.SocketException ex)
-            {
-                _log.LogError(ex, "Socket error connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-                throw new ApplicationException(
-                    $"Failed to connect to SMTP server '{_settings.SmtpServer}:{_settings.Port}'. " +
-                    $"Verify host, port, firewall, and TLS settings. Details: {ex.Message}", ex);
-            }
-            catch (SslHandshakeException ex)
-            {
-                _log.LogError(ex, "SSL/TLS handshake failed with SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-                throw new ApplicationException(
-                    "SSL/TLS handshake with SMTP server failed. " +
-                    "This often indicates a TLS mode mismatch (implicit SSL vs STARTTLS) or certificate issues.", ex);
-            }
-            catch (MailKit.ServiceNotAuthenticatedException ex)
-            {
-                _log.LogError(ex, "SMTP authentication failed for user {Username}", _settings.Username);
-                throw new ApplicationException(
-                    "SMTP authentication failed. Verify username/password and that SMTP auth is enabled.", ex);
-            }
-            finally
-            {
-                if (client.IsConnected)
-                    await client.DisconnectAsync(true);
-            }
-        }
-        
-    }
-    public async Task SendBulkEmailAsync(BulkEmailDto dto)
-    {
-        var batchSize = 20;
-        var delayMs = 2000;
-        _log.LogInformation("Starting bulk email send to {RecipientCount} recipients with subject '{Subject}'",
-            dto.Recipients.Count, dto.Subject);
-
-        string template = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\Announcement.html";
-        using (var reader = new StreamReader(filePath))
+        if (!string.IsNullOrWhiteSpace(dto.Subject))
         {
-            template = reader.ReadToEnd();
+            message.Subject = dto.Subject;
         }
 
-        var logoPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "ministry.png");
-        var logoExists = File.Exists(logoPath);
-        if (!logoExists)
+        if (!string.IsNullOrWhiteSpace(dto.CarbonCopy))
         {
-            _log.LogWarning("Announcement logo was not found at {LogoPath}", logoPath);
+            if (!MailAddress.TryCreate(dto.CarbonCopy, out _))
+            {
+                throw new ArgumentException("A valid CC email address is required.", nameof(dto.CarbonCopy));
+            }
+            message.Cc.Add(dto.CarbonCopy);
         }
 
-        using var client = new SmtpClient();
         try
         {
-            _log.LogDebug("Connecting to SMTP server {Server}:{Port}", _settings.SmtpServer, _settings.Port);
-            await client.ConnectAsync(
-                _settings.SmtpServer,
-                _settings.Port,
-                SecureSocketOptions.SslOnConnect);
-
-            await client.AuthenticateAsync(_settings.Username, _settings.Password);
-
-            var recipients = dto.Recipients;
-            int sentCount = 0;
-            for (int i = 0; i < recipients.Count; i += batchSize)
+            var response = string.IsNullOrWhiteSpace(idempotencyKey)
+                ? await _resend.EmailSendAsync(message, cancellationToken)
+                : await _resend.EmailSendAsync(idempotencyKey, message, cancellationToken);
+            if (!response.Success)
             {
-                var batch = recipients.Skip(i).Take(batchSize);
-                _log.LogDebug("Sending batch starting at index {Index}", i);
-
-                foreach (var recipient in batch)
-                {
-                    var message = new MimeMessage();
-                    message.From.Add(new MailboxAddress(_settings.SenderName, _settings.SenderEmail));
-                    message.To.Add(new MailboxAddress(recipient.Value, recipient.Key));
-                    message.Subject = dto.Subject;
-
-                    var html = template.Replace("{{UserName}}", recipient.Value)
-                        .Replace("{{Message}}", dto.Body)
-                        .Replace("{{CurrentYear}}", DateTime.UtcNow.Year.ToString());
-
-                    var builder = new BodyBuilder { HtmlBody = html };
-                    if (logoExists)
-                    {
-                        var logo = builder.LinkedResources.Add(logoPath);
-                        logo.ContentId = "ministry-logo";
-                    }
-
-                    message.Body = builder.ToMessageBody();
-                    await client.SendAsync(message);
-                    sentCount++;
-                }
-
-                await Task.Delay(delayMs);
+                throw new InvalidOperationException("Resend rejected the email request.", response.Exception);
             }
 
-            _log.LogInformation("Bulk email completed. {SentCount}/{TotalCount} emails sent successfully",
-                sentCount, recipients.Count);
+            _log.LogInformation(
+                "Resend template email sent successfully to {Recipient}. Template: {TemplateId}",
+                dto.To,
+                templateId);
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Bulk email failed during send to {Server}:{Port}", _settings.SmtpServer, _settings.Port);
+            _log.LogError(
+                ex,
+                "Failed to send Resend template email to {Recipient}. Template: {TemplateId}",
+                dto.To,
+                templateId);
+
             throw;
         }
-        finally
+    }
+
+    /// <summary>
+    /// Gets the configured Resend template ID or alias for the email type.
+    /// </summary>
+    private string GetTemplateId(EmailType emailType)
+    {
+        if (!TemplateKeys.TryGetValue(emailType, out var key))
         {
-            if (client.IsConnected)
-                await client.DisconnectAsync(true);
+            throw new NotSupportedException($"Email type '{emailType}' has no configured template mapping.");
+        }
+
+        return RequireSetting(_configuration, key);
+    }
+
+    public static void ValidateConfiguration(IConfiguration configuration)
+    {
+        RequireSetting(configuration, "RESEND_APIKEY");
+        var sender = RequireSetting(configuration, "RESEND_FROM_EMAIL");
+        if (!MailAddress.TryCreate(sender, out _))
+        {
+            throw new InvalidOperationException("RESEND_FROM_EMAIL must be a valid email address.");
+        }
+
+        foreach (var key in TemplateKeys.Values)
+        {
+            RequireSetting(configuration, key);
         }
     }
 
-    private void AttachMinistryLogo(BodyBuilder builder)
+    private static string RequireSetting(IConfiguration configuration, string key)
     {
-        var logoPath = Path.Combine(Directory.GetCurrentDirectory(), "assets", "ministry.png");
-        if (File.Exists(logoPath))
+        var value = configuration[key]?.Trim();
+        if (string.IsNullOrWhiteSpace(value) || value.Contains("$(") || value.Contains("${") ||
+            System.Text.RegularExpressions.Regex.IsMatch(value, "^tmpl_x+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
-            var logo = builder.LinkedResources.Add(logoPath);
-            logo.ContentId = "ministry-logo";
-            return;
+            throw new InvalidOperationException($"Configure a real value for '{key}'; missing values and placeholders are not supported.");
         }
 
-        _log.LogWarning("Email logo was not found at {LogoPath}", logoPath);
+        return value;
     }
 
-    private string PopulateOppositionConfirmationMail(OppositionConfirmationMail dto)
+    /// <summary>
+    /// Builds the variables sent to the Resend template.
+    /// The property names in the mail DTO become the Resend variable names.
+    /// </summary>
+    private Dictionary<string, object> BuildTemplateVariables(EmailDto dto)
     {
-        _log.LogDebug("Populating opposition confirmation mail for {Opposer}, file {FileNumber}",
-            dto.OpposerName, dto.FileNumber);
-
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\OppositionConfirmation.html";
-        using (var reader = new StreamReader(filePath))
+        object? source = dto.EmailType switch
         {
-            body = reader.ReadToEnd();
-        }
-        body = body.Replace("{OpposerName}",     dto.OpposerName);
-        body = body.Replace("{OppositionId}",    dto.OppositionId);
-        body = body.Replace("{FileNumber}",      dto.FileNumber);
-        body = body.Replace("{FileTitle}",       dto.FileTitle);
-        body = body.Replace("{DateFiled}",       dto.DateFiled);
-        body = body.Replace("{PaymentReference}", dto.PaymentReference);
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
+            EmailType.Opposition =>
+                dto.OppositionMail,
 
-    private string PopulateCounterStatementMail(CounterStatementMail dto)
-    {
-        _log.LogDebug("Populating counter statement mail template for opposer {Opposer}, file {FileNumber}",
-            dto.OpposerName, dto.FileNumber);
+            EmailType.RenewalEarlyReminder =>
+                dto.RenewalReminder,
 
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\CounterStatementNotification.html";
-        using (var reader = new StreamReader(filePath))
+            EmailType.RenewalDueNotice =>
+                dto.RenewalReminder,
+
+            EmailType.CounterStatement =>
+                dto.CounterStatementMail,
+
+            EmailType.OppositionConfirmation =>
+                dto.OppositionConfirmationMail,
+
+            EmailType.StatutoryDeclaration =>
+                dto.StatutoryDeclarationMail,
+
+            EmailType.WithdrawalNotification =>
+                dto.WithdrawalNotificationMail,
+
+            EmailType.WithdrawalApproved =>
+                dto.WithdrawalApprovedMail,
+
+            EmailType.WithdrawalRefused =>
+                dto.WithdrawalRefusedMail,
+
+            EmailType.WithdrawalApprovedApplicant =>
+                dto.WithdrawalApprovedApplicantMail,
+
+            EmailType.WithdrawalRefusedApplicant =>
+                dto.WithdrawalRefusedApplicantMail,
+
+            EmailType.ResetPassword =>
+                dto.ResetPasswordMail,
+
+            EmailType.WelcomeVerification =>
+                dto.WelcomeVerificationMail,
+
+            EmailType.StatusUpdate =>
+                dto.StatusUpdateMail,
+
+            _ => null
+        };
+
+        if (source == null)
         {
-            body = reader.ReadToEnd();
-        }
-        body = body.Replace("{OpposerName}", dto.OpposerName);
-        body = body.Replace("{FileNumber}", dto.FileNumber);
-        body = body.Replace("{Title}", dto.Title);
-        body = body.Replace("{FileOwnerName}", dto.FileOwnerName);
-        body = body.Replace("{CounterStatementDate}", dto.CounterStatementDate);
-        body = body.Replace("{SignatoryName}", dto.SignatoryName ?? "");
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
-
-    private string PopulateOppositionMail(OppositionMail dto)
-    {
-        _log.LogDebug("Populating opposition mail template for applicant {Applicant}, file {FileNumber}",
-            dto.ApplicantName, dto.FileNumber);
-
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\OppositionNotification.html";
-        using (var reader = new StreamReader(filePath))
-        {
-            body = reader.ReadToEnd();
-        }
-        body = body.Replace("{ApplicantName}", dto.ApplicantName);
-        body = body.Replace("{FileNumber}", dto.FileNumber);
-        body = body.Replace("{Title}", dto.Title);
-        body = body.Replace("{OpposerName}", dto.OpposerName);
-        body = body.Replace("{Reason}", dto.Reason);
-        body = body.Replace("{OppositionDate}", dto.OppositionDate);
-        body = body.Replace("{SignatoryName}", dto.SignatoryName);
-        body = body.Replace("{OppositionId}", dto.OppositionId ?? "");
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
-
-    private string ResetPasswordMail(ResetPasswordMail dto)
-    {
-        _log.LogDebug("Populating reset password mail template");
-
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\PasswordReset.html";
-        using (var reader = new StreamReader(filePath))
-        {
-            body = reader.ReadToEnd();
+            throw new ArgumentException($"The mail payload for '{dto.EmailType}' is required.", nameof(dto));
         }
 
-        body = body.Replace("{{ResetLink}}", dto.ResetLink);
-        body = body.Replace("{{UserName}}", dto.UserName);
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
-
-    private string PopulateStatutoryDeclarationMail(StatutoryDeclarationMail dto)
-    {
-        _log.LogDebug("Populating statutory declaration mail for {Recipient}, file {FileNumber}",
-            dto.RecipientName, dto.FileNumber);
-
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\StatutoryDeclarationNotification.html";
-        using (var reader = new StreamReader(filePath))
+        var variables = ConvertObjectToVariables(source);
+        if (source is RenewalReminder renewal)
         {
-            body = reader.ReadToEnd();
+            AddVariable(variables, "DueDate", renewal.RenewalDue);
+            AddVariable(variables, "ExpiryDate", renewal.RenewalDue);
         }
-        body = body.Replace("{RecipientName}", dto.RecipientName);
-        body = body.Replace("{FilerRole}", dto.FilerRole);
-        body = body.Replace("{FileNumber}", dto.FileNumber);
-        body = body.Replace("{FileTitle}", dto.FileTitle);
-        body = body.Replace("{OppositionId}", dto.OppositionId);
-        body = body.Replace("{DateFiled}", dto.DateFiled);
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
 
-    private string PopulateWithdrawalNotificationMail(WithdrawalNotificationMail dto)
-    {
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalNotification.html";
-        using (var reader = new StreamReader(filePath))
+        // Common variables available to all Resend templates.
+        AddVariable(
+            variables,
+            "Subject",
+            dto.Subject);
+
+        if (dto.Body != null || !variables.ContainsKey("Body"))
         {
-            body = reader.ReadToEnd();
+            AddVariable(variables, "Body", dto.Body);
         }
-        body = body.Replace("{ApplicantName}", dto.ApplicantName);
-        body = body.Replace("{OpposerName}",   dto.OpposerName);
-        body = body.Replace("{FileNumber}",    dto.FileNumber);
-        body = body.Replace("{FileTitle}",     dto.FileTitle);
-        body = body.Replace("{OppositionId}",  dto.OppositionId ?? "");
-        body = body.Replace("{WithdrawalDate}",dto.WithdrawalDate);
-        body = ApplyCommonTemplateTokens(body);
-        return body;
+
+        AddVariable(
+            variables,
+            "CurrentYear",
+            DateTime.UtcNow.Year.ToString());
+
+        return variables;
     }
 
-    private string PopulateWithdrawalApprovedMail(WithdrawalApprovedMail dto)
+    /// <summary>
+    /// Converts public properties from a DTO into Resend template variables.
+    ///
+    /// Example:
+    /// dto.ApplicantName -> {{{ApplicantName}}}
+    /// dto.FileNumber    -> {{{FileNumber}}}
+    /// </summary>
+    private static Dictionary<string, object> ConvertObjectToVariables(
+        object source)
     {
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalApproved.html";
-        using (var reader = new StreamReader(filePath))
+        var variables = new Dictionary<string, object>(
+            StringComparer.Ordinal);
+
+        var properties = source
+            .GetType()
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Where(property =>
+                property.CanRead &&
+                property.GetIndexParameters().Length == 0);
+
+        foreach (var property in properties)
         {
-            body = reader.ReadToEnd();
+            var value = property.GetValue(source);
+
+            variables[property.Name] = FormatVariableValue(value);
         }
-        body = body.Replace("{RecipientName}", dto.RecipientName);
-        body = body.Replace("{FileNumber}",    dto.FileNumber);
-        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
-        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
-        body = body.Replace("{Reason}",        dto.Reason ?? "");
-        body = ApplyCommonTemplateTokens(body);
-        return body;
+
+        return variables;
     }
 
-    private string PopulateWithdrawalRefusedMail(WithdrawalRefusedMail dto)
+    /// <summary>
+    /// Converts null values to an empty string and formats dates.
+    /// </summary>
+    private static object FormatVariableValue(object? value)
     {
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalRefused.html";
-        using (var reader = new StreamReader(filePath))
+        if (value == null)
         {
-            body = reader.ReadToEnd();
+            return string.Empty;
         }
-        body = body.Replace("{RecipientName}", dto.RecipientName);
-        body = body.Replace("{FileNumber}",    dto.FileNumber);
-        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
-        body = body.Replace("{Reason}",        dto.Reason ?? "");
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
 
-    private string PopulateWithdrawalApprovedApplicantMail(WithdrawalApprovedApplicantMail dto)
-    {
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalApprovedApplicant.html";
-        using (var reader = new StreamReader(filePath))
+        if (value is DateTime dateTime)
         {
-            body = reader.ReadToEnd();
+            return dateTime.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture);
         }
-        body = body.Replace("{RecipientName}", dto.RecipientName);
-        body = body.Replace("{FileNumber}",    dto.FileNumber);
-        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
-        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
 
-    private string PopulateWithdrawalRefusedApplicantMail(WithdrawalRefusedApplicantMail dto)
-    {
-        string body = string.Empty;
-        string filePath = Directory.GetCurrentDirectory() + @"\Templates\WithdrawalRefusedApplicant.html";
-        using (var reader = new StreamReader(filePath))
+        if (value is DateTimeOffset dateTimeOffset)
         {
-            body = reader.ReadToEnd();
+            return dateTimeOffset.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture);
         }
-        body = body.Replace("{RecipientName}", dto.RecipientName);
-        body = body.Replace("{FileNumber}",    dto.FileNumber);
-        body = body.Replace("{FileTitle}",     dto.FileTitle ?? "");
-        body = body.Replace("{OfficerName}",   dto.OfficerName ?? "");
-        body = ApplyCommonTemplateTokens(body);
-        return body;
-    }
 
-    private string PopulateRenewalReminder(RenewalReminder dto)
-    {
-        _log.LogDebug("Populating renewal reminder mail template for applicant {Applicant}, file {FileNumber}",
-            dto.ApplicantName, dto.FileNumber);
-
-        string body = string.Empty;
-        string filePath = dto.IsExpiryDay ? Directory.GetCurrentDirectory() + @"\Templates\RenewalDueNotification.html" : Directory.GetCurrentDirectory() + @"\Templates\RenewalReminder.html";
-        bool isTrademark = dto.Type == Models.FileTypes.TradeMark;
-        using (var reader = new StreamReader(filePath))
+        if (value is bool boolean)
         {
-            body = reader.ReadToEnd();
+            return boolean ? "true" : "false";
         }
-        body = body.Replace("{{ApplicantName}}", dto.ApplicantName);
-        body = body.Replace("{{FileNumber}}", dto.FileNumber);
-        body = body.Replace("{{Title}}", dto.Title);
-        body = body.Replace("{{DueDate}}", dto.RenewalDue.ToString("dd MMMM, yyyy"));
-        body = body.Replace("{{Class}}", dto.Class.ToString());
-        body = body.Replace("{{RegistryName}}", isTrademark ? "Trademarks" : "Patents & Designs");
-        body = ApplyCommonTemplateTokens(body);
 
-        return body;
+        if (value is Enum)
+        {
+            return value.ToString()!;
+        }
+
+        return value;
     }
 
-    private static string ApplyCommonTemplateTokens(string body)
+    /// <summary>
+    /// Adds or replaces a template variable.
+    /// </summary>
+    private static void AddVariable(
+        Dictionary<string, object> variables,
+        string name,
+        object? value)
     {
-        return body.Replace("{{CurrentYear}}", DateTime.UtcNow.Year.ToString());
+        variables[name] = FormatVariableValue(value);
+    }
+
+    /// <summary>
+    /// Gets the verified Resend sender email.
+    /// </summary>
+    private string GetSenderEmail()
+    {
+        var senderEmail = _configuration["RESEND_FROM_EMAIL"];
+
+        if (string.IsNullOrWhiteSpace(senderEmail))
+        {
+            senderEmail = _settings.SenderEmail;
+        }
+
+        if (!MailAddress.TryCreate(senderEmail, out _))
+        {
+            throw new InvalidOperationException(
+                "A valid Resend sender email is not configured. " +
+                "Set RESEND_FROM_EMAIL.");
+        }
+
+        return senderEmail;
+    }
+
+    /// <summary>
+    /// Gets the display name for the sender.
+    /// </summary>
+    private string GetSenderName()
+    {
+        var senderName = _configuration["RESEND_FROM_NAME"];
+
+        if (string.IsNullOrWhiteSpace(senderName))
+        {
+            senderName = _settings.SenderName;
+        }
+
+        return string.IsNullOrWhiteSpace(senderName)
+            ? "IPONigeria"
+            : senderName;
     }
 }

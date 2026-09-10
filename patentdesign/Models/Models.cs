@@ -35,7 +35,11 @@ public class AppUser
     public string? Name { get; set; }
     public string? PasswordResetToken { get; set; }
     public DateTime? PasswordResetTokenExpiry { get; set; }
+    public string? EmailVerificationToken { get; set; }
+    public DateTime? EmailVerificationTokenExpiry { get; set; }
     public List<ApplicationInfo>? OtherApplications { get; set; } = new();
+    public bool? HasEmailUnsubscribed = false;
+
 }
 
 public record PublicationInfo
@@ -2004,6 +2008,19 @@ public class Notification
     public ApplicationStatuses? NewStatus { get; set; }
     public FormApplicationTypes? ApplicationType { get; set; }
     public string? ApplicationId { get; set; }
+
+    [JsonIgnore]
+    public string? EmailPayload { get; set; }
+    [JsonIgnore]
+    public DateTime? EmailSentAt { get; set; }
+    [JsonIgnore]
+    public DateTime? EmailNextAttemptAt { get; set; }
+    [JsonIgnore]
+    public string? EmailLeaseId { get; set; }
+    [JsonIgnore]
+    public int EmailAttempts { get; set; }
+    [JsonIgnore]
+    public DateTime? RenewalDueDate { get; set; }
 }
 
 public class PublicationJournal
