@@ -7,14 +7,18 @@ using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Utils;
 using Serilog;
+using System.Net.Mail;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace patentdesign.Services
 {
     public class NotificationServices
     {
-        private static IMongoCollection<Notification> _notifications;
-        private static IMongoCollection<Filling> _files;
-        private static IMongoCollection<AppUser> _users;
+        private readonly IMongoCollection<Notification> _notifications;
+        private readonly IMongoCollection<Filling> _files;
+        private readonly IMongoCollection<AppUser> _users;
         private readonly IHubContext<NotificationHub> _hubContext;
         private readonly ILogger<NotificationServices> _logger;
         private readonly EmailServices _emailServices;
@@ -29,7 +33,12 @@ namespace patentdesign.Services
             _emailServices = emailServices;
         }
 
-        public async Task CreateNotificationAsync(CreateNotificationDto dto)
+        public Task CreateNotificationAsync(CreateNotificationDto dto)
+        {
+            return CreateNotificationAsync(dto, null, null, null);
+        }
+
+        private async Task CreateNotificationAsync(CreateNotificationDto dto, string? notificationId, EmailDto? email, DateTime? renewalDueDate)
         {
             if (dto is null)
             {
@@ -41,7 +50,7 @@ namespace patentdesign.Services
 
             var notification = new Notification
             {
-                Id = Guid.NewGuid().ToString(),
+                Id = notificationId ?? Guid.NewGuid().ToString(),
                 Audience = dto.Audience,
                 RecipientId = dto.RecipientId,
                 Title = dto.Title,
@@ -56,7 +65,10 @@ namespace patentdesign.Services
                 PreviousStatus = dto?.PreviousStatus,
                 NewStatus = dto?.NewStatus,
                 FileType = dto?.FileType,
-                ApplicationId = dto?.ApplicationId
+                ApplicationId = dto?.ApplicationId,
+                ApplicationType = dto?.ApplicationType,
+                ExpiresAt = dto?.ExpiresAt,
+                RenewalDueDate = renewalDueDate
             };
 
             if (notification.Audience == NotificationAudience.User && string.IsNullOrWhiteSpace(notification.RecipientId))
@@ -70,23 +82,198 @@ namespace patentdesign.Services
                 notification.RecipientId = null;
             }
 
-            await _notifications.InsertOneAsync(notification);
+            if (notification.Audience == NotificationAudience.User && notification.Category == NotificationCategory.StatusUpdate)
+            {
+                var recipient = await ResolveNotificationUserAsync(notification.RecipientId);
+                if (MailAddress.TryCreate(recipient?.Email, out _))
+                {
+                    email = new EmailDto
+                    {
+                        To = recipient!.Email,
+                        Subject = notification.Title,
+                        Body = notification.Message,
+                        EmailType = EmailType.StatusUpdate,
+                        StatusUpdateMail = new StatusUpdateMail
+                        {
+                            ApplicationType = notification.ApplicationType?.ToString() ?? notification.FileType?.ToString() ?? "Application",
+                            FormerStatus = notification.PreviousStatus?.ToString() ?? string.Empty,
+                            NewStatus = notification.NewStatus?.ToString() ?? string.Empty,
+                            DateTreated = notification.CreatedAt,
+                            Remarks = notification.Message
+                        }
+                    };
+                }
+                else
+                {
+                    _logger.LogWarning("Status email skipped for notification {NotificationId}: no valid recipient email", notification.Id);
+                }
+            }
+
+            if (email != null)
+            {
+                notification.EmailPayload = JsonSerializer.Serialize(email);
+                notification.EmailNextAttemptAt = DateTime.UtcNow;
+            }
+
+            if (notificationId == null)
+            {
+                await _notifications.InsertOneAsync(notification);
+            }
+            else
+            {
+                try
+                {
+                    var result = await _notifications.UpdateOneAsync(
+                        x => x.Id == notification.Id,
+                        new BsonDocument("$setOnInsert", notification.ToBsonDocument()),
+                        new UpdateOptions { IsUpsert = true });
+                    if (result.UpsertedId == null)
+                    {
+                        return;
+                    }
+                }
+                catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+                {
+                    return;
+                }
+            }
             _logger.LogDebug("Notification {NotificationId} inserted into Notifications collection", notification.Id);
-            
-            await SendNotification(notification);
-            _logger.LogInformation("Notification {NotificationId} created and sent to recipient {RecipientId}", notification.Id, notification.RecipientId);
+
+            try
+            {
+                await SendNotification(notification);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SignalR delivery failed for saved notification {NotificationId}", notification.Id);
+            }
+
+            if (notification.EmailPayload != null)
+            {
+                try
+                {
+                    await TrySendEmailAsync(notification.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Email remains pending for notification {NotificationId}", notification.Id);
+                }
+            }
+            _logger.LogInformation("Notification {NotificationId} saved for recipient {RecipientId}", notification.Id, notification.RecipientId);
         }
         private async Task SendNotification(Notification notification)
         {
             _logger.LogDebug("Sending notification {NotificationId} to recipient {RecipientId}", notification?.Id, notification?.RecipientId);
 
+            if (notification.Audience == NotificationAudience.System)
+            {
+                return;
+            }
+
+            var user = await ResolveNotificationUserAsync(notification.RecipientId);
             await _hubContext.Clients
-                .User(notification?.RecipientId)
+                .User(user?.Id ?? notification.RecipientId!)
                 .SendAsync(
                     "ReceiveNotification",
                     notification);
 
             _logger.LogDebug("Notification {NotificationId} delivered to SignalR client for recipient {RecipientId}", notification?.Id, notification?.RecipientId);
+        }
+
+        private Task<AppUser> ResolveNotificationUserAsync(string? recipient)
+        {
+            return _users.Find(u => u.Id == recipient || u.Email == recipient || u.CreatorId == recipient).FirstOrDefaultAsync();
+        }
+
+        public async Task<int> RetryPendingEmailsAsync(CancellationToken cancellationToken = default)
+        {
+            var pending = await _notifications.Find(
+                    Builders<Notification>.Filter.Ne(x => x.EmailPayload, null) &
+                    Builders<Notification>.Filter.Eq(x => x.EmailSentAt, null) &
+                    Builders<Notification>.Filter.Lte(x => x.EmailNextAttemptAt, DateTime.UtcNow))
+                .SortBy(x => x.EmailNextAttemptAt)
+                .Limit(100)
+                .ToListAsync(cancellationToken);
+
+            var sentCount = 0;
+            foreach (var notification in pending)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    if (await TrySendEmailAsync(notification.Id, cancellationToken))
+                    {
+                        sentCount++;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unable to process pending email for notification {NotificationId}", notification.Id);
+                }
+            }
+
+            return sentCount;
+        }
+
+        private async Task<bool> TrySendEmailAsync(string notificationId, CancellationToken cancellationToken = default)
+        {
+            var now = DateTime.UtcNow;
+            var leaseId = Guid.NewGuid().ToString();
+            var pendingFilter = Builders<Notification>.Filter.Eq(x => x.Id, notificationId) &
+                Builders<Notification>.Filter.Ne(x => x.EmailPayload, null) &
+                Builders<Notification>.Filter.Eq(x => x.EmailSentAt, null) &
+                Builders<Notification>.Filter.Lte(x => x.EmailNextAttemptAt, now);
+            var notification = await _notifications.FindOneAndUpdateAsync(
+                pendingFilter,
+                Builders<Notification>.Update
+                    .Set(x => x.EmailLeaseId, leaseId)
+                    .Set(x => x.EmailNextAttemptAt, now.AddMinutes(5))
+                    .Inc(x => x.EmailAttempts, 1),
+                new FindOneAndUpdateOptions<Notification> { ReturnDocument = ReturnDocument.After },
+                cancellationToken);
+
+            if (notification == null)
+            {
+                return false;
+            }
+
+            var ownedFilter = Builders<Notification>.Filter.Eq(x => x.Id, notification.Id) &
+                Builders<Notification>.Filter.Eq(x => x.EmailLeaseId, leaseId);
+            try
+            {
+                var email = JsonSerializer.Deserialize<EmailDto>(notification.EmailPayload!)
+                    ?? throw new InvalidOperationException("The pending email payload is invalid.");
+                await _emailServices.SendMail(email, notification.Id, cancellationToken);
+                await _notifications.UpdateOneAsync(
+                    ownedFilter,
+                    Builders<Notification>.Update
+                        .Set(x => x.EmailSentAt, DateTime.UtcNow)
+                        .Unset(x => x.EmailNextAttemptAt)
+                        .Unset(x => x.EmailLeaseId),
+                    cancellationToken: cancellationToken);
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Email attempt {Attempt} failed for notification {NotificationId}; scheduling retry",
+                    notification.EmailAttempts, notification.Id);
+                var delayMinutes = Math.Min(60, Math.Pow(2, Math.Min(notification.EmailAttempts, 6)));
+                await _notifications.UpdateOneAsync(
+                    ownedFilter,
+                    Builders<Notification>.Update
+                        .Set(x => x.EmailNextAttemptAt, DateTime.UtcNow.AddMinutes(delayMinutes))
+                        .Unset(x => x.EmailLeaseId),
+                    cancellationToken: cancellationToken);
+                return false;
+            }
         }
         public async Task<List<Notification>> GetNotificationsAsync(string userId)
         {
@@ -193,52 +380,42 @@ namespace patentdesign.Services
 
             var sentCount = 0;
 
-            foreach (var file in files) 
+            foreach (var file in files)
             {
-                var expiryDate = file.ApplicationHistory?.FirstOrDefault()?.ExpiryDate;
-                if (!expiryDate.HasValue)
+                try
                 {
-                    _logger.LogWarning("Skipping renewal notification for file {FileId} because no expiry date was found", file.Id);
-                    continue;
-                }
+                    var expiryDate = file.ApplicationHistory?.FirstOrDefault()?.ExpiryDate;
+                    if (!expiryDate.HasValue)
+                    {
+                        continue;
+                    }
 
-                var daysUntilExpiry = expiryDate.Value.DayNumber - today.DayNumber;
-                if (daysUntilExpiry != 90 && daysUntilExpiry != 0)
+                    var daysUntilExpiry = expiryDate.Value.DayNumber - today.DayNumber;
+                    if (daysUntilExpiry < 0 || daysUntilExpiry > 90)
+                    {
+                        continue;
+                    }
+
+                    var recipient = await ResolveRecipientAsync(file.CreatorAccount);
+                    var emailRecipient = await ResolveEmailAsync(file.CreatorAccount);
+                    if (string.IsNullOrWhiteSpace(recipient) || !MailAddress.TryCreate(emailRecipient, out _))
+                    {
+                        _logger.LogWarning("Skipping renewal reminder for file {FileId}: no valid recipient email", file.Id);
+                        continue;
+                    }
+
+                    var notificationDto = BuildRenewalNotificationDto(file, recipient, expiryDate.Value, daysUntilExpiry == 0);
+                    var emailDto = BuildRenewalReminderEmailDto(file, emailRecipient!, expiryDate.Value, daysUntilExpiry == 0);
+                    var reminderId = BuildRenewalReminderId(file.Id, recipient, expiryDate.Value, daysUntilExpiry == 0);
+                    await MarkFileRenewalEligibleAsync(file.Id);
+                    await CreateNotificationAsync(notificationDto, reminderId, emailDto,
+                        expiryDate.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+                    sentCount++;
+                }
+                catch (Exception ex)
                 {
-                    continue;
+                    _logger.LogError(ex, "Renewal reminder failed for file {FileId}; continuing with other files", file.Id);
                 }
-
-                var recipient = await ResolveRecipientAsync(file.CreatorAccount);
-                if (string.IsNullOrWhiteSpace(recipient))
-                {
-                    _logger.LogWarning("Skipping renewal notification for file {FileId} because no recipient could be resolved", file.Id);
-                    continue;
-                }
-
-                var notificationDto = BuildRenewalNotificationDto(file, recipient, expiryDate.Value, daysUntilExpiry == 0);
-                await MarkFileRenewalEligibleAsync(file.Id);
-
-                var wasSent = await HasRenewalReminderBeenSentAsync(file.FileId, recipient, notificationDto.Title);
-                if (wasSent)
-                {
-                    _logger.LogDebug("Skipping duplicate renewal reminder for file {FileId} and recipient {Recipient}", file.FileId, recipient);
-                    continue;
-                }
-
-                await CreateNotificationAsync(notificationDto);
-
-                var emailRecipient = await ResolveEmailAsync(file.CreatorAccount);
-                if (!string.IsNullOrWhiteSpace(emailRecipient))
-                {
-                    var emailDto = BuildRenewalReminderEmailDto(file, emailRecipient, expiryDate.Value, daysUntilExpiry == 0);
-                    await _emailServices.SendMail(emailDto);
-                }
-                else
-                {
-                    _logger.LogWarning("Renewal reminder email skipped for file {FileId} because no email could be resolved", file.Id);
-                }
-
-                sentCount++;
             }
 
             return sentCount;
@@ -262,15 +439,10 @@ namespace patentdesign.Services
         }
 
 
-        private async Task<bool> HasRenewalReminderBeenSentAsync(string fileNumber, string recipientId, string title)
+        private static string BuildRenewalReminderId(string fileId, string recipientId, DateOnly expiryDate, bool isExpiryDay)
         {
-            var sentFilter = Builders<Notification>.Filter.And(
-                Builders<Notification>.Filter.Eq(x => x.Category, NotificationCategory.Renewal),
-                Builders<Notification>.Filter.Eq(x => x.FileNumber, fileNumber),
-                Builders<Notification>.Filter.Eq(x => x.RecipientId, recipientId),
-                Builders<Notification>.Filter.Eq(x => x.Title, title));
-
-            return await _notifications.Find(sentFilter).AnyAsync();
+            var key = $"{fileId}|{recipientId}|{expiryDate.DayNumber}|{isExpiryDay}";
+            return "renewal-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
         }
         private async Task<string?> ResolveEmailAsync(string? creatorAccount)
         {
@@ -320,7 +492,7 @@ namespace patentdesign.Services
                 Priority = NotificationPriority.High,
                 CreatedBy = "System",
                 FileNumber = file.FileId,
-                ActionUrl = $"https://yourdomain.com/trademarks/{file.FileId}/renewal"
+                ActionUrl = $"/dataview/?id={Uri.EscapeDataString(file.Id)}"
             };
         }
         private static EmailDto BuildRenewalReminderEmailDto(Filling file, string recipientEmail, DateOnly expiryDate, bool isExpiryDay)
@@ -335,10 +507,16 @@ namespace patentdesign.Services
                     ApplicantName = file.applicants?.FirstOrDefault()?.Name ?? "Applicant",
                     FileNumber = file.FileId,
                     Title = file.TitleOfTradeMark ?? file.TitleOfDesign ?? file.TitleOfInvention ?? "Trademark",
-                    RenewalDue = expiryDate.ToDateTime(TimeOnly.MinValue),
+                    RenewalDue = expiryDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
                     Type = file.Type,
                     Class = file.TrademarkClass ?? 0,
-                    IsExpiryDay = isExpiryDay
+                    IsExpiryDay = isExpiryDay,
+                    RegistryName = file.Type switch
+                    {
+                        FileTypes.Patent => "Patents",
+                        FileTypes.Design => "Designs",
+                        _ => "Trademarks"
+                    }
                 }
             };
         }

@@ -6,12 +6,32 @@ using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Utils;
 using Resend;
+using System.Globalization;
+using System.Net.Mail;
 using System.Reflection;
 
 namespace patentdesign.Services;
 
 public class EmailServices
 {
+    private static readonly IReadOnlyDictionary<EmailType, string> TemplateKeys = new Dictionary<EmailType, string>
+    {
+        [EmailType.Opposition] = "RESEND_TEMPLATE_OPPOSITION",
+        [EmailType.RenewalEarlyReminder] = "RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER",
+        [EmailType.RenewalDueNotice] = "RESEND_TEMPLATE_RENEWAL_DUE_NOTICE",
+        [EmailType.CounterStatement] = "RESEND_TEMPLATE_COUNTER_STATEMENT",
+        [EmailType.OppositionConfirmation] = "RESEND_TEMPLATE_OPPOSITION_CONFIRMATION",
+        [EmailType.StatutoryDeclaration] = "RESEND_TEMPLATE_STATUTORY_DECLARATION",
+        [EmailType.WithdrawalNotification] = "RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION",
+        [EmailType.WithdrawalApproved] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED",
+        [EmailType.WithdrawalRefused] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED",
+        [EmailType.WithdrawalApprovedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED_APPLICANT",
+        [EmailType.WithdrawalRefusedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT",
+        [EmailType.ResetPassword] = "RESEND_TEMPLATE_RESET_PASSWORD",
+        [EmailType.WelcomeVerification] = "RESEND_TEMPLATE_WELCOMEVERIFICATION",
+        [EmailType.StatusUpdate] = "RESEND_TEMPLATE_STATUS_UPDATE"
+    };
+
     private readonly EmailSettings _settings;
     private readonly IConfiguration _configuration;
     private readonly IResend _resend;
@@ -32,12 +52,13 @@ public class EmailServices
     /// <summary>
     /// Sends a transactional email using a Resend template.
     /// </summary>
-    public async Task SendMail(EmailDto dto)
+    public async Task SendMail(EmailDto dto, string? idempotencyKey = null, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(dto.To))
+        ArgumentNullException.ThrowIfNull(dto);
+        if (!MailAddress.TryCreate(dto.To, out _))
         {
             throw new ArgumentException(
-                "Email recipient is required.",
+                "A valid email recipient is required.",
                 nameof(dto.To));
         }
 
@@ -62,14 +83,29 @@ public class EmailServices
 
         message.To.Add(dto.To);
 
+        if (!string.IsNullOrWhiteSpace(dto.Subject))
+        {
+            message.Subject = dto.Subject;
+        }
+
         if (!string.IsNullOrWhiteSpace(dto.CarbonCopy))
         {
+            if (!MailAddress.TryCreate(dto.CarbonCopy, out _))
+            {
+                throw new ArgumentException("A valid CC email address is required.", nameof(dto.CarbonCopy));
+            }
             message.Cc.Add(dto.CarbonCopy);
         }
 
         try
         {
-            var response = await _resend.EmailSendAsync(message);
+            var response = string.IsNullOrWhiteSpace(idempotencyKey)
+                ? await _resend.EmailSendAsync(message, cancellationToken)
+                : await _resend.EmailSendAsync(idempotencyKey, message, cancellationToken);
+            if (!response.Success)
+            {
+                throw new InvalidOperationException("Resend rejected the email request.", response.Exception);
+            }
 
             _log.LogInformation(
                 "Resend template email sent successfully to {Recipient}. Template: {TemplateId}",
@@ -89,28 +125,43 @@ public class EmailServices
     }
 
     /// <summary>
-    /// Gets the correct Resend template ID based on EmailType.
-    ///
-    /// Example:
-    /// EmailType.Opposition
-    /// becomes
-    /// RESEND_TEMPLATE_OPPOSITION
+    /// Gets the configured Resend template ID or alias for the email type.
     /// </summary>
     private string GetTemplateId(EmailType emailType)
     {
-        var key = $"RESEND_TEMPLATE_{emailType}"
-            .ToUpperInvariant();
-
-        var templateId = Environment.GetEnvironmentVariable(key);
-
-        if (string.IsNullOrWhiteSpace(templateId))
+        if (!TemplateKeys.TryGetValue(emailType, out var key))
         {
-            throw new InvalidOperationException(
-                $"Resend template ID is missing for email type '{emailType}'. " +
-                $"Expected configuration key: '{key}'.");
+            throw new NotSupportedException($"Email type '{emailType}' has no configured template mapping.");
         }
 
-        return templateId;
+        return RequireSetting(_configuration, key);
+    }
+
+    public static void ValidateConfiguration(IConfiguration configuration)
+    {
+        RequireSetting(configuration, "RESEND_APIKEY");
+        var sender = RequireSetting(configuration, "RESEND_FROM_EMAIL");
+        if (!MailAddress.TryCreate(sender, out _))
+        {
+            throw new InvalidOperationException("RESEND_FROM_EMAIL must be a valid email address.");
+        }
+
+        foreach (var key in TemplateKeys.Values)
+        {
+            RequireSetting(configuration, key);
+        }
+    }
+
+    private static string RequireSetting(IConfiguration configuration, string key)
+    {
+        var value = configuration[key]?.Trim();
+        if (string.IsNullOrWhiteSpace(value) || value.Contains("$(") || value.Contains("${") ||
+            System.Text.RegularExpressions.Regex.IsMatch(value, "^tmpl_x+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            throw new InvalidOperationException($"Configure a real value for '{key}'; missing values and placeholders are not supported.");
+        }
+
+        return value;
     }
 
     /// <summary>
@@ -166,9 +217,17 @@ public class EmailServices
             _ => null
         };
 
-        var variables = source != null
-            ? ConvertObjectToVariables(source)
-            : new Dictionary<string, object>();
+        if (source == null)
+        {
+            throw new ArgumentException($"The mail payload for '{dto.EmailType}' is required.", nameof(dto));
+        }
+
+        var variables = ConvertObjectToVariables(source);
+        if (source is RenewalReminder renewal)
+        {
+            AddVariable(variables, "DueDate", renewal.RenewalDue);
+            AddVariable(variables, "ExpiryDate", renewal.RenewalDue);
+        }
 
         // Common variables available to all Resend templates.
         AddVariable(
@@ -176,10 +235,10 @@ public class EmailServices
             "Subject",
             dto.Subject);
 
-        AddVariable(
-            variables,
-            "Body",
-            dto.Body);
+        if (dto.Body != null || !variables.ContainsKey("Body"))
+        {
+            AddVariable(variables, "Body", dto.Body);
+        }
 
         AddVariable(
             variables,
@@ -231,12 +290,22 @@ public class EmailServices
 
         if (value is DateTime dateTime)
         {
-            return dateTime.ToString("dd MMMM yyyy");
+            return dateTime.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture);
         }
 
         if (value is DateTimeOffset dateTimeOffset)
         {
-            return dateTimeOffset.ToString("dd MMMM yyyy");
+            return dateTimeOffset.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture);
+        }
+
+        if (value is bool boolean)
+        {
+            return boolean ? "true" : "false";
+        }
+
+        if (value is Enum)
+        {
+            return value.ToString()!;
         }
 
         return value;
@@ -265,10 +334,10 @@ public class EmailServices
             senderEmail = _settings.SenderEmail;
         }
 
-        if (string.IsNullOrWhiteSpace(senderEmail))
+        if (!MailAddress.TryCreate(senderEmail, out _))
         {
             throw new InvalidOperationException(
-                "Resend sender email is not configured. " +
+                "A valid Resend sender email is not configured. " +
                 "Set RESEND_FROM_EMAIL.");
         }
 

@@ -2794,7 +2794,7 @@ public class OppositionService
                 }
 
                 // 3. Email opposer
-                _ = _emailServices.SendMail(new EmailDto
+                await SendWithdrawalEmailAsync(new EmailDto
                 {
                     To        = opp.Email,
                     Subject   = "Opposition Withdrawal Approved",
@@ -2815,7 +2815,7 @@ public class OppositionService
                 var applicant = file?.applicants?.FirstOrDefault();
                 if (applicant != null && !string.IsNullOrWhiteSpace(applicant.Email))
                 {
-                    _ = _emailServices.SendMail(new EmailDto
+                    await SendWithdrawalEmailAsync(new EmailDto
                     {
                         To        = applicant.Email,
                         Subject   = "Opposition Against Your Trademark Withdrawn",
@@ -2836,7 +2836,7 @@ public class OppositionService
             else // refuse
             {
                 // Email opposer
-                _ = _emailServices.SendMail(new EmailDto
+                await SendWithdrawalEmailAsync(new EmailDto
                 {
                     To        = opp.Email,
                     Subject   = "Opposition Withdrawal Refused",
@@ -2855,7 +2855,7 @@ public class OppositionService
                 var refusedApplicant = file?.applicants?.FirstOrDefault();
                 if (refusedApplicant != null && !string.IsNullOrWhiteSpace(refusedApplicant.Email))
                 {
-                    _ = _emailServices.SendMail(new EmailDto
+                    await SendWithdrawalEmailAsync(new EmailDto
                     {
                         To        = refusedApplicant.Email,
                         Subject   = "Update on Opposition Against Your Trademark",
@@ -2880,6 +2880,19 @@ public class OppositionService
             throw;
         }
     }
+    private async Task SendWithdrawalEmailAsync(EmailDto email)
+    {
+        try
+        {
+            await _emailServices.SendMail(email);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Withdrawal email {EmailType} failed for {Recipient}; the saved decision is unchanged",
+                email.EmailType, email.To);
+        }
+    }
+
     // ─── Backfill: fix files stuck on Opposition(15) whose opposition is Withdrawn(24) ─
     public async Task<int> BackfillWithdrawnFileStatuses()
     {

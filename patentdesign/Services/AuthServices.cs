@@ -169,11 +169,11 @@ namespace patentdesign.Services
                 u.EmailVerificationTokenExpiry > DateTime.UtcNow
             ).FirstOrDefaultAsync();
 
-            //if (user == null)
-            //{
-            //    _log.LogWarning("Email verification failed — invalid or expired token for {Email}", emailNormalized);
-            //    return false;
-            //}
+            if (user == null)
+            {
+                _log.LogWarning("Email verification failed — invalid or expired token for {Email}", emailNormalized);
+                return false;
+            }
 
             var update = Builders<AppUser>.Update
                 .Set(u => u.isVerified, true)
@@ -187,8 +187,8 @@ namespace patentdesign.Services
 
         private async Task SendVerificationEmailAsync(AppUser user, string emailNormalized, string verificationToken)
         {
-            //var portalBaseUrl = "https://portal.iponigeria.com";
-            var portalBaseUrl = "http://localhost:5173";
+            var portalBaseUrl = _config["PORTAL_BASE_URL"]
+                ?? throw new InvalidOperationException("PORTAL_BASE_URL is not configured.");
             var verifyLink = $"{portalBaseUrl.TrimEnd('/')}/auth/verify-email?token={Uri.EscapeDataString(verificationToken)}&email={Uri.EscapeDataString(emailNormalized)}";
             var mail = new EmailDto
             {
@@ -487,7 +487,9 @@ namespace patentdesign.Services
 
             await _users.UpdateOneAsync(u => u.Id == user.Id, update);
 
-            var resetLink = $"https://portal.iponigeria.com/auth/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
+            var portalBaseUrl = _config["PORTAL_BASE_URL"]
+                ?? throw new InvalidOperationException("PORTAL_BASE_URL is not configured.");
+            var resetLink = $"{portalBaseUrl.TrimEnd('/')}/auth/reset-password?token={Uri.EscapeDataString(token)}&email={Uri.EscapeDataString(email)}";
             _log.LogDebug("Reset link generated for {Email}", email);
 
             var mail = new EmailDto
