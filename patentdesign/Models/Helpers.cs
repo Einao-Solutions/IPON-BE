@@ -550,3 +550,21 @@ public enum CldxCountry
     Serbia = 254,
     RepublicOfChina = 255
 }
+
+public static class TradeMarkLogoExtensions
+{
+    /// <summary>
+    /// Gets a user-friendly display name for the TradeMarkLogo enum value
+    /// </summary>
+    public static string GetDisplayName(this TradeMarkLogo? logo)
+    {
+        return logo switch
+        {
+            TradeMarkLogo.Device => "Device",
+            TradeMarkLogo.WordMark => "Word Mark",
+            TradeMarkLogo.WordandDevice => "Word and Device",
+            _ => logo?.ToString() ?? "N/A"
+        };
+    }
+}
+

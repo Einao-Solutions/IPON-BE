@@ -268,7 +268,7 @@ builder.Services.AddProblemDetails();
 // ------------------ Services ------------------
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSignalR();
-builder.Services.AddScoped<PaymentUtils>();
+builder.Services.AddSingleton<PaymentUtils>();
 builder.Services.AddScoped<OppositionService>();
 builder.Services.AddScoped<FilesServices>();
 builder.Services.AddScoped<LettersServices>();
@@ -278,7 +278,7 @@ builder.Services.AddScoped<FinanceService>();
 builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<MigrationService>();
-builder.Services.AddScoped<EmailServices>();
+builder.Services.AddSingleton<EmailServices>();
 builder.Services.AddScoped<AuthServices>();
 builder.Services.AddScoped<AdminServices>();
 builder.Services.AddScoped<StatisticsService>();
@@ -296,7 +296,8 @@ var app = builder.Build();
 // ------------------ One-off DB backfill ------------------
 try
 {
-    var oppSvc = app.Services.GetRequiredService<OppositionService>();
+    using var scope = app.Services.CreateScope();
+    var oppSvc = scope.ServiceProvider.GetRequiredService<OppositionService>();
     await oppSvc.BackfillOppositionCreatorIds();
 }
 catch (Exception ex)

@@ -69,8 +69,9 @@ public class FilesServices
     private PublicationServices _publicationServices;
     private NotificationServices _notificationServices;
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
-    //private string attachmentBaseUrl = "https://integration.iponigeria.com";
-     private string attachmentBaseUrl = "";  // Use relative URL (will resolve to current domain)
+
+    private string attachmentBaseUrl = "https://integration.iponigeria.com";
+    //private string attachmentBaseUrl = "https://localhost:5044";  // Use relative URL (will resolve to current domain)
 
     public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
@@ -135,14 +136,25 @@ public class FilesServices
     public async Task CreateFileAsync(Filling newFile)
     {
         var baseFileId = newFile.FileId;
+        _log.LogInformation("Starting file creation. Base FileId {BaseFileId}, Type {FileType}", baseFileId, newFile.Type);
+
+        var attempts = 0;
         do
         {
+            attempts++;
             newFile.FileId = string.Join("/", [baseFileId, Guid.NewGuid().ToString("N")[..8]]);
+
+            if (attempts > 1)
+            {
+                _log.LogWarning("FileId collision detected for base {BaseFileId}. Retry attempt {Attempt} with candidate {CandidateFileId}",
+                    baseFileId, attempts, newFile.FileId);
+            }
         }
         while (await _fillingCollection.Find(x => x.FileId == newFile.FileId).AnyAsync());
 
         _log.LogInformation("Creating file with FileId {FileId}, Type {FileType}", newFile.FileId, newFile.Type);
         await _fillingCollection.InsertOneAsync(newFile);
+        _log.LogInformation("File created successfully with FileId {FileId} after {Attempts} attempt(s)", newFile.FileId, attempts);
     }
 
     public async Task<Filling?> ManualUpdate(string fileId, string applicationId, string? userName, string? userId, bool? isCertificate = false)
@@ -714,9 +726,15 @@ public class FilesServices
 
         foreach (var item in none)
         {
-            var res = await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, item)).Limit(1)
-                .ToListAsync();
-            var dd = res[0];
+            var dd = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(x => x.Id, item))
+                .FirstOrDefaultAsync();
+
+            if (dd == null)
+            {
+                continue;
+            }
+
             var url = await SaveAcknowledgement(dd);
             Console.WriteLine(url);
             break;
@@ -1600,10 +1618,25 @@ public class FilesServices
 
     public async Task updateApproved()
     {
-        var resul = _fillingCollection.AsQueryable().Where(x =>
-            x.FileStatus == ApplicationStatuses.Active &&
-            x.FileId.Split(separator).Length == 6 &&
-            x.ApplicationHistory[0].Letters.Count == 3).ToList();
+        var sixSegmentFileIdFilter = Builders<Filling>.Filter.Regex(
+            x => x.FileId,
+            new BsonRegularExpression("^[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+$"));
+
+        var activeFilesWithSixSegments = await _fillingCollection
+            .Find(Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.FileStatus, ApplicationStatuses.Active),
+                sixSegmentFileIdFilter))
+            .ToListAsync();
+
+        var resul = activeFilesWithSixSegments
+            .Where(x => x.ApplicationHistory.Count > 0 && x.ApplicationHistory[0].Letters.Count == 3)
+            .ToList();
+
+        if (resul.Count < 3)
+        {
+            return;
+        }
+
         Console.WriteLine(resul[0].Id);
         Console.WriteLine(resul[1].Id);
         Console.WriteLine(resul[2].Id);
@@ -1900,7 +1933,8 @@ public class FilesServices
 
                 // Use relative URL for compatibility across local, dev, and prod
                 var attachmentUrl = $"/api/files/GetAttachment?fileId={trustedFileName}";
-                uris.Add(attachmentUrl);
+                var attUrl = attachmentBaseUrl + $"/api/files/GetAttachment?fileId={trustedFileName}";
+                uris.Add(attUrl);
             }
         }
         return uris;
@@ -2137,16 +2171,23 @@ public class FilesServices
         // send back
     }
 
-    private static readonly char[] separator = new char[] { '/' };
-
     public async Task GenerateDesignCerts()
     {
-        var desingActive = _fillingCollection.AsQueryable().Where(x =>
-            x.Type == FileTypes.Design &&
-            x.FileId.Split(separator).Length == 6 && x.FileStatus == ApplicationStatuses.Active).ToList();
-        foreach (var filling in desingActive)
+        var sixSegmentFileIdFilter = Builders<Filling>.Filter.Regex(
+            x => x.FileId,
+            new BsonRegularExpression("^[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+$"));
+
+        var desingActive = await _fillingCollection
+            .Find(Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Type, FileTypes.Design),
+                Builders<Filling>.Filter.Eq(x => x.FileStatus, ApplicationStatuses.Active),
+                sixSegmentFileIdFilter))
+            .ToListAsync();
+
+        for (var index = 0; index < desingActive.Count; index++)
         {
-            Console.WriteLine($"{desingActive.IndexOf(filling) + 1}, {filling.Id}");
+            var filling = desingActive[index];
+            Console.WriteLine($"{index + 1}, {filling.Id}");
             // var acceptanceUrl=await SaveAcceptance(filling, "", "ILoduba C.O");
             var certificateUrl = await SaveCertificate(filling, "", "ILoduba C.O");
             if (filling.ApplicationHistory[0].Letters.ContainsKey("acceptance"))
@@ -2908,11 +2949,6 @@ public class FilesServices
         if (tradeData.Type is FileTypes.TradeMark)
         {
             byte[] images = [];
-
-            // foreach (var url in tradeData.Attachments.FirstOrDefault(x => x.name == "designs").url)
-            // {
-            //     images.Add(await (new HttpClient()).GetByteArrayAsync(url));
-            // }
             data = new AcknowledgementModelTrademark(tradeData, "uri", images, receipt).GeneratePdf();
         }
 
@@ -3150,12 +3186,21 @@ public class FilesServices
 
     public async Task<(byte[], string, string)?> GetAttachment(string fileId)
     {
+        _log.LogInformation("Fetching attachment for FileId {FileId}", fileId);
+
         var filter = Builders<AttachmentInfo>.Filter.Eq(x => x.Id, fileId);
-        var attachmentInfo = await _attachmentCollection.Find(filter).Limit(1).ToListAsync();
+        var attachmentInfo = await _attachmentCollection
+            .Find(filter)
+            .FirstOrDefaultAsync();
+
         if (attachmentInfo != null)
         {
-            return (attachmentInfo[0].Data, attachmentInfo[0].ContentType, attachmentInfo[0].Id);
+            _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
+                fileId, attachmentInfo.ContentType);
+            return (attachmentInfo.Data, attachmentInfo.ContentType, attachmentInfo.Id);
         }
+
+        _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
         return null;
     }
 
@@ -5889,6 +5934,39 @@ public class FilesServices
                 data.Item1, data.Item3, data.Item2, "File Withdrawal",
                 applicant.Name, applicant.Email, applicant.Phone);
 
+            // Create ApplicationInfo with AwaitingPayment status when invoice is generated
+            fileInfo.ApplicationHistory ??= new List<ApplicationInfo>();
+            var existingWithdrawalApp = fileInfo.ApplicationHistory
+                .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
+
+            if (existingWithdrawalApp == null)
+            {
+                var withdrawalApp = new ApplicationInfo
+                {
+                    id = Guid.NewGuid().ToString(),
+                    ApplicationType = FormApplicationTypes.WithdrawalRequest,
+                    ApplicationDate = DateTime.Now,
+                    CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                    PaymentId = paymentId,
+                    FieldToChange = "Withdrawal Request",
+                    NewValue = "",
+                    StatusHistory = new List<ApplicationHistory>
+                    {
+                        new ApplicationHistory
+                        {
+                            Date = DateTime.Now,
+                            Message = "Withdrawal request initiated - awaiting payment",
+                            beforeStatus = ApplicationStatuses.None,
+                            afterStatus = ApplicationStatuses.AwaitingPayment,
+                            User = applicant.Name,
+                            UserId = ""
+                        }
+                    }
+                };
+                fileInfo.ApplicationHistory.Add(withdrawalApp);
+                await _fillingCollection.ReplaceOneAsync(x => x.Id == fileInfo.Id, fileInfo);
+            }
+
             var fileWithdrawalCost = new RecordalDto
             {
                 Amount = data.Item1,
@@ -7824,8 +7902,7 @@ public class FilesServices
             throw new Exception("No Payment Id found");
         }
 
-        // Save dates
-        file.WithdrawalDate = DateTime.Now;
+        // Only set withdrawal request date; actual withdrawal date set on approval
         file.WithdrawalRequestDate = DateTime.Now;
 
         // Handle attachments
@@ -7883,37 +7960,23 @@ public class FilesServices
             }
         }
 
-        // Application history
-        var applicant = file.applicants.FirstOrDefault();
-        var withdrawalHistory = new ApplicationInfo
-        {
-            id = Guid.NewGuid().ToString(),
-            ApplicationType = FormApplicationTypes.WithdrawalRequest,
-            CurrentStatus = ApplicationStatuses.RequestWithdrawal,
-            ApplicationDate = DateTime.Now,
-            PaymentId = dto.PaymentRRR,
-            FieldToChange = "Withdrawal Request",
-            NewValue = "",
-            StatusHistory = new List<ApplicationHistory>
-            {
-                new ApplicationHistory
-                {
-                    Date = DateTime.Now,
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.RequestWithdrawal,
-                    Message = "Withdrawal Request Submitted",
-                    User = user.Name,
-                    UserId = user.Id
-                }
-            }
-        };
-
+        // Application history with AwaitingPayment was already created in GetFileWithdrawalCost
+        // Only update it if payment details need to be added or renewed
         file.ApplicationHistory ??= new List<ApplicationInfo>();
-        file.ApplicationHistory.Add(withdrawalHistory);
+
+        var existingWithdrawalApp = file.ApplicationHistory
+            .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
+
+        if (existingWithdrawalApp != null)
+        {
+            // Update the PaymentId with the confirmed RRR
+            existingWithdrawalApp.PaymentId = dto.PaymentRRR;
+        }
 
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
         _log.LogInformation("Withdrawal request completed for FileId {FileId}", dto.FileId);
-        return (true, "Withdrawal request submitted successfully.");
+        return (true, "Withdrawal request submitted. Awaiting payment verification and admin review.");
+
     }
 
     public async Task<WithdrawalDetailsDto?> GetWithdrawalDetailsAsync(string fileId)
@@ -8018,17 +8081,36 @@ public class FilesServices
 
         // Find the ApplicationInfo for WithdrawalRequest
         var withdrawalApp = file.ApplicationHistory
-            .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
+            ?.FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.WithdrawalRequest);
 
         if (withdrawalApp == null)
+        {
+            // This should not happen as it's created in WithdrawalRequestAsync, but handle it
             return (false, "No withdrawal request found");
+        }
+
+        // Check if payment has been completed before approving
+        if (approve)
+        {
+            var paymentRecord = await _paymentService.GetPaymentRecordByFileIdAsync(file.FileId, "File Withdrawal");
+            if (paymentRecord == null || paymentRecord.RemitaResponse == null)
+            {
+                return (false, "Payment record not found. Payment must be completed before approval.");
+            }
+
+            // Verify payment status is successful (status = "00" indicates success)
+            if (paymentRecord.RemitaResponse.status != "00")
+            {
+                return (false, $"Payment verification failed. Status: {paymentRecord.RemitaResponse.status}");
+            }
+        }
 
         // Prepare new status history entry
         var newStatus = new ApplicationHistory
         {
             Date = DateTime.Now,
-            Message = approve ? "Withdrawal request approved" : "Withdrawal request refused",
-            beforeStatus = ApplicationStatuses.RequestWithdrawal,
+            Message = approve ? "Payment confirmed - withdrawal request approved" : "Withdrawal request refused",
+            beforeStatus = ApplicationStatuses.AwaitingPayment,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
             User = staff.Name,
             UserId = userId
@@ -8040,9 +8122,12 @@ public class FilesServices
         // Update current status
         withdrawalApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
 
-        // If approved, update file status to Withdrawn
+        // If approved, update file status to Withdrawn and set withdrawal date
         if (approve)
+        {
             file.FileStatus = ApplicationStatuses.Withdrawn;
+            file.WithdrawalDate = DateTime.Now;  // Set withdrawal date ONLY on approval
+        }
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
@@ -8067,7 +8152,7 @@ public class FilesServices
         };
         SavePerformance(performance);
 
-        return (true, approve ? "Withdrawal request approved" : "Withdrawal request refused");
+        return (true, approve ? "Withdrawal approved and file has been successfully withdrawn." : "Withdrawal request has been rejected.");
     }
 
     public async Task<object?> GetFilePublicationDetailsAsync(string fileId)
