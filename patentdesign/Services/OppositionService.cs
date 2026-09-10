@@ -410,7 +410,7 @@ public class OppositionService
                         OppositionId = opp.id,
                         FileNumber = opp.FileNumber,
                         FileTitle = opp.FileTitle,
-                        DateFiled = opp.OppositionDate?.ToString("dd MMMM yyyy") ?? DateTime.Now.ToString("dd MMMM yyyy"),
+                        OppositionDate = opp.OppositionDate?.ToString("dd MMMM yyyy") ?? DateTime.Now.ToString("dd MMMM yyyy"),
                         PaymentReference = opp.PaymentId
                     }
                 });
@@ -490,7 +490,7 @@ public class OppositionService
                 Reason = opp.Reason,
                 SignatoryName = "",
                 OpposerName = opp.Name,
-                Title = opp.FileTitle,
+                FileTitle = opp.FileTitle,
                 OppositionId = opp.id
             };
             var email = new EmailDto
@@ -1025,9 +1025,9 @@ public class OppositionService
                     To = opp.Email,
                     Subject = "Counter Statement Filed Against Your Opposition",
                     OpposerName = opp.Name,
-                    FileOwnerName = fileOwnerName,
+                    ApplicantName = fileOwnerName,
                     FileNumber = opp.FileNumber,
-                    Title = fileTitle,
+                    FileTitle = fileTitle,
                     CounterStatementDate = DateTime.Now.ToString("dd MMMM yyyy"),
                     SignatoryName = ""
                 };
