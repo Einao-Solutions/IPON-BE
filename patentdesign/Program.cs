@@ -16,6 +16,8 @@ using QuestPDF.Infrastructure;
 using Serilog;
 using System.Security.Authentication;
 using System.Text;
+using Resend;
+using Log = Serilog.Log;
 
 // ------------------ Create Builder ------------------
 var builder = WebApplication.CreateBuilder(args);
@@ -25,8 +27,25 @@ if (builder.Environment.IsDevelopment())
 {
     var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
     if (File.Exists(envPath))
+    {
         DotNetEnv.Env.Load(envPath);
+        builder.Configuration.AddEnvironmentVariables();
+        builder.Configuration.AddCommandLine(args);
+    }
 }
+var portalBaseUrl = builder.Configuration["PORTAL_BASE_URL"]
+    ?? (builder.Environment.IsDevelopment() ? "http://localhost:5173"
+        : builder.Environment.IsEnvironment("Test") ? "https://test.iponigeria.com"
+        : "https://portal.iponigeria.com");
+if (!Uri.TryCreate(portalBaseUrl, UriKind.Absolute, out var portalUri) ||
+    (portalUri.Scheme != Uri.UriSchemeHttps && portalUri.Scheme != Uri.UriSchemeHttp) ||
+    (!builder.Environment.IsDevelopment() && (portalUri.Scheme != Uri.UriSchemeHttps || portalUri.IsLoopback)) ||
+    !string.IsNullOrEmpty(portalUri.Query) || !string.IsNullOrEmpty(portalUri.Fragment) ||
+    !string.IsNullOrEmpty(portalUri.UserInfo))
+{
+    throw new InvalidOperationException("PORTAL_BASE_URL must be an absolute frontend URL without credentials, query, or fragment, using non-local HTTPS outside Development.");
+}
+builder.Configuration["PORTAL_BASE_URL"] = portalBaseUrl.TrimEnd('/');
 // ------------------ Serilog ------------------
 var logPath = builder.Configuration["PatentDesignDatabase:LogPath"] ?? @"C:\IpoApiLog";
 
@@ -188,6 +207,18 @@ var mongoDatabaseName = mongoUrl.DatabaseName
     ?? builder.Configuration["PatentDesignDatabase:DatabaseName"]
     ?? throw new InvalidOperationException("Mongo database name is not configured.");
 var mongoDatabase = mongoClient.GetDatabase(mongoDatabaseName);
+// ---------------- RESEND (EMAILS) ----------------------
+EmailServices.ValidateConfiguration(builder.Configuration);
+builder.Services.AddOptions();
+builder.Services.AddHttpClient<ResendClient>();
+var resendApiKey = builder.Configuration["RESEND_APIKEY"]!.Trim();
+
+builder.Services.Configure<ResendClientOptions>( o =>
+{
+    o.ApiToken = resendApiKey!;
+} );
+builder.Services.AddScoped<IResend, ResendClient>();
+builder.Services.AddScoped<ResendUtils>();
 
 // Register once; every service injects IMongoDatabase instead of building its own client.
 builder.Services.AddSingleton<IMongoClient>(mongoClient);

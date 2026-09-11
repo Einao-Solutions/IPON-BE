@@ -58,6 +58,42 @@ namespace patentdesign.Controllers
             return Ok(new { message = "Password reset successful" });
         }
 
+        [HttpPost("VerifyEmailRequest")]
+        public async Task<IActionResult> VerifyEmailRequest([FromQuery] string email)
+        {
+            var result = await authServices.RequestEmailVerification(email);
+            if (!result)
+            {
+                return BadRequest("Email verification request failed");
+            }
+
+            return Ok(new { message = "Verification email sent" });
+        }
+
+        [HttpPost("ResendVerificationEmail")]
+        public async Task<IActionResult> ResendVerificationEmail([FromBody] string email)
+        {
+            var result = await authServices.ResendEmailVerification(email);
+            if (!result)
+            {
+                return BadRequest("Resend verification email request failed");
+            }
+
+            return Ok(new { message = "Verification email resent" });
+        }
+
+        [HttpPost("VerifyEmail")]
+        public async Task<IActionResult> VerifyEmail([FromQuery] string email, [FromQuery] string token)
+        {
+            var result = await authServices.VerifyEmail(email, token);
+            if (!result)
+            {
+                return BadRequest("Email verification failed");
+            }
+
+            return Ok(new { message = "Email verified successfully" });
+        }
+
         [Authorize]
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto req)

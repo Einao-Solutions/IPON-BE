@@ -52,31 +52,79 @@ stages:
     # ---------------------- 1️⃣ Inject environment variables into IIS App Pool (Production) ----------------------
     - task: PowerShell@2
       displayName: 'Inject environment variables into IIS App Pool (Production)'
+      env:
+        MONGODB_CONNECTION_STRING: $(MONGODB_CONNECTION_STRING)
+        JWT_KEY: $(JWT_KEY)
+        SMTP_SERVER: $(SMTP_SERVER)
+        SMTP_USERNAME: $(SMTP_USERNAME)
+        SMTP_PASSWORD: $(SMTP_PASSWORD)
+        RESEND_APIKEY: $(RESEND_APIKEY)
+        RESEND_FROM_EMAIL: $(RESEND_FROM_EMAIL)
+        RESEND_FROM_NAME: $(RESEND_FROM_NAME)
+        RESEND_TEMPLATE_OPPOSITION: $(RESEND_TEMPLATE_OPPOSITION)
+        RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER: $(RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER)
+        RESEND_TEMPLATE_RENEWAL_DUE_NOTICE: $(RESEND_TEMPLATE_RENEWAL_DUE_NOTICE)
+        RESEND_TEMPLATE_COUNTER_STATEMENT: $(RESEND_TEMPLATE_COUNTER_STATEMENT)
+        RESEND_TEMPLATE_OPPOSITION_CONFIRMATION: $(RESEND_TEMPLATE_OPPOSITION_CONFIRMATION)
+        RESEND_TEMPLATE_STATUTORY_DECLARATION: $(RESEND_TEMPLATE_STATUTORY_DECLARATION)
+        RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION: $(RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION)
+        RESEND_TEMPLATE_WITHDRAWAL_APPROVED: $(RESEND_TEMPLATE_WITHDRAWAL_APPROVED)
+        RESEND_TEMPLATE_WITHDRAWAL_REFUSED: $(RESEND_TEMPLATE_WITHDRAWAL_REFUSED)
+        RESEND_TEMPLATE_RESET_PASSWORD: $(RESEND_TEMPLATE_RESET_PASSWORD)
+        RESEND_TEMPLATE_WELCOMEVERIFICATION: $(RESEND_TEMPLATE_WELCOMEVERIFICATION)
+        RESEND_TEMPLATE_STATUS_UPDATE: $(RESEND_TEMPLATE_STATUS_UPDATE)
       inputs:
         targetType: 'inline'
         script: |
+          $ErrorActionPreference = 'Stop'
           Import-Module WebAdministration
 
           $appPool = "integration.iponigeria.com(domain)(4.0)(pool)"
 
           $envVars = @{
               ASPNETCORE_ENVIRONMENT   = "Production"
-              MONGODB_CONNECTION_STRING = "$(MONGODB_CONNECTION_STRING)"
-              JWT_KEY                   = "$(JWT_KEY)"
-              SMTP_SERVER               = "$(SMTP_SERVER)"
-              SMTP_USERNAME             = "$(SMTP_USERNAME)"
-              SMTP_PASSWORD             = "$(SMTP_PASSWORD)"
+              PORTAL_BASE_URL           = "https://portal.iponigeria.com"
+              MONGODB_CONNECTION_STRING = $env:MONGODB_CONNECTION_STRING
+              JWT_KEY                   = $env:JWT_KEY
+              SMTP_SERVER               = $env:SMTP_SERVER
+              SMTP_USERNAME             = $env:SMTP_USERNAME
+              SMTP_PASSWORD             = $env:SMTP_PASSWORD
+              RESEND_APIKEY             = $env:RESEND_APIKEY
+              RESEND_FROM_EMAIL         = $env:RESEND_FROM_EMAIL
+              RESEND_FROM_NAME          = $env:RESEND_FROM_NAME
+              RESEND_TEMPLATE_OPPOSITION = $env:RESEND_TEMPLATE_OPPOSITION
+              RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER = $env:RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER
+              RESEND_TEMPLATE_RENEWAL_DUE_NOTICE = $env:RESEND_TEMPLATE_RENEWAL_DUE_NOTICE
+              RESEND_TEMPLATE_COUNTER_STATEMENT = $env:RESEND_TEMPLATE_COUNTER_STATEMENT
+              RESEND_TEMPLATE_OPPOSITION_CONFIRMATION = $env:RESEND_TEMPLATE_OPPOSITION_CONFIRMATION
+              RESEND_TEMPLATE_STATUTORY_DECLARATION = $env:RESEND_TEMPLATE_STATUTORY_DECLARATION
+              RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION = $env:RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION
+              RESEND_TEMPLATE_WITHDRAWAL_APPROVED = $env:RESEND_TEMPLATE_WITHDRAWAL_APPROVED
+              RESEND_TEMPLATE_WITHDRAWAL_REFUSED = $env:RESEND_TEMPLATE_WITHDRAWAL_REFUSED
+              RESEND_TEMPLATE_RESET_PASSWORD = $env:RESEND_TEMPLATE_RESET_PASSWORD
+              RESEND_TEMPLATE_WELCOMEVERIFICATION = $env:RESEND_TEMPLATE_WELCOMEVERIFICATION
+              RESEND_TEMPLATE_STATUS_UPDATE = $env:RESEND_TEMPLATE_STATUS_UPDATE
           }
 
-          Write-Host "Clearing existing environment variables for App Pool: $appPool"
-          Clear-WebConfiguration -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" -PSPath "IIS:\" -ErrorAction SilentlyContinue
+          foreach ($name in @($envVars.Keys)) {
+              $value = [string]$envVars[$name]
+              if ([string]::IsNullOrWhiteSpace($value) -or $value -match '\$\(|\$\{|^tmpl_x+$') {
+                  if ($name -like 'SMTP_*') { $envVars.Remove($name); continue }
+                  throw "Configure a real value for '$name' in the production variable group before deployment."
+              }
+          }
 
+          $filter = "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables"
+          $existing = @(Get-WebConfigurationProperty -Filter $filter -PSPath "IIS:\" -Name "Collection")
           Write-Host "Injecting environment variables into App Pool: $appPool"
           foreach ($name in $envVars.Keys) {
-              Add-WebConfigurationProperty -PSPath "IIS:\" `
-                  -Filter "/system.applicationHost/applicationPools/add[@name='$appPool']/environmentVariables" `
-                  -Name "." `
-                  -Value @{name=$name; value=$envVars[$name]}
+              if ($existing | Where-Object { $_.Name -eq $name }) {
+                  Set-WebConfigurationProperty -PSPath "IIS:\" -Filter "$filter/add[@name='$name']" `
+                      -Name "value" -Value $envVars[$name]
+              } else {
+                  Add-WebConfigurationProperty -PSPath "IIS:\" -Filter $filter `
+                      -Name "." -Value @{name=$name; value=$envVars[$name]}
+              }
               Write-Host " - $name set"
           }
 
