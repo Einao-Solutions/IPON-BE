@@ -25,8 +25,8 @@ public class EmailServices
         [EmailType.WithdrawalNotification] = "RESEND_TEMPLATE_WITHDRAWAL_NOTIFICATION",
         [EmailType.WithdrawalApproved] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED",
         [EmailType.WithdrawalRefused] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED",
-        [EmailType.WithdrawalApprovedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED_APPLICANT",
-        [EmailType.WithdrawalRefusedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT",
+        //[EmailType.WithdrawalApprovedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_APPROVED_APPLICANT",
+        //[EmailType.WithdrawalRefusedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT",
         [EmailType.ResetPassword] = "RESEND_TEMPLATE_RESET_PASSWORD",
         [EmailType.WelcomeVerification] = "RESEND_TEMPLATE_WELCOMEVERIFICATION",
         [EmailType.StatusUpdate] = "RESEND_TEMPLATE_STATUS_UPDATE"

@@ -278,7 +278,7 @@ builder.Services.AddScoped<FinanceService>();
 builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<MigrationService>();
-builder.Services.AddSingleton<EmailServices>();
+builder.Services.AddScoped<EmailServices>();
 builder.Services.AddScoped<AuthServices>();
 builder.Services.AddScoped<AdminServices>();
 builder.Services.AddScoped<StatisticsService>();
