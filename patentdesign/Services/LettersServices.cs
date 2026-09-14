@@ -1066,10 +1066,17 @@ public class LettersServices
                         {
                             ApplicationLetters.NewApplicationAcknowledgement,
                             ApplicationLetters.NewApplicationReceipt,
-                            ApplicationLetters.NewApplicationAcceptance,
-                            ApplicationLetters.NewApplicationCertificateAck,
-                            ApplicationLetters.NewApplicationCertificateReceipt
+                            ApplicationLetters.NewApplicationAcceptance
                         });
+
+                        if (file.Type == FileTypes.TradeMark)
+                        {
+                            documents.AddRange(new[]
+                            {
+                                ApplicationLetters.NewApplicationCertificateAck,
+                                ApplicationLetters.NewApplicationCertificateReceipt
+                            });
+                        }
                     }
                     else if (app.CurrentStatus == ApplicationStatuses.Active || app.CurrentStatus == ApplicationStatuses.Inactive)
                     {
@@ -1077,14 +1084,21 @@ public class LettersServices
                         {
                             ApplicationLetters.NewApplicationAcknowledgement,
                             ApplicationLetters.NewApplicationReceipt,
-                            ApplicationLetters.NewApplicationAcceptance,
-                            ApplicationLetters.NewApplicationCertificateAck,
-                            ApplicationLetters.NewApplicationCertificate,
-                            ApplicationLetters.NewApplicationCertificateReceipt
+                            ApplicationLetters.NewApplicationAcceptance
                         });
-                        if (file.Type == FileTypes.Patent)
+
+                        if (file.Type == FileTypes.TradeMark)
                         {
-                            documents.Remove(ApplicationLetters.NewApplicationCertificate);
+                            documents.AddRange(new[]
+                            {
+                                ApplicationLetters.NewApplicationCertificateAck,
+                                ApplicationLetters.NewApplicationCertificate,
+                                ApplicationLetters.NewApplicationCertificateReceipt
+                            });
+                        }
+                        else if (file.Type == FileTypes.Design)
+                        {
+                            documents.Add(ApplicationLetters.NewApplicationCertificate);
                         }
                     }
                     else if (app.CurrentStatus == ApplicationStatuses.NewOpposition
