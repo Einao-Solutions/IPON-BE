@@ -29,7 +29,8 @@ public class EmailServices
         //[EmailType.WithdrawalRefusedApplicant] = "RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT",
         [EmailType.ResetPassword] = "RESEND_TEMPLATE_RESET_PASSWORD",
         [EmailType.WelcomeVerification] = "RESEND_TEMPLATE_WELCOMEVERIFICATION",
-        [EmailType.StatusUpdate] = "RESEND_TEMPLATE_STATUS_UPDATE"
+        [EmailType.StatusUpdate] = "RESEND_TEMPLATE_NOTIFICATION",
+        [EmailType.Notification] = "RESEND_TEMPLATE_NOTIFICATION"
     };
 
     private readonly EmailSettings _settings;
@@ -214,6 +215,9 @@ public class EmailServices
             EmailType.StatusUpdate =>
                 dto.StatusUpdateMail,
 
+            EmailType.Notification =>
+                dto.NotificationMail,
+
             _ => null
         };
 
@@ -227,6 +231,12 @@ public class EmailServices
         {
             AddVariable(variables, "DueDate", renewal.RenewalDue);
             AddVariable(variables, "ExpiryDate", renewal.RenewalDue);
+        }
+
+        if (dto.EmailType == EmailType.StatusUpdate)
+        {
+            AddVariable(variables, "Title", dto.Subject);
+            AddVariable(variables, "Message", dto.Body ?? dto.StatusUpdateMail!.Remarks);
         }
 
         // Common variables available to all Resend templates.
