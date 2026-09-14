@@ -26,7 +26,7 @@ Set the following in the Development `.env` and in both Azure DevOps variable gr
 | Withdrawal refused (applicant) | `RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT` |
 | Password reset | `RESEND_TEMPLATE_RESET_PASSWORD` |
 | Welcome / verification | `RESEND_TEMPLATE_WELCOMEVERIFICATION` |
-| Status update | `RESEND_TEMPLATE_STATUS_UPDATE` |
+| User notification (including status updates) | `RESEND_TEMPLATE_NOTIFICATION` |
 
 Startup rejects missing, blank, unresolved (`$(...)`, `${...}`), or placeholder (`tmpl_xxxxxxxxx`) settings. Fill in all real withdrawal templates before starting or deploying. No template IDs or credentials are created automatically.
 
@@ -54,16 +54,16 @@ The selected mail DTO in `Dtos/Response/EmailDto.cs` supplies case-sensitive tem
 
 - Welcome verification: `FirstName`, `VerificationLink`.
 - Password reset: `UserName`, `ResetLink`.
-- Status update: `ApplicationType`, `FormerStatus`, `NewStatus`, `DateTreated`, `Remarks`.
+- User notifications: `Title`, `Message`. Previously queued status emails also use this template, deriving these variables from their subject and body (or remarks).
 - Renewals: `ApplicantName`, `FileNumber`, `Title`, `RegistryName`, `Class`, `Type`, `IsExpiryDay`, `RenewalDue`, `DueDate`, `ExpiryDate`.
 
 Renewal date aliases all contain the same date in invariant English `dd MMMM yyyy` format. Booleans are strings (`true`/`false`), enums are names, and null values become empty strings. Match these definitions to the published templates. Local `Templates/*.html` files are not rendered by the Resend sending path.
 
 ## Delivery and retries
 
-Status and renewal notifications store a JSON email payload snapshot and delivery metadata in the same MongoDB document as the notification. These internal fields are excluded from API/SignalR JSON.
+User notifications with a valid resolved recipient email store a JSON email payload snapshot and delivery metadata in the same MongoDB document as the notification. Existing specialized payloads, such as renewal reminders, are preserved without adding a generic email. System-audience notifications do not send email or SignalR messages. These internal delivery fields are excluded from API/SignalR JSON.
 
-- An initial send is attempted after persistence.
+- An initial send is attempted after persistence, independently of SignalR success.
 - The background job retries pending emails every minute, up to 100 candidates per pass.
 - Failures back off exponentially, capped at 60 minutes, without stopping other recipients.
 - Atomic five-minute leases prevent concurrent workers from claiming the same email while a lease is active.

@@ -82,7 +82,7 @@ namespace patentdesign.Services
                 notification.RecipientId = null;
             }
 
-            if (notification.Audience == NotificationAudience.User && notification.Category == NotificationCategory.StatusUpdate)
+            if (notification.Audience == NotificationAudience.User && email == null)
             {
                 var recipient = await ResolveNotificationUserAsync(notification.RecipientId);
                 if (MailAddress.TryCreate(recipient?.Email, out _))
@@ -92,20 +92,18 @@ namespace patentdesign.Services
                         To = recipient!.Email,
                         Subject = notification.Title,
                         Body = notification.Message,
-                        EmailType = EmailType.StatusUpdate,
-                        StatusUpdateMail = new StatusUpdateMail
+                        EmailType = EmailType.Notification,
+                        NotificationMail = new NotificationMail
                         {
-                            ApplicationType = notification.ApplicationType?.ToString() ?? notification.FileType?.ToString() ?? "Application",
-                            FormerStatus = notification.PreviousStatus?.ToString() ?? string.Empty,
-                            NewStatus = notification.NewStatus?.ToString() ?? string.Empty,
-                            DateTreated = notification.CreatedAt,
-                            Remarks = notification.Message
+                            Title = notification.Title,
+                            Message = notification.Message,
+                            ApplicantName = recipient.FirstName
                         }
                     };
                 }
                 else
                 {
-                    _logger.LogWarning("Status email skipped for notification {NotificationId}: no valid recipient email", notification.Id);
+                    _logger.LogWarning("Email skipped for notification {NotificationId}: no valid recipient email", notification.Id);
                 }
             }
 
@@ -139,9 +137,26 @@ namespace patentdesign.Services
             }
             _logger.LogDebug("Notification {NotificationId} inserted into Notifications collection", notification.Id);
 
+            await SendNotification(notification);
+            _logger.LogInformation("Notification {NotificationId} saved for recipient {RecipientId}", notification.Id, notification.RecipientId);
+        }
+        private async Task SendNotification(Notification notification)
+        {
+            _logger.LogDebug("Sending notification {NotificationId} to recipient {RecipientId}", notification.Id, notification.RecipientId);
+
+            if (notification.Audience == NotificationAudience.System)
+            {
+                return;
+            }
+
             try
             {
-                await SendNotification(notification);
+                var user = await ResolveNotificationUserAsync(notification.RecipientId);
+                await _hubContext.Clients
+                    .User(user?.Id ?? notification.RecipientId!)
+                    .SendAsync("ReceiveNotification", notification);
+
+                _logger.LogDebug("Notification {NotificationId} delivered to SignalR client for recipient {RecipientId}", notification.Id, notification.RecipientId);
             }
             catch (Exception ex)
             {
@@ -159,25 +174,6 @@ namespace patentdesign.Services
                     _logger.LogError(ex, "Email remains pending for notification {NotificationId}", notification.Id);
                 }
             }
-            _logger.LogInformation("Notification {NotificationId} saved for recipient {RecipientId}", notification.Id, notification.RecipientId);
-        }
-        private async Task SendNotification(Notification notification)
-        {
-            _logger.LogDebug("Sending notification {NotificationId} to recipient {RecipientId}", notification?.Id, notification?.RecipientId);
-
-            if (notification.Audience == NotificationAudience.System)
-            {
-                return;
-            }
-
-            var user = await ResolveNotificationUserAsync(notification.RecipientId);
-            await _hubContext.Clients
-                .User(user?.Id ?? notification.RecipientId!)
-                .SendAsync(
-                    "ReceiveNotification",
-                    notification);
-
-            _logger.LogDebug("Notification {NotificationId} delivered to SignalR client for recipient {RecipientId}", notification?.Id, notification?.RecipientId);
         }
 
         private Task<AppUser> ResolveNotificationUserAsync(string? recipient)

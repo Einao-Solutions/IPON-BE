@@ -119,6 +119,7 @@
         RenewalDueNotice,
         WelcomeEmail,
         WelcomeVerification,
+        Notification,
     }
     public enum ApplicationUnits
     {

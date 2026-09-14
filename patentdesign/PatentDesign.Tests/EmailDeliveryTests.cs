@@ -38,7 +38,8 @@ public class EmailDeliveryTests
         new object[] { EmailType.WithdrawalRefusedApplicant, "RESEND_TEMPLATE_WITHDRAWAL_REFUSED_APPLICANT" },
         new object[] { EmailType.ResetPassword, "RESEND_TEMPLATE_RESET_PASSWORD" },
         new object[] { EmailType.WelcomeVerification, "RESEND_TEMPLATE_WELCOMEVERIFICATION" },
-        new object[] { EmailType.StatusUpdate, "RESEND_TEMPLATE_STATUS_UPDATE" }
+        new object[] { EmailType.StatusUpdate, "RESEND_TEMPLATE_NOTIFICATION" },
+        new object[] { EmailType.Notification, "RESEND_TEMPLATE_NOTIFICATION" }
     };
 
     [Theory]
@@ -75,12 +76,12 @@ public class EmailDeliveryTests
     [InlineData("")]
     [InlineData(" ")]
     [InlineData("tmpl_xxxxxxxxx")]
-    [InlineData("$(RESEND_TEMPLATE_STATUS_UPDATE)")]
-    [InlineData("${RESEND_TEMPLATE_STATUS_UPDATE}")]
+    [InlineData("$(RESEND_TEMPLATE_NOTIFICATION)")]
+    [InlineData("${RESEND_TEMPLATE_NOTIFICATION}")]
     public void ValidateConfiguration_RejectsPlaceholders(string value)
     {
         using var context = new EmailContext();
-        context.Configuration["RESEND_TEMPLATE_STATUS_UPDATE"] = value;
+        context.Configuration["RESEND_TEMPLATE_NOTIFICATION"] = value;
         Assert.Throws<InvalidOperationException>(() => EmailServices.ValidateConfiguration(context.Configuration));
     }
 
@@ -209,15 +210,24 @@ public class EmailDeliveryTests
         Assert.NotEqual(Key(firstCycle, false), Key(firstCycle.AddYears(1), false));
     }
 
-    [Fact]
-    public async Task StatusNotification_PersistsEmailBeforeSendingAndTargetsAccountId()
+    [Theory]
+    [InlineData(NotificationCategory.StatusUpdate)]
+    [InlineData(NotificationCategory.Application)]
+    [InlineData(NotificationCategory.Payment)]
+    [InlineData(NotificationCategory.CustomerSupport)]
+    [InlineData(NotificationCategory.Security)]
+    [InlineData(NotificationCategory.System)]
+    [InlineData(NotificationCategory.Messaging)]
+    [InlineData(NotificationCategory.Renewal)]
+    [InlineData(NotificationCategory.Opposition)]
+    public async Task UserNotification_PersistsEmailBeforeSendingAndTargetsAccountId(NotificationCategory category)
     {
         using var emailContext = new EmailContext();
         var store = new NotificationStore(emailContext.Service);
         await store.Service.CreateNotificationAsync(new CreateNotificationDto
         {
             Audience = NotificationAudience.User,
-            Category = NotificationCategory.StatusUpdate,
+            Category = category,
             RecipientId = "owner@example.com",
             Title = "Application status changed",
             Message = "Status details",
@@ -227,14 +237,122 @@ public class EmailDeliveryTests
         });
         Assert.NotNull(store.Saved);
         var email = JsonSerializer.Deserialize<EmailDto>(store.Saved!.EmailPayload!)!;
-        Assert.Equal(EmailType.StatusUpdate, email.EmailType);
+        Assert.Equal(EmailType.Notification, email.EmailType);
         Assert.Equal("owner@example.com", email.To);
-        Assert.Equal("NewApplication", email.StatusUpdateMail!.ApplicationType);
-        Assert.Equal("Active", email.StatusUpdateMail.FormerStatus);
-        Assert.Equal("Abandoned", email.StatusUpdateMail.NewStatus);
-        Assert.Single(emailContext.Handler.Bodies);
+        Assert.Equal("Application status changed", email.NotificationMail!.Title);
+        Assert.Equal("Status details", email.NotificationMail.Message);
+        using var body = JsonDocument.Parse(Assert.Single(emailContext.Handler.Bodies));
+        var template = body.RootElement.GetProperty("template");
+        Assert.Equal("test-template", template.GetProperty("id").GetString());
+        Assert.Equal(email.NotificationMail.Title, template.GetProperty("variables").GetProperty("Title").GetString());
+        Assert.Equal(email.NotificationMail.Message, template.GetProperty("variables").GetProperty("Message").GetString());
+        Assert.Equal(store.Saved.Id, Assert.Single(emailContext.Handler.IdempotencyKeys));
         store.HubClients.Verify(x => x.User("account-id"), Times.Once);
         Assert.True(Assert.Single(store.Updates)["$set"].AsBsonDocument.Contains("EmailSentAt"));
+    }
+
+    [Fact]
+    public async Task LegacyStatusEmail_UsesNotificationVariables()
+    {
+        using var context = new EmailContext();
+        var email = NewEmail(EmailType.StatusUpdate);
+        email.StatusUpdateMail!.Remarks = "Legacy status details";
+        await context.Service.SendMail(email);
+        using var body = JsonDocument.Parse(Assert.Single(context.Handler.Bodies));
+        var variables = body.RootElement.GetProperty("template").GetProperty("variables");
+        Assert.Equal(email.Subject, variables.GetProperty("Title").GetString());
+        Assert.Equal(email.StatusUpdateMail.Remarks, variables.GetProperty("Message").GetString());
+    }
+
+    [Fact]
+    public async Task NotificationEmail_RejectsMissingPayloadBeforeTransport()
+    {
+        using var context = new EmailContext();
+        var email = NewEmail(EmailType.Notification);
+        email.NotificationMail = null;
+        await Assert.ThrowsAsync<ArgumentException>(() => context.Service.SendMail(email));
+        Assert.Empty(context.Handler.Bodies);
+    }
+
+    [Fact]
+    public async Task SystemNotification_DoesNotSendEmailOrSignalR()
+    {
+        using var context = new EmailContext();
+        var store = new NotificationStore(context.Service);
+        await store.Service.CreateNotificationAsync(new CreateNotificationDto
+        {
+            Audience = NotificationAudience.System,
+            Title = "System notice",
+            Message = "Details"
+        });
+        Assert.NotNull(store.Saved);
+        Assert.Null(store.Saved.EmailPayload);
+        Assert.Empty(context.Handler.Bodies);
+        store.HubClients.Verify(x => x.User(It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-an-email")]
+    public async Task UserNotification_WithoutValidEmailStillSendsSignalR(string? recipientEmail)
+    {
+        using var context = new EmailContext();
+        var store = new NotificationStore(context.Service, recipientEmail);
+        await store.Service.CreateNotificationAsync(new CreateNotificationDto
+        {
+            Audience = NotificationAudience.User,
+            RecipientId = "account-id",
+            Title = "Notice",
+            Message = "Details"
+        });
+        Assert.NotNull(store.Saved);
+        Assert.Null(store.Saved.EmailPayload);
+        Assert.Empty(context.Handler.Bodies);
+        store.HubClients.Verify(x => x.User("account-id"), Times.Once);
+    }
+
+    [Fact]
+    public async Task SignalRFailure_DoesNotPreventNotificationEmail()
+    {
+        using var context = new EmailContext();
+        var store = new NotificationStore(context.Service);
+        store.HubClients.Setup(x => x.User(It.IsAny<string>())).Throws(new InvalidOperationException("SignalR unavailable"));
+        await store.Service.CreateNotificationAsync(new CreateNotificationDto
+        {
+            Audience = NotificationAudience.User,
+            RecipientId = "account-id",
+            Title = "Notice",
+            Message = "Details"
+        });
+        Assert.Single(context.Handler.Bodies);
+        Assert.True(Assert.Single(store.Updates)["$set"].AsBsonDocument.Contains("EmailSentAt"));
+    }
+
+    [Fact]
+    public async Task SpecializedNotification_PreservesEmailWithoutDuplicate()
+    {
+        using var context = new EmailContext();
+        context.Configuration["RESEND_TEMPLATE_RENEWAL_EARLY_REMINDER"] = "renewal-template";
+        var store = new NotificationStore(context.Service);
+        var email = NewEmail(EmailType.RenewalEarlyReminder);
+        var method = typeof(NotificationServices).GetMethod("CreateNotificationAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        await (Task)method.Invoke(store.Service, new object?[]
+        {
+            new CreateNotificationDto
+            {
+                Audience = NotificationAudience.User,
+                Category = NotificationCategory.Renewal,
+                RecipientId = "account-id",
+                Title = "Renewal notice",
+                Message = "Details"
+            },
+            null, email, null
+        })!;
+        var savedEmail = JsonSerializer.Deserialize<EmailDto>(store.Saved!.EmailPayload!)!;
+        Assert.Equal(EmailType.RenewalEarlyReminder, savedEmail.EmailType);
+        using var body = JsonDocument.Parse(Assert.Single(context.Handler.Bodies));
+        Assert.Equal("renewal-template", body.RootElement.GetProperty("template").GetProperty("id").GetString());
+        store.HubClients.Verify(x => x.User("account-id"), Times.Once);
     }
 
     [Fact]
@@ -283,7 +401,8 @@ public class EmailDeliveryTests
         WithdrawalRefusedApplicantMail = new WithdrawalRefusedApplicantMail(),
         ResetPasswordMail = new ResetPasswordMail(),
         WelcomeVerificationMail = new WelcomeVerificationMail(),
-        StatusUpdateMail = new StatusUpdateMail()
+        StatusUpdateMail = new StatusUpdateMail(),
+        NotificationMail = new NotificationMail { Title = "Notice", Message = "Details" }
     };
 
     private sealed class EmailContext : IDisposable
@@ -295,7 +414,7 @@ public class EmailDeliveryTests
 
         public EmailContext()
         {
-            var values = TemplateMappings.ToDictionary(x => (string)x[1], _ => (string?)"test-template");
+            var values = TemplateMappings.Select(x => (string)x[1]).Distinct().ToDictionary(x => x, _ => (string?)"test-template");
             values["RESEND_APIKEY"] = "test-key-not-a-real-secret";
             values["RESEND_FROM_EMAIL"] = "noreply@example.com";
             values["RESEND_FROM_NAME"] = "IPO Nigeria";
@@ -345,7 +464,7 @@ public class EmailDeliveryTests
         public Mock<IHubClients> HubClients { get; } = new();
         public NotificationServices Service { get; }
 
-        public NotificationStore(EmailServices emailService)
+        public NotificationStore(EmailServices emailService, string? recipientEmail = "owner@example.com")
         {
             var notifications = new Mock<IMongoCollection<Notification>>();
             var users = new Mock<IMongoCollection<AppUser>>();
@@ -359,7 +478,7 @@ public class EmailDeliveryTests
             client.Setup(x => x.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
             HubClients.Setup(x => x.User(It.IsAny<string>())).Returns(client.Object);
             users.Setup(x => x.FindAsync(It.IsAny<FilterDefinition<AppUser>>(), It.IsAny<FindOptions<AppUser, AppUser>>(), It.IsAny<CancellationToken>()))
-                .Returns(() => Task.FromResult(Cursor(new[] { new AppUser { Id = "account-id", Email = "owner@example.com" } })));
+                .Returns(() => Task.FromResult(Cursor(new[] { new AppUser { Id = "account-id", Email = recipientEmail! } })));
             notifications.Setup(x => x.FindAsync(It.IsAny<FilterDefinition<Notification>>(), It.IsAny<FindOptions<Notification, Notification>>(), It.IsAny<CancellationToken>()))
                 .Returns(() => Task.FromResult(Cursor(_pending.ToArray())));
             notifications.Setup(x => x.InsertOneAsync(It.IsAny<Notification>(), It.IsAny<InsertOneOptions>(), It.IsAny<CancellationToken>()))
@@ -383,7 +502,7 @@ public class EmailDeliveryTests
             var notification = new Notification
             {
                 Id = id,
-                EmailPayload = JsonSerializer.Serialize(NewEmail(EmailType.StatusUpdate)),
+                EmailPayload = JsonSerializer.Serialize(NewEmail(EmailType.Notification)),
                 EmailNextAttemptAt = DateTime.UtcNow.AddMinutes(-1),
                 EmailAttempts = 1
             };

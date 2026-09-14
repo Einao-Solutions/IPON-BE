@@ -23,6 +23,14 @@ public class EmailDto
     public WithdrawalRefusedApplicantMail? WithdrawalRefusedApplicantMail { get; set; }
     public RenewalReminder? RenewalReminder { get; set; }
     public WelcomeVerificationMail? WelcomeVerificationMail { get; set; }
+    public NotificationMail? NotificationMail { get; set; }
+}
+
+public class NotificationMail
+{
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string ApplicantName { get; set; } = string.Empty;
 }
 
 public class BulkEmailDto
