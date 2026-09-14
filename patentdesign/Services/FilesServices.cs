@@ -3643,8 +3643,11 @@ public class FilesServices
         }
 
         var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+        if (file.Type == FileTypes.TradeMark)
+        {
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateReceipt);
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateAck);
+        }
         var cIndex = file.ApplicationHistory.FindIndex(x => x.ApplicationType == FormApplicationTypes.Certification);
         var newLetters = file.ApplicationHistory[0].ApplicationLetters;
         var result = await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, fileId),
