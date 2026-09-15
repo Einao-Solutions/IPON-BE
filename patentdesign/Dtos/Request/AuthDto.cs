@@ -24,8 +24,14 @@ namespace patentdesign.Dtos.Request
     public class AuthUserDto
     {
         public string Token { get; set; }
+        public string RefreshToken { get; set; }
         public LoggedInUserDto User { get; set; }
 
+    }
+
+    public class RefreshTokenRequestDto
+    {
+        public string RefreshToken { get; set; }
     }
 
     public class LoggedInUserDto
