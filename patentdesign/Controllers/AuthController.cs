@@ -27,6 +27,22 @@ namespace patentdesign.Controllers
             if (user == null) return Unauthorized("Invalid email or password");
             return Ok(user);
         }
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequestDto req)
+        {
+            var result = await authServices.RefreshToken(req);
+            if (result == null) return Unauthorized("Invalid or expired refresh token");
+            return Ok(result);
+        }
+        [Authorize]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+            await authServices.Logout(userId);
+            return Ok(new { message = "Logged out successfully" });
+        }
         [HttpPost("transfer")]
         public async Task<IActionResult> Transfer([FromBody] MigrateUserDto req)
         {

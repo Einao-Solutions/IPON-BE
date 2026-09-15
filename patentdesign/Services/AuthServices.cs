@@ -234,6 +234,93 @@ namespace patentdesign.Services
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
+        private static string GenerateRefreshToken() =>
+            Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+
+        private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
+
+        /// <summary>
+        /// Issues a fresh access token + refresh token pair for the given user and
+        /// persists the (rotated) refresh token so it can later be redeemed.
+        /// </summary>
+        private async Task<AuthUserDto> IssueTokensAsync(AppUser user)
+        {
+            var accessToken = GenerateJwtToken(user);
+            var refreshToken = GenerateRefreshToken();
+            var refreshTokenExpiry = DateTime.UtcNow.Add(RefreshTokenLifetime);
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.RefreshToken, refreshToken)
+                .Set(u => u.RefreshTokenExpiry, refreshTokenExpiry);
+            await _users.UpdateOneAsync(u => u.Id == user.Id, update);
+
+            var dto = new LoggedInUserDto
+            {
+                Id = user.Id,
+                Email = user.Email,
+                UserRoles = user.UserRoles,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                PhoneNumber = user.PhoneNumber,
+                AccountType = user.AccountType,
+                CreatedAt = user.CreatedAt,
+                CreatorId = user.CreatorId,
+                LastUpdatedAt = user.LastUpdatedAt,
+            };
+
+            return new AuthUserDto
+            {
+                Token = accessToken,
+                RefreshToken = refreshToken,
+                User = dto
+            };
+        }
+
+        /// <summary>
+        /// Redeems a refresh token for a new access/refresh token pair. Refresh
+        /// tokens are single-use (rotated on every call) and rejected once expired.
+        /// </summary>
+        public async Task<AuthUserDto> RefreshToken(RefreshTokenRequestDto req)
+        {
+            if (req == null || string.IsNullOrWhiteSpace(req.RefreshToken))
+            {
+                _log.LogWarning("Refresh token request rejected — missing token");
+                return null;
+            }
+
+            var user = await _users.Find(u => u.RefreshToken == req.RefreshToken).FirstOrDefaultAsync();
+            if (user == null)
+            {
+                _log.LogWarning("Refresh token request rejected — no matching user");
+                return null;
+            }
+
+            if (user.RefreshTokenExpiry == null || user.RefreshTokenExpiry < DateTime.UtcNow)
+            {
+                _log.LogWarning("Refresh token request rejected — expired token for {Email}", user.Email);
+                return null;
+            }
+
+            _log.LogInformation("Refresh token redeemed for {Email}", user.Email);
+            return await IssueTokensAsync(user);
+        }
+
+        /// <summary>
+        /// Revokes the stored refresh token for a user, forcing a full re-login
+        /// on their next access-token expiry.
+        /// </summary>
+        public async Task<bool> Logout(string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId)) return false;
+
+            var update = Builders<AppUser>.Update
+                .Set(u => u.RefreshToken, null)
+                .Set(u => u.RefreshTokenExpiry, null);
+
+            var result = await _users.UpdateOneAsync(u => u.Id == userId, update);
+            return result.ModifiedCount > 0;
+        }
+
         public async Task<AuthUserDto> LoginUser(LoginDto req)
         {
             try
@@ -274,12 +361,7 @@ namespace patentdesign.Services
                     LastUpdatedAt = user?.LastUpdatedAt,
 
                 };
-                var token = GenerateJwtToken(user);
-                AuthUserDto authUser = new AuthUserDto
-                {
-                    Token = token,
-                    User = dto
-                };
+                var authUser = await IssueTokensAsync(user);
                 _log.LogInformation("User {Email} logged in successfully", email);
                 return authUser;
             }
