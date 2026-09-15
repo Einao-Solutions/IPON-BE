@@ -16,6 +16,8 @@ using QuestPDF.Infrastructure;
 using Serilog;
 using System.Security.Authentication;
 using System.Text;
+using Resend;
+using Log = Serilog.Log;
 
 // ------------------ Create Builder ------------------
 var builder = WebApplication.CreateBuilder(args);
@@ -25,8 +27,25 @@ if (builder.Environment.IsDevelopment())
 {
     var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
     if (File.Exists(envPath))
+    {
         DotNetEnv.Env.Load(envPath);
+        builder.Configuration.AddEnvironmentVariables();
+        builder.Configuration.AddCommandLine(args);
+    }
 }
+var portalBaseUrl = builder.Configuration["PORTAL_BASE_URL"]
+    ?? (builder.Environment.IsDevelopment() ? "http://localhost:5173"
+        : builder.Environment.IsEnvironment("Test") ? "https://test.iponigeria.com"
+        : "https://portal.iponigeria.com");
+if (!Uri.TryCreate(portalBaseUrl, UriKind.Absolute, out var portalUri) ||
+    (portalUri.Scheme != Uri.UriSchemeHttps && portalUri.Scheme != Uri.UriSchemeHttp) ||
+    (!builder.Environment.IsDevelopment() && (portalUri.Scheme != Uri.UriSchemeHttps || portalUri.IsLoopback)) ||
+    !string.IsNullOrEmpty(portalUri.Query) || !string.IsNullOrEmpty(portalUri.Fragment) ||
+    !string.IsNullOrEmpty(portalUri.UserInfo))
+{
+    throw new InvalidOperationException("PORTAL_BASE_URL must be an absolute frontend URL without credentials, query, or fragment, using non-local HTTPS outside Development.");
+}
+builder.Configuration["PORTAL_BASE_URL"] = portalBaseUrl.TrimEnd('/');
 // ------------------ Serilog ------------------
 var logPath = builder.Configuration["PatentDesignDatabase:LogPath"] ?? @"C:\IpoApiLog";
 
@@ -188,6 +207,18 @@ var mongoDatabaseName = mongoUrl.DatabaseName
     ?? builder.Configuration["PatentDesignDatabase:DatabaseName"]
     ?? throw new InvalidOperationException("Mongo database name is not configured.");
 var mongoDatabase = mongoClient.GetDatabase(mongoDatabaseName);
+// ---------------- RESEND (EMAILS) ----------------------
+EmailServices.ValidateConfiguration(builder.Configuration);
+builder.Services.AddOptions();
+builder.Services.AddHttpClient<ResendClient>();
+var resendApiKey = builder.Configuration["RESEND_APIKEY"]!.Trim();
+
+builder.Services.Configure<ResendClientOptions>( o =>
+{
+    o.ApiToken = resendApiKey!;
+} );
+builder.Services.AddScoped<IResend, ResendClient>();
+builder.Services.AddScoped<ResendUtils>();
 
 // Register once; every service injects IMongoDatabase instead of building its own client.
 builder.Services.AddSingleton<IMongoClient>(mongoClient);
@@ -238,21 +269,21 @@ builder.Services.AddProblemDetails();
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<PaymentUtils>();
-builder.Services.AddSingleton<OppositionService>();
-builder.Services.AddSingleton<FilesServices>();
-builder.Services.AddSingleton<LettersServices>();
-builder.Services.AddSingleton<TicketServices>();
-builder.Services.AddSingleton<UsersService>();
-builder.Services.AddSingleton<FinanceService>();
-builder.Services.AddSingleton<AssignmentService>();
-builder.Services.AddSingleton<PaymentService>();
-builder.Services.AddSingleton<MigrationService>();
-builder.Services.AddSingleton<EmailServices>();
-builder.Services.AddSingleton<AuthServices>();
-builder.Services.AddSingleton<AdminServices>();
-builder.Services.AddSingleton<StatisticsService>();
-builder.Services.AddSingleton<PublicationServices>();
-builder.Services.AddSingleton<NotificationServices>();
+builder.Services.AddScoped<OppositionService>();
+builder.Services.AddScoped<FilesServices>();
+builder.Services.AddScoped<LettersServices>();
+builder.Services.AddScoped<TicketServices>();
+builder.Services.AddScoped<UsersService>();
+builder.Services.AddScoped<FinanceService>();
+builder.Services.AddScoped<AssignmentService>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<MigrationService>();
+builder.Services.AddScoped<EmailServices>();
+builder.Services.AddScoped<AuthServices>();
+builder.Services.AddScoped<AdminServices>();
+builder.Services.AddScoped<StatisticsService>();
+builder.Services.AddScoped<PublicationServices>();
+builder.Services.AddScoped<NotificationServices>();
 
 //------------------- Background Jobs ------------------
 //builder.Services.AddHostedService<PublishTrademarkJob>();
@@ -265,7 +296,8 @@ var app = builder.Build();
 // ------------------ One-off DB backfill ------------------
 try
 {
-    var oppSvc = app.Services.GetRequiredService<OppositionService>();
+    using var scope = app.Services.CreateScope();
+    var oppSvc = scope.ServiceProvider.GetRequiredService<OppositionService>();
     await oppSvc.BackfillOppositionCreatorIds();
 }
 catch (Exception ex)

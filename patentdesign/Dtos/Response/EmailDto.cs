@@ -22,6 +22,15 @@ public class EmailDto
     public WithdrawalApprovedApplicantMail? WithdrawalApprovedApplicantMail { get; set; }
     public WithdrawalRefusedApplicantMail? WithdrawalRefusedApplicantMail { get; set; }
     public RenewalReminder? RenewalReminder { get; set; }
+    public WelcomeVerificationMail? WelcomeVerificationMail { get; set; }
+    public NotificationMail? NotificationMail { get; set; }
+}
+
+public class NotificationMail
+{
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string ApplicantName { get; set; } = string.Empty;
 }
 
 public class BulkEmailDto
@@ -38,7 +47,7 @@ public class OppositionMail
     public string Body { get; set; }
     public string ApplicantName { get; set; }
     public string FileNumber { get; set; }
-    public string Title { get; set; }
+    public string FileTitle { get; set; }
     public string OpposerName { get; set; }
     public string Reason { get; set; }
     public string OppositionDate { get; set; }
@@ -51,9 +60,9 @@ public class CounterStatementMail
     public string To { get; set; }
     public string Subject { get; set; }
     public string OpposerName { get; set; }
-    public string FileOwnerName { get; set; }
+    public string ApplicantName { get; set; }
     public string FileNumber { get; set; }
-    public string Title { get; set; }
+    public string FileTitle { get; set; }
     public string CounterStatementDate { get; set; }
     public string? SignatoryName { get; set; }
 }
@@ -65,7 +74,7 @@ public class OppositionConfirmationMail
     public string OppositionId { get; set; }
     public string FileNumber { get; set; }
     public string FileTitle { get; set; }
-    public string DateFiled { get; set; }
+    public string OppositionDate { get; set; }
     public string PaymentReference { get; set; }
 }
 
@@ -134,6 +143,12 @@ public class ResetPasswordMail
 {
     public string UserName { get; set; }
     public string ResetLink { get; set; }
+}
+
+public class WelcomeVerificationMail
+{
+    public string FirstName { get; set; } = string.Empty;
+    public string VerificationLink { get; set; } = string.Empty;
 }
 
 public class StatusUpdateMail

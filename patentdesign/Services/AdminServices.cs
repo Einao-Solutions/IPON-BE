@@ -384,7 +384,7 @@ namespace patentdesign.Services
                     Body = dto.Message,
                     Subject = dto.Subject
                 };
-                await _emailServices.SendBulkEmailAsync(mail);
+                //await _emailServices.SendBulkEmailAsync(mail);
                 _log.LogInformation("Announcement mail sent successfully to {RecipientCount} recipients", recipients.Count);
                 return true;
             }

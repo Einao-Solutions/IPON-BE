@@ -71,7 +71,7 @@ public class FilesServices
     //private string attachmentBaseUrl = "https://benin.azure-api.net";
 
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
-    //private string attachmentBaseUrl = "https://localhost:5044";  // Use relative URL (will resolve to current domain)
+    //private string attachmentBaseUrl = "https://localhost:5044"; 
 
     public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
     {
@@ -726,9 +726,15 @@ public class FilesServices
 
         foreach (var item in none)
         {
-            var res = await _fillingCollection.Find(Builders<Filling>.Filter.Eq(x => x.Id, item)).Limit(1)
-                .ToListAsync();
-            var dd = res[0];
+            var dd = await _fillingCollection
+                .Find(Builders<Filling>.Filter.Eq(x => x.Id, item))
+                .FirstOrDefaultAsync();
+
+            if (dd == null)
+            {
+                continue;
+            }
+
             var url = await SaveAcknowledgement(dd);
             Console.WriteLine(url);
             break;
@@ -1612,10 +1618,25 @@ public class FilesServices
 
     public async Task updateApproved()
     {
-        var resul = _fillingCollection.AsQueryable().Where(x =>
-            x.FileStatus == ApplicationStatuses.Active &&
-            x.FileId.Split(separator).Length == 6 &&
-            x.ApplicationHistory[0].Letters.Count == 3).ToList();
+        var sixSegmentFileIdFilter = Builders<Filling>.Filter.Regex(
+            x => x.FileId,
+            new BsonRegularExpression("^[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+$"));
+
+        var activeFilesWithSixSegments = await _fillingCollection
+            .Find(Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.FileStatus, ApplicationStatuses.Active),
+                sixSegmentFileIdFilter))
+            .ToListAsync();
+
+        var resul = activeFilesWithSixSegments
+            .Where(x => x.ApplicationHistory.Count > 0 && x.ApplicationHistory[0].Letters.Count == 3)
+            .ToList();
+
+        if (resul.Count < 3)
+        {
+            return;
+        }
+
         Console.WriteLine(resul[0].Id);
         Console.WriteLine(resul[1].Id);
         Console.WriteLine(resul[2].Id);
@@ -2150,16 +2171,23 @@ public class FilesServices
         // send back
     }
 
-    private static readonly char[] separator = new char[] { '/' };
-
     public async Task GenerateDesignCerts()
     {
-        var desingActive = _fillingCollection.AsQueryable().Where(x =>
-            x.Type == FileTypes.Design &&
-            x.FileId.Split(separator).Length == 6 && x.FileStatus == ApplicationStatuses.Active).ToList();
-        foreach (var filling in desingActive)
+        var sixSegmentFileIdFilter = Builders<Filling>.Filter.Regex(
+            x => x.FileId,
+            new BsonRegularExpression("^[^/]+/[^/]+/[^/]+/[^/]+/[^/]+/[^/]+$"));
+
+        var desingActive = await _fillingCollection
+            .Find(Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Type, FileTypes.Design),
+                Builders<Filling>.Filter.Eq(x => x.FileStatus, ApplicationStatuses.Active),
+                sixSegmentFileIdFilter))
+            .ToListAsync();
+
+        for (var index = 0; index < desingActive.Count; index++)
         {
-            Console.WriteLine($"{desingActive.IndexOf(filling) + 1}, {filling.Id}");
+            var filling = desingActive[index];
+            Console.WriteLine($"{index + 1}, {filling.Id}");
             // var acceptanceUrl=await SaveAcceptance(filling, "", "ILoduba C.O");
             var certificateUrl = await SaveCertificate(filling, "", "ILoduba C.O");
             if (filling.ApplicationHistory[0].Letters.ContainsKey("acceptance"))
@@ -3161,12 +3189,15 @@ public class FilesServices
         _log.LogInformation("Fetching attachment for FileId {FileId}", fileId);
 
         var filter = Builders<AttachmentInfo>.Filter.Eq(x => x.Id, fileId);
-        var attachmentInfo = await _attachmentCollection.Find(filter).Limit(1).ToListAsync();
-        if (attachmentInfo != null && attachmentInfo.Count > 0)
+        var attachmentInfo = await _attachmentCollection
+            .Find(filter)
+            .FirstOrDefaultAsync();
+
+        if (attachmentInfo != null)
         {
             _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
-                fileId, attachmentInfo[0].ContentType);
-            return (attachmentInfo[0].Data, attachmentInfo[0].ContentType, attachmentInfo[0].Id);
+                fileId, attachmentInfo.ContentType);
+            return (attachmentInfo.Data, attachmentInfo.ContentType, attachmentInfo.Id);
         }
 
         _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
@@ -3612,8 +3643,11 @@ public class FilesServices
         }
 
         var file = await _fillingCollection.Find(x => x.Id == fileId).FirstOrDefaultAsync();
+        if (file.Type == FileTypes.TradeMark)
+        {
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateReceipt);
         file.ApplicationHistory[0].ApplicationLetters.Add(ApplicationLetters.NewApplicationCertificateAck);
+        }
         var cIndex = file.ApplicationHistory.FindIndex(x => x.ApplicationType == FormApplicationTypes.Certification);
         var newLetters = file.ApplicationHistory[0].ApplicationLetters;
         var result = await _fillingCollection.FindOneAndUpdateAsync(Builders<Filling>.Filter.Eq(x => x.Id, fileId),

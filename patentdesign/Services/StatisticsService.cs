@@ -1140,6 +1140,28 @@ public class StatisticsService
 
         switch (periodType.ToLowerInvariant())
         {
+            case "date-range":
+            {
+                if (!period.StartDate.HasValue || !period.EndDate.HasValue)
+                {
+                    throw new ArgumentException("Missing required parameter: startDate/endDate");
+                }
+
+                if (period.StartDate.Value > period.EndDate.Value)
+                {
+                    throw new ArgumentException("Invalid date range: startDate must be on or before endDate");
+                }
+
+                var start = period.StartDate.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+                var end = period.EndDate.Value.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = FormattableString.Invariant($"{period.StartDate.Value:yyyy-MM-dd} - {period.EndDate.Value:yyyy-MM-dd}");
+                }
+
+                return (start, end, label);
+            }
             case "month":
             {
                 if (!period.Year.HasValue)
@@ -1310,7 +1332,7 @@ public class StatisticsService
                 throw new ArgumentException("Invalid offsetUnit. Must be month or year");
             }
             default:
-                throw new ArgumentException("Invalid period type. Must be month, quarter, year, month-range, year-range, or relative");
+                throw new ArgumentException("Invalid period type. Must be month, quarter, year, month-range, year-range, date-range, or relative");
         }
     }
 
