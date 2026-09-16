@@ -181,10 +181,23 @@ namespace Tfunctions.pdfs
                 if (images.Count > 0)
                 {
                     col.Item().Element(Header).Text("DESIGN REPRESENTATIONS").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-                    foreach (var image in images)
+                    for (int i = 0; i < images.Count; i += 2)
                     {
-                        var questImage = Image.FromBinaryData(image);
-                        col.Item().Height(120).AlignCenter().Image(questImage).FitArea();
+                        col.Item().Row(row =>
+                        {
+                            row.RelativeItem().Element(Box).Height(120).AlignCenter()
+                                .Image(Image.FromBinaryData(images[i])).FitArea();
+
+                            if (i + 1 < images.Count)
+                            {
+                                row.RelativeItem().Element(Box).Height(120).AlignCenter()
+                                    .Image(Image.FromBinaryData(images[i + 1])).FitArea();
+                            }
+                            else
+                            {
+                                row.RelativeItem().Element(Box).Height(120);
+                            }
+                        });
                     }
                 }
 
