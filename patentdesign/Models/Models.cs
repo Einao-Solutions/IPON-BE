@@ -35,8 +35,10 @@ public class AppUser
     public string? Name { get; set; }
     public string? PasswordResetToken { get; set; }
     public DateTime? PasswordResetTokenExpiry { get; set; }
-    public string? EmailVerificationToken { get; set; }
-    public DateTime? EmailVerificationTokenExpiry { get; set; }
+public string? RefreshToken { get; set; }
+public DateTime? RefreshTokenExpiry { get; set; }
+public string? EmailVerificationToken { get; set; }
+public DateTime? EmailVerificationTokenExpiry { get; set; }
     public List<ApplicationInfo>? OtherApplications { get; set; } = new();
     public bool? HasEmailUnsubscribed = false;
 

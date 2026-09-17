@@ -75,6 +75,43 @@ namespace patentdesign.Dtos.Request
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
         public string? userId { get; set; }
+
+        // Response properties for GET endpoint
+        public MergerPartyDto? NewValue { get; set; }
+        public List<MergerAttachmentDto>? Attachments { get; set; }
+    }
+
+    public class MergerAttachmentDto
+    {
+        [JsonPropertyName("fileName")]
+        public string? FileName { get; set; }
+
+        [JsonPropertyName("contentType")]
+        public string? ContentType { get; set; }
+
+        [JsonPropertyName("url")]
+        public string? Url { get; set; }
+    }
+
+    public class MergerPartyDto
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("email")]
+        public string? Email { get; set; }
+
+        [JsonPropertyName("phone")]
+        public string? Phone { get; set; }
+
+        [JsonPropertyName("nationality")]
+        public string? Nationality { get; set; }
+
+        [JsonPropertyName("address")]
+        public string? Address { get; set; }
+
+        [JsonPropertyName("mergerDate")]
+        public string? MergerDate { get; set; }
     }
     public class DesignMergerDecisionDto
     {
@@ -145,7 +182,7 @@ namespace patentdesign.Dtos.Request
         public string? UserId { get; set; }
         public FileTypes? FileType { get; set; }
     }
-    public class  AssignmentAppDto
+    public class AssignmentAppDto
     {
         public string? FileId { get; set; }
         public string? rrr { get; set; }
@@ -165,5 +202,33 @@ namespace patentdesign.Dtos.Request
         public string? AssigneeNationality { get; set; }
         public string? documentUrl { get; set; }
         public string? userId { get; set; }
+
+        // Response properties for GET endpoint
+        public AssignmentPartyDto? OldValue { get; set; }
+        public AssignmentPartyDto? NewValue { get; set; }
+    }
+
+    public class AssignmentPartyDto
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("email")]
+        public string? Email { get; set; }
+
+        [JsonPropertyName("phone")]
+        public string? Phone { get; set; }
+
+        [JsonPropertyName("nationality")]
+        public string? Nationality { get; set; }
+
+        [JsonPropertyName("address")]
+        public string? Address { get; set; }
+
+        [JsonPropertyName("country")]
+        public string? Country { get; set; }
+
+        [JsonPropertyName("dateOfAssignment")]
+        public string? DateOfAssignment { get; set; }
     }
 }

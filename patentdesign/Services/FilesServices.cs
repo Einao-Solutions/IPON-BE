@@ -6544,12 +6544,12 @@ public class FilesServices
         }
     }
 
-    public async Task<bool> NewMergerApplication(MergerApplicationDto mergerApp)
+    public async Task<string> NewMergerApplication(MergerApplicationDto mergerApp)
     {
         var file = await _fillingCollection
             .Find(Builders<Filling>.Filter.Eq(f => f.FileId, mergerApp.FileId))
             .FirstOrDefaultAsync();
-        if (file == null) return false;
+        if (file == null) return null;
         var applicant = file.applicants.FirstOrDefault();
         var user = await _userCollection
             .Find(Builders<AppUser>.Filter.Eq(u => u.Id, mergerApp.userId))
@@ -6630,7 +6630,7 @@ public class FilesServices
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Merger application submitted",
                         User = userName,
-                        UserId = user.Id
+                        UserId = user?.Id ?? file.CreatorAccount
                     }
                 }
             };
@@ -6641,15 +6641,15 @@ public class FilesServices
                 FilingDate = DateTime.Now.ToString(),
                 rrr = mergerApp.rrr,
                 FileNumber = mergerApp.FileId,
-                OldAddress = applicant.Address,
+                OldAddress = applicant?.Address,
                 Address = mergerApp.Address,
-                OldNationality = applicant.country,
+                OldNationality = applicant?.country,
                 Nationality = mergerApp.Nationality,
-                OldName = applicant.Name,
+                OldName = applicant?.Name,
                 Name = mergerApp.Name,
-                OldEmail = applicant.Email,
+                OldEmail = applicant?.Email,
                 Email = mergerApp.Email,
-                OldPhone = applicant.Phone,
+                OldPhone = applicant?.Phone,
                 Phone = mergerApp.Phone,
                 documentUrl = docUrl,
                 RecordalType = "Merger",
@@ -6666,13 +6666,15 @@ public class FilesServices
                 Builders<Filling>.Filter.Eq(f => f.Id, file.Id),
                 update
             );
+
+            return mergerHistory.id;
         }
         catch (Exception ex)
         {
 
             _log.LogError(ex, $"Error in NewMergerApplication: {ex.Message}");
+            return null;
         }
-        return true;
     }
     public async Task<bool> ApproveMerger(TreatRecordalDto recordalApp)
     {
@@ -6753,25 +6755,130 @@ public class FilesServices
 
         if (file == null) return null;
 
+        // Look up by ApplicationHistory first (this is what the frontend passes)
+        var applicationInfo = file.ApplicationHistory?.FirstOrDefault(a => a.id == appId);
+        if (applicationInfo == null) return null;
+
+        // Also get the PostRegApplications for documentUrl (applicant flow)
         var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == appId);
-        if (recordal == null) return null;
+
+        // Get document URL - try multiple sources
+        string documentUrl = ConvertToRelativeUrl(recordal?.documentUrl);
+
+        // If not found in PostRegApplications, try NewValue (SuperAdmin or ApplicationHistory attachments)
+        if (string.IsNullOrWhiteSpace(documentUrl) && applicationInfo.NewValue != null)
+        {
+            // Try direct URL fields in NewValue
+            documentUrl = ConvertToRelativeUrl(
+                Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, 
+                    "documentUrl", "document_url", "url", "deedUrl")
+            );
+
+            // If still not found, try to get from attachments array in NewValue
+            if (string.IsNullOrWhiteSpace(documentUrl))
+            {
+                try
+                {
+                    var newValueDict = applicationInfo.NewValue as IDictionary<string, object?>;
+                    if (newValueDict?.TryGetValue("attachments", out var attachmentsObj) == true && attachmentsObj is IEnumerable<object> docUrlAttachments)
+                    {
+                        var firstAttachment = docUrlAttachments.FirstOrDefault() as IDictionary<string, object?>;
+                        if (firstAttachment?.TryGetValue("url", out var urlObj) == true && urlObj != null)
+                        {
+                            documentUrl = ConvertToRelativeUrl(urlObj.ToString());
+                        }
+                    }
+                }
+                catch
+                {
+                    // Continue if extraction fails
+                }
+            }
+        }
+
+        // If still not found, try file.Attachments (SuperAdmin-created mergers may store deed here)
+        if (string.IsNullOrWhiteSpace(documentUrl) && file.Attachments != null)
+        {
+            var mergerDeed = file.Attachments.FirstOrDefault(a => 
+                a.name?.Equals("Deedofmerger", StringComparison.OrdinalIgnoreCase) == true ||
+                a.name?.Equals("DeedOfMerger", StringComparison.OrdinalIgnoreCase) == true ||
+                a.name?.Equals("Merger Document", StringComparison.OrdinalIgnoreCase) == true);
+
+            if (mergerDeed != null && mergerDeed.url?.Any() == true)
+            {
+                documentUrl = mergerDeed.url.First();
+            }
+        }
+
+        // Build the attachments list so the FE "Attachments" panel is populated,
+        // regardless of whether the entry was created by the applicant flow
+        // (attachments stored under NewValue) or SuperAdmin flow (file.Attachments).
+        var attachments = new List<MergerAttachmentDto>();
+        try
+        {
+            var newValueDict = applicationInfo.NewValue as IDictionary<string, object?>;
+            if (newValueDict?.TryGetValue("attachments", out var attachmentsObj) == true
+                && attachmentsObj is IEnumerable<object> attachmentsList)
+            {
+                foreach (var att in attachmentsList)
+                {
+                    if (att is not IDictionary<string, object?> attDict) continue;
+
+                    attDict.TryGetValue("fileName", out var fileNameObj);
+                    attDict.TryGetValue("contentType", out var contentTypeObj);
+                    attDict.TryGetValue("url", out var urlObj);
+
+                    var attUrl = ConvertToRelativeUrl(urlObj?.ToString());
+                    if (string.IsNullOrWhiteSpace(attUrl)) continue;
+
+                    // Skip duplicates that point to the same underlying file (the old
+                    // FE workaround could create a second ApplicationHistory attachment
+                    // entry pointing at the same document).
+                    if (attachments.Any(a => string.Equals(a.Url, attUrl, StringComparison.OrdinalIgnoreCase))) continue;
+
+                    attachments.Add(new MergerAttachmentDto
+                    {
+                        FileName = fileNameObj?.ToString(),
+                        ContentType = contentTypeObj?.ToString(),
+                        Url = attUrl
+                    });
+                }
+            }
+        }
+        catch
+        {
+            // Continue if extraction fails
+        }
+
+        // Fall back to the resolved documentUrl (e.g. from PostRegApplications or
+        // file.Attachments) when NewValue didn't carry an attachments array.
+        if (!string.IsNullOrWhiteSpace(documentUrl)
+            && !attachments.Any(a => string.Equals(a.Url, documentUrl, StringComparison.OrdinalIgnoreCase)))
+        {
+            attachments.Add(new MergerAttachmentDto
+            {
+                FileName = "Merger Document",
+                ContentType = "application/pdf",
+                Url = documentUrl
+            });
+        }
 
         var mergerDetails = new MergerApplicationDto
         {
             FileId = fileId,
-            rrr = recordal.rrr,
-            OldName = recordal.OldName,
-            Name = recordal.Name,
-            OldEmail = recordal.OldEmail,
-            Email = recordal.Email,
-            OldAddress = recordal.OldAddress,
-            Address = recordal.Address,
-            OldNationality = recordal.OldNationality,
-            Nationality = recordal.Nationality,
-            OldPhone = recordal.OldPhone,
-            Phone = recordal.Phone,
-            MergerDate = recordal.dateOfRecordal,
-            documentUrl = recordal.documentUrl
+            rrr = recordal?.rrr,
+            documentUrl = documentUrl,
+            Attachments = attachments,
+            NewValue = new MergerPartyDto
+            {
+                Name = Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, "name"),
+                Email = Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, "email"),
+                Phone = Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, "phone"),
+                Nationality = Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, "nationality"),
+                Address = Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, "address"),
+                // Handle both applicant flow (mergerDate) and SuperAdmin flow (dateOfMerger)
+                MergerDate = Utils.ApplicationHistoryShaper.TryGetPayloadString(applicationInfo.NewValue, "mergerDate", "dateOfMerger")
+            }
         };
 
         return mergerDetails;
@@ -8517,6 +8624,10 @@ public class FilesServices
             throw new KeyNotFoundException("Applicant/Assignor not found in application history or file");
         }
 
+        // Get the ApplicationInfo for this assignment to retrieve the ApplicationDate
+        var applicationInfo = file.ApplicationHistory?.FirstOrDefault(a => a.id == appId);
+        var dateOfAssignment = applicationInfo?.ApplicationDate.ToString("yyyy-MM-dd") ?? DateTime.Now.ToString("yyyy-MM-dd");
+
         var assigneeDetails = new AssignmentAppDto
         {
             FileId = fileId,
@@ -8535,6 +8646,27 @@ public class FilesServices
             AuthorizationLetterUrl = ConvertToRelativeUrl(assignee.AuthorizationLetterUrl),
             AssignmentDeedUrl = ConvertToRelativeUrl(assignee.AssignmentDeedUrl),
             documentUrl = ConvertToRelativeUrl(assignee.documentUrl),
+            // Populate oldValue (assignor details)
+            OldValue = new AssignmentPartyDto
+            {
+                Name = assignee.AssignorName ?? assignor.Name,
+                Email = assignee.AssignorEmail ?? assignor.Email,
+                Phone = assignee.AssignorPhone ?? assignor.Phone,
+                Nationality = assignee.AssignorNationality ?? assignor.country,
+                Address = assignee.AssignorAddress ?? assignor.Address,
+                Country = assignee.AssignorNationality ?? assignor.country,
+            },
+            // Populate newValue (assignee details)
+            NewValue = new AssignmentPartyDto
+            {
+                Name = assignee.Name,
+                Email = assignee.Email,
+                Phone = assignee.Phone,
+                Nationality = assignee.Nationality,
+                Address = assignee.Address,
+                Country = assignee.Nationality,
+                DateOfAssignment = dateOfAssignment,
+            }
         };
 
         return assigneeDetails;

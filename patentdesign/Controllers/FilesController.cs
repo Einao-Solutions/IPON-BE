@@ -584,13 +584,13 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpPost("MergerApplication")]
     public async Task<IActionResult> MergerApplication([FromForm] MergerApplicationDto data)
     {
-        var res = await fileService.NewMergerApplication(data);
-        if (res == false)
+        var appId = await fileService.NewMergerApplication(data);
+        if (appId == null)
         {
             Console.WriteLine("Failed to submit");
             return NotFound();
         }
-        return Ok(res);
+        return Ok(new { success = true, appId });
     }
     [HttpPost("ApproveMerger")]
     public async Task<IActionResult> ApproveMerger([FromBody] TreatRecordalDto recordalApp)
@@ -614,7 +614,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-    [HttpGet("GetMergerApplication")]
+     [HttpGet("GetMergerApplication")]
     public async Task<IActionResult> GetMergerApplication([FromQuery] string fileId, [FromQuery] string appId)
     {
         var res = await fileService.GetMergerApplication(fileId, appId);
@@ -622,7 +622,13 @@ public class FilesController(FilesServices fileService) : ControllerBase
         {
             return NotFound();
         }
-        return Ok(res);
+        // Return merger details including document URL, attachments and merger party information
+        return Ok(new
+        {
+            documentUrl = res.documentUrl,
+            attachments = res.Attachments,
+            newValue = res.NewValue
+        });
     }
     [HttpGet("GetAllRegisteredUsers")]
     public async Task<IActionResult> GetAllRegisteredUsers([FromQuery] string fileId)
@@ -1683,7 +1689,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(res);
     }
-    [HttpGet("GetAssignmentApplication")]
+     [HttpGet("GetAssignmentApplication")]
     public async Task<IActionResult> GetAssignmentApplication([FromQuery] string fileId, [FromQuery] string appId)
     {
         try
@@ -1693,11 +1699,13 @@ public class FilesController(FilesServices fileService) : ControllerBase
             {
                 return NotFound();
             }
-            // Return ONLY the 2 documents - no form data
+            // Return full assignment details including document URLs and assignor/assignee data
             return Ok(new 
             { 
                 assignmentDeedUrl = res.AssignmentDeedUrl,
-                authorizationLetterUrl = res.AuthorizationLetterUrl
+                authorizationLetterUrl = res.AuthorizationLetterUrl,
+                oldValue = res.OldValue,
+                newValue = res.NewValue
             });
         }
         catch (KeyNotFoundException ex)
