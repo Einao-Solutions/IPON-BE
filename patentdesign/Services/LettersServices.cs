@@ -1834,13 +1834,13 @@ public class LettersServices
 
                     try
                     {
-                        var imgBytes = await (new HttpClient()).GetByteArrayAsync(url);
+                        var imgBytes = await DownloadAttachmentBytesAsync(url, fileData.FileId);
                         if (imgBytes?.Length > 0)
                         {
                             images.Add(imgBytes);
                         }
                     }
-                    catch (HttpRequestException)
+                    catch (Exception)
                     {
                         // Skip invalid image URLs so the letter can still be generated.
                     }

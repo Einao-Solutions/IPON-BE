@@ -569,7 +569,7 @@ public class StatisticsService
     }
 
     #endregion
-
+     
     #region Finance Statistics
 
     public async Task<FinanceComparisonDataDto> GetFinanceComparisonAsync(FinanceComparisonRequestDto request)

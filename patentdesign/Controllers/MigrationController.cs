@@ -12,7 +12,7 @@ public class MigrationController(MigrationService migrationService) : Controller
 {
     //[Authorize]
     [HttpGet("GetMarkInfo")]
-    public async Task<IActionResult> GetMarkInfo(string regNumber)
+    public async Task<IActionResult> GetMarkInfo([FromQuery]string regNumber)
     {
         try
         {
