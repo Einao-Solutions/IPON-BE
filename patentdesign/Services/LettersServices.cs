@@ -135,10 +135,12 @@ public class LettersServices
 
     public async Task<Dictionary<string, object>> GenerateLetter(string? fileId = null,
         ApplicationLetters? letterType = null,
-        string? applicationId = null, string? oppositionId = null)
+        string? applicationId = null, string? oppositionId = null, string? rrr = null)
     {
         switch (letterType)
         {
+            case ApplicationLetters.AvailabilitySearchReceipt:
+                return await AvailabilitySearchReceipt(rrr);
             case ApplicationLetters.NewApplicationCertificateReceipt:
                 var data1 = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 PaymentInfo? response1 = null;
@@ -1691,6 +1693,19 @@ public class LettersServices
 
         // Pass both file and selectedHistory to the PDF generator
         var data = new StatusSearchReceipt(file, selectedHistory).GeneratePdf();
+        return ReturnDocument(data);
+    }
+
+    public async Task<Dictionary<string, object>> AvailabilitySearchReceipt(string? rrr)
+    {
+        if (string.IsNullOrWhiteSpace(rrr))
+            throw new ArgumentException("rrr is required to generate an Availability Search receipt", nameof(rrr));
+
+        var remitaResponse = await _remitaPaymentUtils.GetDetailsByRRR(rrr);
+        if (remitaResponse == null)
+            throw new Exception("Payment details not found for the provided rrr");
+
+        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(remitaResponse, rrr).GeneratePdf();
         return ReturnDocument(data);
     }
 

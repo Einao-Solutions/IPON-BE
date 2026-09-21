@@ -31,6 +31,13 @@ namespace patentdesign.Dtos.Response
         public List<PriorityInfo>? FirstPriorityInfo { get; set; } = new();
         public List<ApplicantInfo>? Applicants { get; set; }
         public bool? IsRenewalEligible { get; set; }
+        public string? AppId { get; set; }
 
+    }
+
+    public class AvailabilitySearchPaymentStatusDto
+    {
+        public string AppId { get; set; }
+        public string UserId { get; set; }
     }
 }

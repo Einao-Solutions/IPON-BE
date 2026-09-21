@@ -4846,7 +4846,7 @@ public class FilesServices
         }
     }
 
-    public async Task<AvailabilitySearchDto> AvailabilitySearchCost(string name, string email)
+    public async Task<AvailabilitySearchDto> AvailabilitySearchCost(string name, string email, string userId, string searchTerm, int? classNo = null, string? fileType = null)
     {
         var data = _remitaPaymentUtils.GetCost(PaymentTypes.AvailabilitySearch, null, "", null, null, null);
 
@@ -4854,12 +4854,92 @@ public class FilesServices
         var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
             data.Item1, data.Item3, data.Item2, "Availability Search",
             name, email, "");
+
+        if (paymentId == null)
+        {
+            Console.WriteLine("Failed to generate payment ID for availability search");
+            return null;
+        }
+
+        var app = new ApplicationInfo
+        {
+            PaymentId = paymentId,
+            CurrentStatus = ApplicationStatuses.AwaitingPayment,
+            ApplicationDate = DateTime.UtcNow,
+            ApplicationType = FormApplicationTypes.AvailabilitySearch,
+            Title = searchTerm,
+            StatusHistory = new List<ApplicationHistory>()
+        };
+
+        var updates = Builders<AppUser>.Update.Push("OtherApplications", app);
+
+        await _userCollection.FindOneAndUpdateAsync(
+            Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+            updates,
+            new FindOneAndUpdateOptions<AppUser> { ReturnDocument = MongoDB.Driver.ReturnDocument.After }
+        );
+
         var searchCost = new AvailabilitySearchDto
         {
             cost = data.Item1,
-            rrr = paymentId
+            rrr = paymentId,
+            AppId = app.id
         };
         return searchCost;
+    }
+
+    public async Task<(bool, string)> UpdateAvailabilitySearchPayment(string appId, string userId)
+    {
+        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
+        if (user == null)
+        {
+            throw new KeyNotFoundException("User not found");
+        }
+
+        var app = user.OtherApplications?.Find(a => a.id == appId);
+        if (app == null)
+        {
+            throw new KeyNotFoundException("Application not found");
+        }
+
+        if (string.IsNullOrWhiteSpace(app.PaymentId))
+        {
+            throw new InvalidOperationException("Payment ID not found");
+        }
+
+        var payment = await _remitaPaymentUtils.GetDetailsByRRR(app.PaymentId);
+        if (payment?.status != "00")
+        {
+            throw new InvalidOperationException("Unsuccessful payment");
+        }
+
+        var beforeStatus = app.CurrentStatus;
+        app.CurrentStatus = ApplicationStatuses.AutoApproved;
+        var history = new ApplicationHistory
+        {
+            Date = DateTime.Now,
+            beforeStatus = beforeStatus,
+            afterStatus = ApplicationStatuses.AutoApproved,
+            Message = "Payment successful, availability search completed",
+            User = "System",
+            UserId = "System"
+        };
+        app.StatusHistory ??= [];
+        app.StatusHistory.Add(history);
+
+        var filter = Builders<AppUser>.Filter.And(
+            Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+            Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a => a.id == appId));
+        var updates = Builders<AppUser>.Update.Set("OtherApplications.$", app);
+        var result = await _userCollection.FindOneAndUpdateAsync(
+            filter,
+            updates,
+            new FindOneAndUpdateOptions<AppUser> { ReturnDocument = MongoDB.Driver.ReturnDocument.After }
+        );
+
+        return result is not null
+            ? (true, "Availability search payment status updated successfully")
+            : (false, "Availability search payment status update failed");
     }
 
     public async Task<RecordalDto> StatusSearchCost(string fileId, FileTypes fileType)

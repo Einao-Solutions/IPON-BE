@@ -633,6 +633,7 @@ public record ApplicationInfo
     public byte[]? Signature { get; set; }
     public string? SignatureId { get; set; }
     public string? FileNumber { get; set; }
+    public string? Title { get; set; }
 }
 
 
@@ -943,7 +944,8 @@ public enum FormApplicationTypes
     None, Assignment, Ownership, RegisteredUser,Merger, ChangeOfName,
     ChangeOfAddress,ClericalUpdate, StatusSearch, AppealRequest,
     PublicationStatusUpdate, WithdrawalRequest, NewOpposition, Amendment, Certification, License, Mortgage, CertifiedTrueCopy, Reclassification, Restoration,
-    CounterStatement, StatutoryDeclaration, ChangeOfAgent, OfflineRenewalRequest, TrademarkJournalRequest
+    CounterStatement, StatutoryDeclaration, ChangeOfAgent, OfflineRenewalRequest, TrademarkJournalRequest,
+    AvailabilitySearch
 }
 public enum ApplicationLetters
 {
@@ -980,7 +982,8 @@ public enum ApplicationLetters
     DesignLicenseRefusalletter, DesignMortgageRefusalletter,DesignMergerRefusalLetter, DesignCtcRefusalLetter, DesignAmendmentRefusalLetter, DesignAssignmentReceipt, DesignLicenseReceipt,
     DesignMortgageReceipt, DesignMergerReceipt, DesignCtcReceipt, DesignAmendmentReceipt,
     TrademarkCtcAcknowledgement, TrademarkCtcReceipt, TrademarkCtcRefusalLetter,
-    StatutoryDeclarationAck, JournalRequestAcknowledgement
+    StatutoryDeclarationAck, JournalRequestAcknowledgement,
+    AvailabilitySearchReceipt
 
 
 }
