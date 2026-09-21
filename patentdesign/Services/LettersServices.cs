@@ -1718,13 +1718,21 @@ public class LettersServices
 
         var app = user?.OtherApplications?.FirstOrDefault(a => a.PaymentId == rrr);
 
+        if (app == null)
+            throw new Exception("Application not found for the provided payment reference");
+
+        // Check if application status is AutoApproved
+        // This ensures payment was successful and user completed the search workflow
+        if (app.CurrentStatus != ApplicationStatuses.AutoApproved)
+            throw new Exception($"Letter can only be generated for approved applications. Current status: {app.CurrentStatus}");
+
         List<AvailabilitySearchDto> matches = new();
-        if (app != null && !string.IsNullOrWhiteSpace(app.Title))
+        if (!string.IsNullOrWhiteSpace(app.Title))
         {
             matches = await _filesServices.GetRelatedTitles(app.Title);
         }
 
-        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(remitaResponse, rrr, app?.Title, matches).GeneratePdf();
+        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(remitaResponse, rrr, app?.Title, matches, app?.ApplicationDate).GeneratePdf();
         return ReturnDocument(data);
     }
 

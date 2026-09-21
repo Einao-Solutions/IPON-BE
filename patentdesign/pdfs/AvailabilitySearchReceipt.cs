@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using patentdesign.Dtos.Response;
@@ -9,12 +10,13 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs
 {
-    public class AvailabilitySearchReceipt(RemitaResponseClass remitaResponse, string rrr, string? searchTitle = null, List<AvailabilitySearchDto>? matches = null) : IDocument
+    public class AvailabilitySearchReceipt(RemitaResponseClass remitaResponse, string rrr, string? searchTitle = null, List<AvailabilitySearchDto>? matches = null, DateTime? searchDate = null) : IDocument
     {
         private RemitaResponseClass remitaResponse { get; set; } = remitaResponse;
         private string rrr { get; set; } = rrr;
         private string? searchTitle { get; set; } = searchTitle;
         private List<AvailabilitySearchDto> matches { get; set; } = matches ?? new List<AvailabilitySearchDto>();
+        private DateTime? searchDate { get; set; } = searchDate;
 
         public void Compose(IDocumentContainer container)
         {
@@ -62,14 +64,14 @@ namespace patentdesign.pdfs
                     column.Item().Height(10);
 
                     // Receipt Title
-                    column.Item().AlignCenter().Text("PAYMENT RECEIPT")
+                    column.Item().AlignCenter().Text("AVAILABILITY SEARCH RESULT")
                         .FontColor(Colors.Green.Darken2)
                         .FontFamily(Fonts.TimesNewRoman)
                         .FontSize(16)
                         .Bold();
                     column.Item().Height(25);
 
-                    // PAYMENT INFORMATION
+                    // SEARCH INFORMATION
                     column.Item().Table(table =>
                     {
                         table.ColumnsDefinition(columns =>
@@ -78,64 +80,19 @@ namespace patentdesign.pdfs
                             columns.RelativeColumn();
                         });
 
-                        table.Cell().ColumnSpan(2).Element(HeaderElement).Text("PAYMENT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                        table.Cell().ColumnSpan(2).Element(HeaderElement).Text("SEARCH INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
 
-                        var date = remitaResponse?.paymentDate ?? "Populate here";
-
-                        table.Cell().Element(Block).Column(c =>
-                        {
-                            c.Item().Text("Payment Date:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(date ?? "N/A").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
-                        });
-                        table.Cell().Element(Block).Column(c =>
-                        {
-                            c.Item().Text("Payment rrr:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(rrr ?? "N/A").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
-                        });
+                        var date = searchDate?.ToString("dd/MM/yyyy") ?? "N/A";
 
                         table.Cell().Element(Block).Column(c =>
                         {
-                            c.Item().Text("Amount Paid:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(remitaResponse?.amount?.ToString() ?? "Populate here").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
+                            c.Item().Text("Date:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                            c.Item().Text(date).FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
                         });
                         table.Cell().Element(Block).Column(c =>
                         {
-                            c.Item().Text("Status:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(remitaResponse?.status ?? "Populate here").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
-                        });
-
-                        table.Cell().ColumnSpan(2).Element(Block).Column(c =>
-                        {
-                            c.Item().Text("Fee Title:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(remitaResponse?.paymentDescription ?? "Availability Search").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
-                        });
-                    });
-
-                    // APPLICANT INFORMATION
-                    column.Item().Table(table =>
-                    {
-                        table.ColumnsDefinition(columns =>
-                        {
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
-                        });
-
-                        table.Cell().ColumnSpan(2).Element(HeaderElement).Text("APPLICANT INFORMATION").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
-
-                        table.Cell().Element(Block).Column(c =>
-                        {
-                            c.Item().Text("Name:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(remitaResponse?.payerName ?? "Populate here").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
-                        });
-                        table.Cell().Element(Block).Column(c =>
-                        {
-                            c.Item().Text("Email:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(remitaResponse?.payerEmail ?? "Populate here").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
-                        });
-                        table.Cell().ColumnSpan(2).Element(Block).Column(c =>
-                        {
-                            c.Item().Text("Phone Number:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
-                            c.Item().Text(remitaResponse?.payerPhoneNumber ?? "Populate here").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
+                            c.Item().Text("Title:").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                            c.Item().Text(searchTitle ?? "N/A").FontSize(12).FontColor(Colors.Black).FontFamily(Fonts.TimesNewRoman).Italic();
                         });
                     });
 
