@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Linq;
+using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using QuestPDF.Fluent;
@@ -6,10 +9,12 @@ using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs
 {
-    public class AvailabilitySearchReceipt(RemitaResponseClass remitaResponse, string rrr) : IDocument
+    public class AvailabilitySearchReceipt(RemitaResponseClass remitaResponse, string rrr, string? searchTitle = null, List<AvailabilitySearchDto>? matches = null) : IDocument
     {
         private RemitaResponseClass remitaResponse { get; set; } = remitaResponse;
         private string rrr { get; set; } = rrr;
+        private string? searchTitle { get; set; } = searchTitle;
+        private List<AvailabilitySearchDto> matches { get; set; } = matches ?? new List<AvailabilitySearchDto>();
 
         public void Compose(IDocumentContainer container)
         {
@@ -134,7 +139,56 @@ namespace patentdesign.pdfs
                         });
                     });
 
-                    column.Item().Height(40);
+                    column.Item().Height(20);
+
+                    // SEARCH RESULTS
+                    column.Item().Column(sc =>
+                    {
+                        sc.Item().Element(HeaderElement).Text("SEARCH RESULTS").FontFamily(Fonts.TimesNewRoman).FontSize(14).Bold();
+                        sc.Item().PaddingTop(3).Text($"Searched Title: {searchTitle ?? "N/A"}").FontSize(11).FontFamily(Fonts.TimesNewRoman).Italic();
+
+                        if (matches == null || matches.Count == 0)
+                        {
+                            sc.Item().PaddingTop(10).AlignCenter().Text("No conflicting marks found").FontSize(12).FontFamily(Fonts.TimesNewRoman).Bold();
+                        }
+                        else
+                        {
+                            sc.Item().PaddingTop(8).Table(table =>
+                            {
+                                table.ColumnsDefinition(columns =>
+                                {
+                                    columns.RelativeColumn(2);
+                                    columns.RelativeColumn(1);
+                                    columns.RelativeColumn(2);
+                                    columns.RelativeColumn(1.5f);
+                                    columns.RelativeColumn(1);
+                                    columns.RelativeColumn(1.5f);
+                                });
+
+                                table.Header(header =>
+                                {
+                                    header.Cell().Element(HeaderElement).Text("Title").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                                    header.Cell().Element(HeaderElement).Text("Class").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                                    header.Cell().Element(HeaderElement).Text("Applicant").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                                    header.Cell().Element(HeaderElement).Text("Filing Date").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                                    header.Cell().Element(HeaderElement).Text("Similarity").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                                    header.Cell().Element(HeaderElement).Text("Type").FontSize(10).FontFamily(Fonts.TimesNewRoman).Bold();
+                                });
+
+                                foreach (var m in matches)
+                                {
+                                    table.Cell().Element(Block).Text(m.TitleOfTradeMark ?? "N/A").FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                    table.Cell().Element(Block).Text(m.TradeMarkClass?.ToString() ?? "N/A").FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                    table.Cell().Element(Block).Text(m.FileApplicant ?? "N/A").FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                    table.Cell().Element(Block).Text(m.FilingDate ?? "N/A").FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                    table.Cell().Element(Block).Text($"{m.Similarity}%").FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                    table.Cell().Element(Block).Text(m.TrademarkType?.ToString() ?? "N/A").FontSize(10).FontFamily(Fonts.TimesNewRoman);
+                                }
+                            });
+                        }
+                    });
+
+                    column.Item().Height(20);
 
                     // Footer
                     column.Item().AlignCenter().Text("PLEASE KEEP THIS RECEIPT FOR FUTURE REFERENCE")

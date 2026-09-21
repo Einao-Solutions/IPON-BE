@@ -22,11 +22,12 @@ using ZstdSharp.Unsafe;
 namespace patentdesign.Services;
 public class LettersServices
 {
-    public LettersServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils)
+    public LettersServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, FilesServices filesServices)
     {
         var s = patentDesignDbSettings.Value;
         _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
         _usersCollection = db.GetCollection<UserCreateType>(s.UsersCollectionName);
+        _userCollection = db.GetCollection<AppUser>("appUsers");
         _statusRequestsCollection = db.GetCollection<StatusRequests>("statusrequests");
         _migratedFinanceCollection = db.GetCollection<DBRemitaPayment>("migratedFinance");
         _financeCollection = db.GetCollection<FinanceHistory>("finance");
@@ -35,6 +36,7 @@ public class LettersServices
         _oppositionCollection = db.GetCollection<OppositionType>(s.OppositionCollectionName);
         _newOppositionCollection = db.GetCollection<Opposition>(s.OppositionCollectionName);
         _counterStatementCollection = db.GetCollection<CounterStatement>(s.CounterStatementsCollectionName);
+        _filesServices = filesServices;
     }
     private static IMongoCollection<Filling> _fillingCollection;
     private static IMongoCollection<DBRemitaPayment> _migratedFinanceCollection;
@@ -44,9 +46,11 @@ public class LettersServices
     private static IMongoCollection<CounterStatement> _counterStatementCollection;
     private static IMongoCollection<StatusRequests> _statusRequestsCollection;
     private static IMongoCollection<UserCreateType> _usersCollection;
+    private static IMongoCollection<AppUser> _userCollection;
     private static IMongoCollection<SignatureInfo> _signatures;
     private MongoClient _mongoClient;
     private PaymentUtils _remitaPaymentUtils;
+    private FilesServices _filesServices;
 
     // Host used to rebuild stored attachment URLs that point at an unreachable
     // origin (e.g. a developer's localhost). Mirrors the value other services
@@ -1705,7 +1709,22 @@ public class LettersServices
         if (remitaResponse == null)
             throw new Exception("Payment details not found for the provided rrr");
 
-        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(remitaResponse, rrr).GeneratePdf();
+        // Find the ApplicationInfo (in any user's OtherApplications) matching this rrr, so we
+        // can retrieve the searched title and re-run the same matching logic used by the
+        // frontend results page.
+        var user = await _userCollection
+            .Find(Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a => a.PaymentId == rrr))
+            .FirstOrDefaultAsync();
+
+        var app = user?.OtherApplications?.FirstOrDefault(a => a.PaymentId == rrr);
+
+        List<AvailabilitySearchDto> matches = new();
+        if (app != null && !string.IsNullOrWhiteSpace(app.Title))
+        {
+            matches = await _filesServices.GetRelatedTitles(app.Title);
+        }
+
+        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(remitaResponse, rrr, app?.Title, matches).GeneratePdf();
         return ReturnDocument(data);
     }
 
