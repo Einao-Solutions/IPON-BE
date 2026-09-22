@@ -219,9 +219,13 @@ namespace patentdesign
                                 c.Item().Text("N/A").FontSize(12).FontFamily(Fonts.TimesNewRoman);
                             }
                         });
-                        table.Cell().ColumnSpan(2).Element(Block).Column(c => {
+                        table.Cell().ColumnSpan(2).Element(Block).Column(c =>
+                        {
                             c.Item().Text("Trademark Specification:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model?.AdditionalDescription ?? model?.TrademarkClassDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman).Justify();
+                            var specification = !model.TrademarkSpecification.IsNullOrEmpty()
+                                ? model.TrademarkSpecification
+                                : model?.TrademarkClassDescription;
+                            c.Item().Text(specification).FontSize(12).FontFamily(Fonts.TimesNewRoman).Justify();
                         });
                     });
                     // Correspondence Information Section
