@@ -584,14 +584,31 @@ public class MigrationService
                 PublicationReason = null, // Not present in ClaimRequests
                 PublicationRequestDate = null // Not present in ClaimRequests
             };
-            claim.IsMigrated = true;
-            await _fillingCollection.InsertOneAsync(file);
-            await _claimRequestsCollection.UpdateOneAsync(
-                c => c.Id == claim.Id,
+            // Idempotent insert: a previously half-completed migration must still be able to flag the claim.
+            var existingFile = await _fillingCollection.Find(f => f.FileId == file.FileId).FirstOrDefaultAsync();
+            if (existingFile == null)
+            {
+                await _fillingCollection.InsertOneAsync(file);
+            }
+            else
+            {
+                _log.LogWarning("File {FileNumber} already exists in the files collection; skipping insert and only flagging the claim(s) as migrated.", file.FileId);
+            }
+
+            // Flag every claim sharing this FileId, not just the first match, and verify the write actually happened.
+            var updateResult = await _claimRequestsCollection.UpdateManyAsync(
+                c => c.FileId == fileId,
                 Builders<ClaimRequests>.Update.Set(c => c.IsMigrated, true)
             );
 
-            _log.LogInformation("File migration completed for file number {FileNumber}. Claim ID: {ClaimId}", file.FileId, claim.Id);
+            if (updateResult.MatchedCount == 0)
+            {
+                _log.LogError("Migration flag was not written for file number {FileNumber}. No claim matched the update filter. Claim ID: {ClaimId}", fileId, claim.Id);
+                throw new Exception($"Failed to set IsMigrated for file number {fileId}");
+            }
+
+            _log.LogInformation("File migration completed for file number {FileNumber}. Claim ID: {ClaimId}; claims matched: {MatchedCount}; claims modified: {ModifiedCount}",
+                file.FileId, claim.Id, updateResult.MatchedCount, updateResult.ModifiedCount);
             return true;
 
         }

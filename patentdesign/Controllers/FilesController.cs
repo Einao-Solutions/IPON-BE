@@ -468,14 +468,29 @@ public class FilesController(FilesServices fileService) : ControllerBase
         return Ok(result);
     }
     [HttpGet("AvailabilitySearchCost")]
-    public async Task<IActionResult> AvailabilitySearchCost([FromQuery] string name, [FromQuery] string email)
+    public async Task<IActionResult> AvailabilitySearchCost([FromQuery] string name, [FromQuery] string email,
+        [FromQuery] string userId, [FromQuery] string searchTerm, [FromQuery] int? classNo = null, [FromQuery] string? fileType = null)
     {
-        var res = await fileService.AvailabilitySearchCost(name, email);
+        var res = await fileService.AvailabilitySearchCost(name, email, userId, searchTerm, classNo, fileType);
         if (res == null)
         {
             return BadRequest("NOT FOUND");
         }
         return Ok(res);
+    }
+
+    [HttpPost("UpdateAvailabilitySearchPayment")]
+    public async Task<IActionResult> UpdateAvailabilitySearchPayment([FromBody] AvailabilitySearchPaymentStatusDto dto)
+    {
+        try
+        {
+            var result = await fileService.UpdateAvailabilitySearchPayment(dto.AppId, dto.UserId);
+            return Ok(new { success = result.Item1, message = result.Item2 });
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { message = e.Message });
+        }
     }
 
     [HttpGet("GetStatusSearchCost")]

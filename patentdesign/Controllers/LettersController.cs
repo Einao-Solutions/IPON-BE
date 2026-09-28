@@ -9,7 +9,7 @@ public class LettersController(LettersServices lettersServices) : ControllerBase
 {
     [HttpGet("generate")]
     public async Task<IActionResult> Generate([FromQuery] string? applicationId = null, [FromQuery] string? fileId = null,
-        [FromQuery] int? letterType = null, [FromQuery] string? oppositionId = null)
+        [FromQuery] int? letterType = null, [FromQuery] string? oppositionId = null, [FromQuery] string? rrr = null)
     {
         // Validate parameters
         if (letterType == null || letterType < 0 || letterType >= Enum.GetValues<ApplicationLetters>().Length)
@@ -24,7 +24,7 @@ public class LettersController(LettersServices lettersServices) : ControllerBase
         Console.WriteLine("OppositionId: " + oppositionId);
         try
         {
-            var result = await lettersServices.GenerateLetter(fileId, r, applicationId, oppositionId);
+            var result = await lettersServices.GenerateLetter(fileId, r, applicationId, oppositionId, rrr);
             if (result == null || !result.ContainsKey("data") || result["data"] == null)
             {
                 Console.WriteLine("Result: " + JsonSerializer.Serialize(result));
