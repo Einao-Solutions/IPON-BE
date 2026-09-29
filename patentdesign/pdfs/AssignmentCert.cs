@@ -23,8 +23,8 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
 
         private void ComposeContent(IContainer container)
         {
-            var app = model.ApplicationHistory.FirstOrDefault(r=>r.id == applicationId);
-            var firstApplicant = model.ApplicationHistory[0].Applicants.FirstOrDefault();
+            var app = model.ApplicationHistory?.FirstOrDefault(r=>r.id == applicationId);
+            var firstApplicant = model.ApplicationHistory?.FirstOrDefault()?.Applicants?.FirstOrDefault();
             var postRegApp = model.PostRegApplications?.FirstOrDefault(a => a.Id == applicationId);
             var date = postRegApp?.DateTreated;
             var formattedDate = DateTime.TryParseExact(date, "M/d/yyyy h:mm:ss tt",
@@ -33,8 +33,8 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                 out var parsedDate)
                 ? parsedDate.ToString("dd MMMM, yyyy")
                 : date;
-            var assignee = model.Assignees.FirstOrDefault(a => a.Id == applicationId);
-            var assignor = model.ApplicationHistory[0].Applicants[0]; 
+            var assignee = model.Assignees?.FirstOrDefault(a => a.Id == applicationId);
+            var assignor = firstApplicant;
             container.PaddingVertical(5).Column(column =>
             {
                 column.Item().Height(30);
@@ -120,11 +120,11 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorName ?? assignor.Name)
+                        .Text(assignee?.AssignorName ?? assignor?.Name ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.Name)
+                        .Text(assignee?.Name ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     // ===== ADDRESS =====
@@ -134,11 +134,11 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorAddress ?? assignor.Address)
+                        .Text(assignee?.AssignorAddress ?? assignor?.Address ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.Address)
+                        .Text(assignee?.Address ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     // ===== PHONE =====
@@ -148,11 +148,11 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorPhone ?? assignor.Phone)
+                        .Text(assignee?.AssignorPhone ?? assignor?.Phone ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.Phone)
+                        .Text(assignee?.Phone ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     // ===== EMAIL =====
@@ -162,11 +162,11 @@ public class AssignmentCert(Filling model, string url, byte[]? imageData, string
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.AssignorEmail ?? assignor.Email)
+                        .Text(assignee?.AssignorEmail ?? assignor?.Email ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
 
                     table.Cell().Element(Cell)
-                        .Text(assignee.Email)
+                        .Text(assignee?.Email ?? "N/A")
                         .FontFamily(Fonts.TimesNewRoman);
                 });
 
