@@ -268,7 +268,7 @@ builder.Services.AddProblemDetails();
 // ------------------ Services ------------------
 //builder.Services.AddSingleton<ILoggerService, LoggerService>();
 builder.Services.AddSignalR();
-builder.Services.AddSingleton<PaymentUtils>();
+builder.Services.AddScoped<PaymentUtils>();
 builder.Services.AddScoped<OppositionService>();
 builder.Services.AddScoped<FilesServices>();
 builder.Services.AddScoped<LettersServices>();
