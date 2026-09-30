@@ -1570,7 +1570,7 @@ public class FilesServices
         });
         // the count and the page are independent; run them concurrently instead of
         // blocking a thread on a synchronous count before the page query even starts.
-        var countTask = _fillingCollection.CountDocumentsAsync(filters);
+        var countTask = GetSummaryCountAsync(filters);
         var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
         await Task.WhenAll(countTask, resultTask);
         var count = await countTask;
@@ -1582,6 +1582,35 @@ public class FilesServices
             result = result,
             count = count
         };
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Count, DateTime ExpiresAt)> _summaryCountCache = new();
+    private static readonly TimeSpan _summaryCountTtl = TimeSpan.FromSeconds(60);
+
+    // the paginated grid counts every matching file on each page request, which stays expensive
+    // even with an index. Totals are only used to render the pager, so a short TTL is acceptable.
+    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters)
+    {
+        var key = filters.Render(BsonSerializer.SerializerRegistry.GetSerializer<Filling>(), BsonSerializer.SerializerRegistry).ToJson();
+
+        if (_summaryCountCache.TryGetValue(key, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+        {
+            _log.LogDebug("Reusing cached summary count {Count} for filter {Filter}", cached.Count, key);
+            return cached.Count;
+        }
+
+        var count = await _fillingCollection.CountDocumentsAsync(filters);
+        _summaryCountCache[key] = (count, DateTime.UtcNow.Add(_summaryCountTtl));
+
+        if (_summaryCountCache.Count > 200)
+        {
+            foreach (var expired in _summaryCountCache.Where(x => x.Value.ExpiresAt <= DateTime.UtcNow).Select(x => x.Key))
+            {
+                _summaryCountCache.TryRemove(expired, out _);
+            }
+        }
+
+        return count;
     }
 
     public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
@@ -1892,6 +1921,17 @@ public class FilesServices
         }
     }
 
+    // a search term is treated as a file/RTM number when it is all digits (an RTM number, e.g. 472594)
+    // or a full slash-separated file number (e.g. NG/TM/O/2026/472594). Anything else is free text.
+    private static bool LooksLikeFileNumber(string term)
+    {
+        var trimmed = term.Trim();
+        if (trimmed.Length == 0) return false;
+
+        return trimmed.All(char.IsDigit) ||
+               (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
+    }
+
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
     {
         var filterBuilder = Builders<Filling>.Filter;
@@ -1922,13 +1962,20 @@ public class FilesServices
             : filterBuilder.In(f => f.Type, filter.types);
         var titleFilter = filter.Title == null
             ? filterBuilder.Empty
-            : filterBuilder.Or([
-                filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
-            ]);
+            : LooksLikeFileNumber(filter.Title)
+                // a file/RTM number is an exact lookup; both fields are indexed, so this avoids
+                // the unanchored case-insensitive regex scan over the whole collection.
+                ? filterBuilder.Or([
+                    filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
+                    filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
+                ])
+                : filterBuilder.Or([
+                    filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
+                ]);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
