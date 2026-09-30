@@ -94,6 +94,60 @@ public class FilesServices
         _publicationServices = publicationServices;
         _notificationServices = notificationServices;
         _signatures = db.GetCollection<SignatureInfo>("signatures");
+
+        EnsureFileIndexes();
+    }
+
+    private static int _indexesEnsured;
+
+    // files are looked up by FileId almost everywhere in this service; without an index
+    // every lookup is a full collection scan (surfaced as slow queries in the db logs).
+    private void EnsureFileIndexes()
+    {
+        if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var fileIdKeys = Builders<Filling>.IndexKeys.Ascending(x => x.FileId);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(fileIdKeys, new CreateIndexOptions { Name = "FileId_1", Background = true }));
+            _log.LogInformation("Ensured files index on FileId");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _indexesEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure files index on FileId");
+        }
+
+        try
+        {
+            // the paginated summary grid filters on Type (often with a DateCreated range) and
+            // counts the whole matching set, so a Type-prefixed index keeps it off a collection scan.
+            var typeKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.Type)
+                .Descending(x => x.DateCreated);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(typeKeys, new CreateIndexOptions { Name = "Type_1_DateCreated_-1", Background = true }));
+            _log.LogInformation("Ensured files index on Type and DateCreated");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on Type and DateCreated");
+        }
+
+        try
+        {
+            // GetFileByNumber matches FileId OR RtmNumber; an $or only avoids a collection scan
+            // when every branch is indexed. RtmNumber is null on most files, so keep it sparse.
+            var rtmKeys = Builders<Filling>.IndexKeys.Ascending(x => x.RtmNumber);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(rtmKeys, new CreateIndexOptions { Name = "RtmNumber_1", Background = true, Sparse = true }));
+            _log.LogInformation("Ensured files index on RtmNumber");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on RtmNumber");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -1514,8 +1568,13 @@ public class FilesServices
             DesignType = x.DesignType,
             FilingDate = x.FilingDate
         });
-        var count = _fillingCollection.CountDocuments(filters);
-        var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        // the count and the page are independent; run them concurrently instead of
+        // blocking a thread on a synchronous count before the page query even starts.
+        var countTask = GetSummaryCountAsync(filters);
+        var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        await Task.WhenAll(countTask, resultTask);
+        var count = await countTask;
+        var result = await resultTask;
         _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
 
         return new PaginatedResponse()
@@ -1523,6 +1582,35 @@ public class FilesServices
             result = result,
             count = count
         };
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Count, DateTime ExpiresAt)> _summaryCountCache = new();
+    private static readonly TimeSpan _summaryCountTtl = TimeSpan.FromSeconds(60);
+
+    // the paginated grid counts every matching file on each page request, which stays expensive
+    // even with an index. Totals are only used to render the pager, so a short TTL is acceptable.
+    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters)
+    {
+        var key = filters.Render(BsonSerializer.SerializerRegistry.GetSerializer<Filling>(), BsonSerializer.SerializerRegistry).ToJson();
+
+        if (_summaryCountCache.TryGetValue(key, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+        {
+            _log.LogDebug("Reusing cached summary count {Count} for filter {Filter}", cached.Count, key);
+            return cached.Count;
+        }
+
+        var count = await _fillingCollection.CountDocumentsAsync(filters);
+        _summaryCountCache[key] = (count, DateTime.UtcNow.Add(_summaryCountTtl));
+
+        if (_summaryCountCache.Count > 200)
+        {
+            foreach (var expired in _summaryCountCache.Where(x => x.Value.ExpiresAt <= DateTime.UtcNow).Select(x => x.Key))
+            {
+                _summaryCountCache.TryRemove(expired, out _);
+            }
+        }
+
+        return count;
     }
 
     public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
@@ -1833,6 +1921,17 @@ public class FilesServices
         }
     }
 
+    // a search term is treated as a file/RTM number when it is all digits (an RTM number, e.g. 472594)
+    // or a full slash-separated file number (e.g. NG/TM/O/2026/472594). Anything else is free text.
+    private static bool LooksLikeFileNumber(string term)
+    {
+        var trimmed = term.Trim();
+        if (trimmed.Length == 0) return false;
+
+        return trimmed.All(char.IsDigit) ||
+               (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
+    }
+
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
     {
         var filterBuilder = Builders<Filling>.Filter;
@@ -1863,13 +1962,20 @@ public class FilesServices
             : filterBuilder.In(f => f.Type, filter.types);
         var titleFilter = filter.Title == null
             ? filterBuilder.Empty
-            : filterBuilder.Or([
-                filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
-            ]);
+            : LooksLikeFileNumber(filter.Title)
+                // a file/RTM number is an exact lookup; both fields are indexed, so this avoids
+                // the unanchored case-insensitive regex scan over the whole collection.
+                ? filterBuilder.Or([
+                    filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
+                    filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
+                ])
+                : filterBuilder.Or([
+                    filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
+                ]);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
