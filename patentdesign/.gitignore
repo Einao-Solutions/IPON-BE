@@ -437,3 +437,8 @@ api_output.txt
 ersUserOneDriveDesktopEinaoBE
 *.tmp
 
+# Markdown and PowerShell files
+*.md
+*.ps
+*.ps1
+
