@@ -120,6 +120,34 @@ public class FilesServices
             Interlocked.Exchange(ref _indexesEnsured, 0);
             _log.LogWarning(ex, "Failed to ensure files index on FileId");
         }
+
+        try
+        {
+            // the paginated summary grid filters on Type (often with a DateCreated range) and
+            // counts the whole matching set, so a Type-prefixed index keeps it off a collection scan.
+            var typeKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.Type)
+                .Descending(x => x.DateCreated);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(typeKeys, new CreateIndexOptions { Name = "Type_1_DateCreated_-1", Background = true }));
+            _log.LogInformation("Ensured files index on Type and DateCreated");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on Type and DateCreated");
+        }
+
+        try
+        {
+            // GetFileByNumber matches FileId OR RtmNumber; an $or only avoids a collection scan
+            // when every branch is indexed. RtmNumber is null on most files, so keep it sparse.
+            var rtmKeys = Builders<Filling>.IndexKeys.Ascending(x => x.RtmNumber);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(rtmKeys, new CreateIndexOptions { Name = "RtmNumber_1", Background = true, Sparse = true }));
+            _log.LogInformation("Ensured files index on RtmNumber");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on RtmNumber");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -1540,8 +1568,13 @@ public class FilesServices
             DesignType = x.DesignType,
             FilingDate = x.FilingDate
         });
-        var count = _fillingCollection.CountDocuments(filters);
-        var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        // the count and the page are independent; run them concurrently instead of
+        // blocking a thread on a synchronous count before the page query even starts.
+        var countTask = _fillingCollection.CountDocumentsAsync(filters);
+        var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        await Task.WhenAll(countTask, resultTask);
+        var count = await countTask;
+        var result = await resultTask;
         _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
 
         return new PaginatedResponse()
