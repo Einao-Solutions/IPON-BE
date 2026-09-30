@@ -94,6 +94,32 @@ public class FilesServices
         _publicationServices = publicationServices;
         _notificationServices = notificationServices;
         _signatures = db.GetCollection<SignatureInfo>("signatures");
+
+        EnsureFileIndexes();
+    }
+
+    private static int _indexesEnsured;
+
+    // files are looked up by FileId almost everywhere in this service; without an index
+    // every lookup is a full collection scan (surfaced as slow queries in the db logs).
+    private void EnsureFileIndexes()
+    {
+        if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var fileIdKeys = Builders<Filling>.IndexKeys.Ascending(x => x.FileId);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(fileIdKeys, new CreateIndexOptions { Name = "FileId_1", Background = true }));
+            _log.LogInformation("Ensured files index on FileId");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _indexesEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure files index on FileId");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
