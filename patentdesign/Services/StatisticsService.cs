@@ -775,12 +775,33 @@ public class StatisticsService
                 TotalFiles = files.Count
             };
 
-            periodResult.ApplicationTypes = BuildBreakdown(
-                files
-                    .SelectMany(file => file.ApplicationHistory ?? [])
-                    .Where(history => history.ApplicationDate >= range.StartDate && history.ApplicationDate <= range.EndDate)
-                    .Select(history => history.ApplicationType.ToString())
+            // Application type stats are driven by ApplicationHistory.ApplicationDate,
+            // independent of when the parent file was created.
+            var applicationFilter = Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.Eq(x => x.Type, fileType),
+                Builders<Filling>.Filter.ElemMatch(
+                    x => x.ApplicationHistory,
+                    history => history.ApplicationDate >= range.StartDate && history.ApplicationDate <= range.EndDate)
             );
+
+            var applicationFiles = await _fillingCollection
+                .Find(applicationFilter)
+                .Project<Filling>(Builders<Filling>.Projection.Include(x => x.ApplicationHistory))
+                .ToListAsync();
+
+            var applicationEntries = applicationFiles
+                .SelectMany(file => file.ApplicationHistory ?? [])
+                .Where(history => history.ApplicationDate >= range.StartDate && history.ApplicationDate <= range.EndDate)
+                .ToList();
+
+            periodResult.ApplicationTypes = BuildBreakdown(
+                applicationEntries.Select(history => history.ApplicationType.ToString()),
+                Enum.GetNames<FormApplicationTypes>()
+            );
+
+            _log.LogInformation(
+                "Application type breakdown for {Label} ({Start:yyyy-MM-dd} to {End:yyyy-MM-dd}): {EntryCount} entries across {FileCount} files",
+                range.Label, range.StartDate, range.EndDate, applicationEntries.Count, applicationFiles.Count);
 
             switch (fileType)
             {
@@ -1388,6 +1409,19 @@ public class StatisticsService
         {
             _log.LogWarning(ex, "Failed to ensure payments index on FileType and Date");
         }
+
+        try
+        {
+            var historyKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.Type)
+                .Ascending("applicationHistory.applicationDate");
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(historyKeys));
+            _log.LogInformation("Ensured filings index on Type and applicationHistory.applicationDate");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure filings index on Type and applicationHistory.applicationDate");
+        }
     }
 
     private static double GetTechFee(PaymentRecord payment)
@@ -1561,17 +1595,31 @@ public class StatisticsService
         return breakdown;
     }
 
-    private static List<OperationalBreakdownItemDto> BuildBreakdown(IEnumerable<string?> values)
+    private static List<OperationalBreakdownItemDto> BuildBreakdown(
+        IEnumerable<string?> values,
+        IEnumerable<string>? seedKeys = null)
     {
-        return values
-            .Select(value => string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim())
-            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new OperationalBreakdownItemDto
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var key in seedKeys ?? [])
+        {
+            counts[key] = 0;
+        }
+
+        foreach (var value in values)
+        {
+            var key = string.IsNullOrWhiteSpace(value) ? "Unknown" : value.Trim();
+            counts[key] = counts.TryGetValue(key, out var count) ? count + 1 : 1;
+        }
+
+        return counts
+            .Select(pair => new OperationalBreakdownItemDto
             {
-                Key = group.Key,
-                Count = group.Count()
+                Key = pair.Key,
+                Count = pair.Value
             })
             .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

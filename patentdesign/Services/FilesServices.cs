@@ -10374,7 +10374,7 @@ public class FilesServices
                 TrademarkLogo = filling.TrademarkLogo,
                 TrademarkType = filling.TrademarkType,
                 TrademarkDisclaimer = filling.TrademarkDisclaimer,
-                TrademarkSpecification = filling.TrademarkSpecification,
+                TrademarkSpecification = filling.AdditionalDescription ?? filling.TrademarkSpecification,
                 RtmNumber = filling.RtmNumber,
                 Comment = filling.Comment,
                 DesignAttachments = designs
@@ -10475,7 +10475,13 @@ public class FilesServices
         if (!string.IsNullOrWhiteSpace(request.StatementOfNovelty)) existing.StatementOfNovelty = request.StatementOfNovelty;
         if (!string.IsNullOrWhiteSpace(request.TitleOfTradeMark)) existing.TitleOfTradeMark = request.TitleOfTradeMark;
         if (!string.IsNullOrWhiteSpace(request.TrademarkDisclaimer)) existing.TrademarkDisclaimer = request.TrademarkDisclaimer;
-        if (!string.IsNullOrWhiteSpace(request.TrademarkSpecification)) existing.TrademarkSpecification = request.TrademarkSpecification;
+        if (!string.IsNullOrWhiteSpace(request.TrademarkSpecification))
+        {
+            if (string.IsNullOrWhiteSpace(existing.AdditionalDescription) && !string.IsNullOrWhiteSpace(existing.TrademarkSpecification))
+                existing.AdditionalDescription = request.TrademarkSpecification;
+            else
+                existing.TrademarkSpecification = request.TrademarkSpecification;
+        }
         if (!string.IsNullOrWhiteSpace(request.RtmNumber)) existing.RtmNumber = request.RtmNumber;
         if (!string.IsNullOrWhiteSpace(request.Comment)) existing.Comment = request.Comment;
         if (!string.IsNullOrEmpty(request.FilingCountry)) existing.FilingCountry = request.FilingCountry;
