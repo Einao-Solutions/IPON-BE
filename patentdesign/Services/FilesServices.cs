@@ -2680,6 +2680,7 @@ public class FilesServices
             }
             var applicant = file.applicants.FirstOrDefault();
             var cost = _remitaPaymentUtils.GetCost(lateRenewal ? PaymentTypes.PatentLateRenewal : PaymentTypes.LicenseRenew, fileType, file.FilingCountry ?? "", file.DesignType, null);
+            _log.LogInformation($"[DESIGN RENEWAL] FileId={fileId}, DesignType={file.DesignType}, LateRenewal={lateRenewal}, CalculatedCost={cost.Item1}, ServiceFee={cost.Item3}, ServiceId={cost.Item2}");
             var rrr = await _remitaPaymentUtils.GenerateRemitaPaymentId(cost.Item1, cost.Item3, cost.Item2,
                 "Payment for Design Renewal", applicant.Name, applicant.Email, applicant.Phone);
             if (rrr is null)
