@@ -384,6 +384,16 @@ MSBuild_Logs/
 # Local History for Visual Studio
 **/.localhistory/
 
+# Markdown files
+*.md
+
+# PowerShell script files
+*.ps1
+*.ps2
+*.ps1xml
+*.psc1
+*.psc2
+
 # Visual Studio History (VSHistory) files
 .vshistory/
 
@@ -426,4 +436,9 @@ FodyWeavers.xsd
 api_output.txt
 ersUserOneDriveDesktopEinaoBE
 *.tmp
+
+# Markdown and PowerShell files
+*.md
+*.ps
+*.ps1
 
