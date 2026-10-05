@@ -688,9 +688,7 @@ public class StatisticsService
                 .Select(group => new FinancePaymentTypeResultDto
                 {
                     PaymentType = group.Key,
-                    TotalGovernmentFee = group.Key.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase)
-                        ? group.Sum(p => GetGovernmentFee(p) + GetTechFee(p))
-                        : group.Sum(GetTechFee),
+                    TotalGovernmentFee = group.Sum(GetTechFee),
                     Count = group.Count()
                 })
                 .OrderByDescending(x => x.TotalGovernmentFee)
@@ -700,9 +698,7 @@ public class StatisticsService
                 range.StartDate,
                 range.EndDate,
                 payments,
-                p => (p.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
-                    ? GetGovernmentFee(p) + GetTechFee(p)
-                    : GetTechFee(p)
+                GetTechFee
             );
 
             results.Add(new FinancePeriodResultDto
@@ -1428,9 +1424,11 @@ public class StatisticsService
     {
         if (payment?.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
         {
-            // For File Withdrawal, sum all line items
+            // For File Withdrawal, combine government and tech line items as one tech figure.
             var items = payment.RemitaResponse?.lineItems;
-            return items?.Sum(x => x?.beneficiaryAmount ?? 0d) ?? 0d;
+            var first = items?.ElementAtOrDefault(0)?.beneficiaryAmount ?? 0d;
+            var second = items?.ElementAtOrDefault(1)?.beneficiaryAmount ?? 0d;
+            return first + second;
         }
         // For all other types, just the second line item
         return payment?.RemitaResponse?.lineItems?.Skip(1).FirstOrDefault()?.beneficiaryAmount ?? 0d;
