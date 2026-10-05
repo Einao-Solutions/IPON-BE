@@ -25,7 +25,11 @@ public class StatisticsController(StatisticsService statisticsService) : Control
         [FromQuery] int? unitId,
         [FromQuery] string? periodType,
         [FromQuery] string? periodValue,
-        [FromQuery] int? year)
+        [FromQuery] int? year,
+        [FromQuery] DateOnly? startDate,
+        [FromQuery] DateOnly? endDate,
+        [FromQuery] int? startYear,
+        [FromQuery] int? endYear)
     {
         if (string.IsNullOrWhiteSpace(registryType))
         {
@@ -42,19 +46,18 @@ public class StatisticsController(StatisticsService statisticsService) : Control
             return BadRequest(new { success = false, error = "Missing required parameter: periodType" });
         }
 
-        if (string.IsNullOrWhiteSpace(periodValue))
-        {
-            return BadRequest(new { success = false, error = "Missing required parameter: periodValue" });
-        }
-
-        if (!year.HasValue)
-        {
-            return BadRequest(new { success = false, error = "Missing required parameter: year" });
-        }
-
         try
         {
-            var data = await statisticsService.GetStaffPerformanceAsync(registryType, unitId.Value, periodType, periodValue, year.Value);
+            var data = await statisticsService.GetStaffPerformanceAsync(
+                registryType,
+                unitId.Value,
+                periodType,
+                periodValue,
+                year,
+                startDate,
+                endDate,
+                startYear,
+                endYear);
             return Ok(new { success = true, data });
         }
         catch (ArgumentException ex)
@@ -106,7 +109,11 @@ public class StatisticsController(StatisticsService statisticsService) : Control
         [FromQuery] string? registryType,
         [FromQuery] string? periodType,
         [FromQuery] string? periodValue,
-        [FromQuery] int? year)
+        [FromQuery] int? year,
+        [FromQuery] DateOnly? startDate,
+        [FromQuery] DateOnly? endDate,
+        [FromQuery] int? startYear,
+        [FromQuery] int? endYear)
     {
         if (string.IsNullOrWhiteSpace(registryType))
         {
@@ -118,19 +125,17 @@ public class StatisticsController(StatisticsService statisticsService) : Control
             return BadRequest(new { success = false, error = "Missing required parameter: periodType" });
         }
 
-        if (string.IsNullOrWhiteSpace(periodValue))
-        {
-            return BadRequest(new { success = false, error = "Missing required parameter: periodValue" });
-        }
-
-        if (!year.HasValue)
-        {
-            return BadRequest(new { success = false, error = "Missing required parameter: year" });
-        }
-
         try
         {
-            var data = await statisticsService.GetUnitPerformanceAsync(registryType, periodType, periodValue, year.Value);
+            var data = await statisticsService.GetUnitPerformanceAsync(
+                registryType,
+                periodType,
+                periodValue,
+                year,
+                startDate,
+                endDate,
+                startYear,
+                endYear);
             return Ok(new { success = true, data });
         }
         catch (ArgumentException ex)

@@ -52,6 +52,8 @@ namespace patentdesign.Dtos.Request
     {
         public string Type { get; set; } = string.Empty;
         public string? Value { get; set; }
+        public string? PeriodType { get; set; }
+        public string? PeriodValue { get; set; }
         public int? Year { get; set; }
         public int? StartYear { get; set; }
         public int? EndYear { get; set; }

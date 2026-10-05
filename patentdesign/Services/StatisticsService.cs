@@ -160,9 +160,19 @@ public class StatisticsService
         return result;
     }
 
-    public async Task<StaffPerformanceDataDto> GetStaffPerformanceAsync(string registryType, int unitId, string periodType, string periodValue, int year)
+    public async Task<StaffPerformanceDataDto> GetStaffPerformanceAsync(
+        string registryType,
+        int unitId,
+        string periodType,
+        string? periodValue,
+        int? year,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
+        int? startYear = null,
+        int? endYear = null)
     {
-        var cacheKey = $"stats:{GetCacheVersion()}:staff-performance:{registryType}:{unitId}:{periodType}:{periodValue}:{year}";
+        var periodCacheKey = BuildPerformancePeriodCacheKey(periodType, periodValue, year, startDate, endDate, startYear, endYear);
+        var cacheKey = $"stats:{GetCacheVersion()}:staff-performance:{registryType}:{unitId}:{periodCacheKey}";
         var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
@@ -174,10 +184,10 @@ public class StatisticsService
             }
         }
 
-        _log.LogInformation("Fetching staff performance for RegistryType {RegistryType}, UnitId {UnitId}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, unitId, periodType, periodValue, year);
+        _log.LogInformation("Fetching staff performance for RegistryType {RegistryType}, UnitId {UnitId}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}, StartDate {StartDate}, EndDate {EndDate}, StartYear {StartYear}, EndYear {EndYear}", registryType, unitId, periodType, periodValue, year, startDate, endDate, startYear, endYear);
         var fileType = ParseRegistryType(registryType);
         var unitMapping = GetUnitMapping(registryType, unitId);
-        var dateRange = GetDateRange(periodType, periodValue, year);
+        var dateRange = GetDateRange(periodType, periodValue, year, startDate, endDate, startYear, endYear);
 
         var baseFilter = Builders<StaffPerformance>.Filter.And(
             Builders<StaffPerformance>.Filter.Eq(x => x.FileType, fileType),
@@ -265,8 +275,8 @@ public class StatisticsService
             Period = new PeriodDto
             {
                 Type = periodType,
-                Value = periodValue,
-                Year = year
+                Value = periodValue ?? dateRange.Label,
+                Year = year ?? dateRange.StartDate.Year
             },
             Summary = summary,
             StaffPerformance = staffPerformance
@@ -278,9 +288,18 @@ public class StatisticsService
         return result;
     }
 
-    public async Task<UnitPerformanceDataDto> GetUnitPerformanceAsync(string registryType, string periodType, string periodValue, int year)
+    public async Task<UnitPerformanceDataDto> GetUnitPerformanceAsync(
+        string registryType,
+        string periodType,
+        string? periodValue,
+        int? year,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
+        int? startYear = null,
+        int? endYear = null)
     {
-        var cacheKey = $"stats:{GetCacheVersion()}:unit-performance:{registryType}:{periodType}:{periodValue}:{year}";
+        var periodCacheKey = BuildPerformancePeriodCacheKey(periodType, periodValue, year, startDate, endDate, startYear, endYear);
+        var cacheKey = $"stats:{GetCacheVersion()}:unit-performance:{registryType}:{periodCacheKey}";
         var cached = await TryGetCacheAsync(cacheKey);
         if (!string.IsNullOrWhiteSpace(cached))
         {
@@ -292,10 +311,10 @@ public class StatisticsService
             }
         }
 
-        _log.LogInformation("Fetching unit performance for RegistryType {RegistryType}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}", registryType, periodType, periodValue, year);
+        _log.LogInformation("Fetching unit performance for RegistryType {RegistryType}, PeriodType {PeriodType}, PeriodValue {PeriodValue}, Year {Year}, StartDate {StartDate}, EndDate {EndDate}, StartYear {StartYear}, EndYear {EndYear}", registryType, periodType, periodValue, year, startDate, endDate, startYear, endYear);
         var fileType = ParseRegistryType(registryType);
         var unitMappings = GetUnitMappings(registryType);
-        var dateRange = GetDateRange(periodType, periodValue, year);
+        var dateRange = GetDateRange(periodType, periodValue, year, startDate, endDate, startYear, endYear);
 
         var unitResults = new List<UnitPerformanceEntryDto>();
         var totalAssigned = 0;
@@ -339,8 +358,8 @@ public class StatisticsService
             Period = new PeriodDto
             {
                 Type = periodType,
-                Value = periodValue,
-                Year = year
+                Value = periodValue ?? dateRange.Label,
+                Year = year ?? dateRange.StartDate.Year
             },
             Overview = new UnitPerformanceOverviewDto
             {
@@ -376,16 +395,12 @@ public class StatisticsService
         }
 
         var unitMapping = GetUnitMapping(request.RegistryType, request.UnitId.Value);
+        var fileType = ParseRegistryType(request.RegistryType);
         var periodResults = new List<StaffPerformanceDataDto>();
 
         foreach (var period in request.Periods)
         {
             var range = ResolveFinancePeriod(period);
-            var periodType = range.Label;
-            var periodValue = range.Label;
-            var year = range.StartDate.Year;
-
-            var fileType = ParseRegistryType(request.RegistryType);
             var baseFilter = Builders<StaffPerformance>.Filter.And(
                 Builders<StaffPerformance>.Filter.Eq(x => x.FileType, fileType),
                 Builders<StaffPerformance>.Filter.Eq(x => x.OfficeUnit, unitMapping.Role),
@@ -463,9 +478,9 @@ public class StatisticsService
                 RegistryType = request.RegistryType,
                 Period = new PeriodDto
                 {
-                    Type = periodType,
-                    Value = periodValue,
-                    Year = year
+                    Type = range.Label,
+                    Value = range.Label,
+                    Year = range.StartDate.Year
                 },
                 Summary = new StaffPerformanceSummaryDto
                 {
@@ -688,9 +703,7 @@ public class StatisticsService
                 .Select(group => new FinancePaymentTypeResultDto
                 {
                     PaymentType = group.Key,
-                    TotalGovernmentFee = group.Key.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase)
-                        ? group.Sum(p => GetGovernmentFee(p) + GetTechFee(p))
-                        : group.Sum(GetTechFee),
+                    TotalGovernmentFee = group.Sum(GetTechFee),
                     Count = group.Count()
                 })
                 .OrderByDescending(x => x.TotalGovernmentFee)
@@ -700,9 +713,7 @@ public class StatisticsService
                 range.StartDate,
                 range.EndDate,
                 payments,
-                p => (p.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
-                    ? GetGovernmentFee(p) + GetTechFee(p)
-                    : GetTechFee(p)
+                GetTechFee
             );
 
             results.Add(new FinancePeriodResultDto
@@ -1100,48 +1111,45 @@ public class StatisticsService
         throw new ArgumentException("Invalid registryType. Must be TradeMark, Patent, or Design");
     }
 
-    private static (DateTime StartDate, DateTime EndDate) GetDateRange(string periodType, string periodValue, int year)
+    private static (DateTime StartDate, DateTime EndDate, string Label) GetDateRange(
+        string periodType,
+        string? periodValue,
+        int? year,
+        DateOnly? startDate,
+        DateOnly? endDate,
+        int? startYear,
+        int? endYear)
     {
-        if (string.Equals(periodType, "month", StringComparison.OrdinalIgnoreCase))
+        var normalizedType = periodType?.Trim() ?? string.Empty;
+        var period = new FinancePeriodRequestDto
         {
-            var month = DateTime.ParseExact(periodValue, new[] { "MMMM", "MMM" }, CultureInfo.InvariantCulture, DateTimeStyles.None).Month;
-            var start = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
-            var end = start.AddMonths(1).AddTicks(-1);
-            return (start, end);
-        }
+            Type = normalizedType,
+            Value = periodValue,
+            Year = year,
+            StartDate = startDate,
+            EndDate = endDate,
+            StartYear = startYear,
+            EndYear = endYear
+        };
 
-        if (string.Equals(periodType, "quarter", StringComparison.OrdinalIgnoreCase))
-        {
-            var quarters = new Dictionary<string, (int StartMonth, int EndMonth)>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Q1"] = (1, 3),
-                ["Q1: Jan-Mar"] = (1, 3),
-                ["Q2"] = (4, 6),
-                ["Q2: Apr-Jun"] = (4, 6),
-                ["Q3"] = (7, 9),
-                ["Q3: Jul-Sep"] = (7, 9),
-                ["Q4"] = (10, 12),
-                ["Q4: Oct-Dec"] = (10, 12)
-            };
+        return ResolveFinancePeriod(period);
+    }
 
-            if (!quarters.TryGetValue(periodValue, out var range))
-            {
-                throw new ArgumentException("Invalid periodValue for quarter");
-            }
+    private static string BuildPerformancePeriodCacheKey(
+        string periodType,
+        string? periodValue,
+        int? year,
+        DateOnly? startDate,
+        DateOnly? endDate,
+        int? startYear,
+        int? endYear)
+    {
+        var normalizedType = periodType?.Trim().ToLowerInvariant() ?? string.Empty;
+        var normalizedValue = periodValue?.Trim() ?? string.Empty;
+        var normalizedStartDate = startDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        var normalizedEndDate = endDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
 
-            var start = new DateTime(year, range.StartMonth, 1, 0, 0, 0, DateTimeKind.Utc);
-            var end = new DateTime(year, range.EndMonth, DateTime.DaysInMonth(year, range.EndMonth), 23, 59, 59, 999, DateTimeKind.Utc);
-            return (start, end);
-        }
-
-        if (string.Equals(periodType, "year", StringComparison.OrdinalIgnoreCase))
-        {
-            var start = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            var end = new DateTime(year, 12, 31, 23, 59, 59, 999, DateTimeKind.Utc);
-            return (start, end);
-        }
-
-        throw new ArgumentException("Invalid periodType. Must be month, quarter, or year");
+        return $"{normalizedType}:{normalizedValue}:{year?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}:{normalizedStartDate}:{normalizedEndDate}:{startYear?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}:{endYear?.ToString(CultureInfo.InvariantCulture) ?? string.Empty}";
     }
 
     private static (DateTime StartDate, DateTime EndDate, string Label) ResolveFinancePeriod(FinancePeriodRequestDto period)
@@ -1151,11 +1159,13 @@ public class StatisticsService
             throw new ArgumentException("Invalid period");
         }
 
-        var periodType = period.Type?.Trim();
+        var periodType = (string.IsNullOrWhiteSpace(period.Type) ? period.PeriodType : period.Type)?.Trim();
         if (string.IsNullOrWhiteSpace(periodType))
         {
-            throw new ArgumentException("Missing required parameter: type");
+            throw new ArgumentException("Missing required parameter: type/periodType");
         }
+
+        var periodValue = period.Value ?? period.PeriodValue;
 
         var label = period.Label?.Trim() ?? string.Empty;
 
@@ -1190,12 +1200,12 @@ public class StatisticsService
                     throw new ArgumentException("Missing required parameter: year");
                 }
 
-                if (string.IsNullOrWhiteSpace(period.Value))
+                if (string.IsNullOrWhiteSpace(periodValue))
                 {
-                    throw new ArgumentException("Missing required parameter: value");
+                    throw new ArgumentException("Missing required parameter: value/periodValue");
                 }
 
-                var month = ParseMonth(period.Value);
+                var month = ParseMonth(periodValue);
                 var start = new DateTime(period.Year.Value, month, 1, 0, 0, 0, DateTimeKind.Utc);
                 var end = start.AddMonths(1).AddTicks(-1);
 
@@ -1213,18 +1223,18 @@ public class StatisticsService
                     throw new ArgumentException("Missing required parameter: year");
                 }
 
-                if (string.IsNullOrWhiteSpace(period.Value))
+                if (string.IsNullOrWhiteSpace(periodValue))
                 {
-                    throw new ArgumentException("Missing required parameter: value");
+                    throw new ArgumentException("Missing required parameter: value/periodValue");
                 }
 
-                var range = GetQuarterRange(period.Value);
+                var range = GetQuarterRange(periodValue);
                 var start = new DateTime(period.Year.Value, range.StartMonth, 1, 0, 0, 0, DateTimeKind.Utc);
                 var end = new DateTime(period.Year.Value, range.EndMonth, DateTime.DaysInMonth(period.Year.Value, range.EndMonth), 23, 59, 59, 999, DateTimeKind.Utc);
 
                 if (string.IsNullOrWhiteSpace(label))
                 {
-                    label = $"{period.Value} {period.Year.Value}";
+                    label = $"{periodValue} {period.Year.Value}";
                 }
 
                 return (start, end, label);
@@ -1428,9 +1438,11 @@ public class StatisticsService
     {
         if (payment?.PaymentType?.Equals("File Withdrawal", StringComparison.OrdinalIgnoreCase) ?? false)
         {
-            // For File Withdrawal, sum all line items
+            // For File Withdrawal, combine government and tech line items as one tech figure.
             var items = payment.RemitaResponse?.lineItems;
-            return items?.Sum(x => x?.beneficiaryAmount ?? 0d) ?? 0d;
+            var first = items?.ElementAtOrDefault(0)?.beneficiaryAmount ?? 0d;
+            var second = items?.ElementAtOrDefault(1)?.beneficiaryAmount ?? 0d;
+            return first + second;
         }
         // For all other types, just the second line item
         return payment?.RemitaResponse?.lineItems?.Skip(1).FirstOrDefault()?.beneficiaryAmount ?? 0d;
