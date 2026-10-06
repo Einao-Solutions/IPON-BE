@@ -1319,10 +1319,10 @@ public class FilesServices
                 AppUserId = data.userId,
                 FileNumber = data.fileNumber,
                 FileType = data.FileType,
-                OfficeUnit = null
+                OfficeUnit = ResolveOfficeUnit(data.FileType, data.beforeStatus, data.applicationType)
             };
 
-            await ApplyNewApplicationStatusUpdatesAsync(data, userName, operations, perf);
+            await ApplyNewApplicationStatusUpdatesAsync(data, userName, operations);
             var result = await ApplyApplicationStatusUpdateAsync(data, operations);
 
             if (result == null)
@@ -1416,7 +1416,7 @@ public class FilesServices
     }
 
     private async Task ApplyNewApplicationStatusUpdatesAsync(UpdateDataType data, string userName,
-        List<UpdateDefinition<Filling>> operations, PerformanceDto perf)
+        List<UpdateDefinition<Filling>> operations)
     {
         if (data.applicationType is FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal)
         {
@@ -1470,16 +1470,6 @@ public class FilesServices
                     operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.SignatureId", signatory.Value.Item2));
                     operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.SignatoryName", signatory.Value.Item1));
                 }
-
-                perf.OfficeUnit = Roles.TrademarkCertification;
-            }
-            else if (data.FileType is FileTypes.Patent)
-            {
-                perf.OfficeUnit = Roles.PatentCertification;
-            }
-            else
-            {
-                perf.OfficeUnit = Roles.DesignCertification;
             }
 
             operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
@@ -1490,10 +1480,6 @@ public class FilesServices
             _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
             operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters",
                 ApplicationLetters.NewApplicationRejection));
-
-            if (data.FileType is FileTypes.TradeMark) perf.OfficeUnit = Roles.TrademarkExaminer;
-            else if (data.FileType is FileTypes.Patent) perf.OfficeUnit = Roles.PatentExaminer;
-            else perf.OfficeUnit = Roles.DesignExaminer;
         }
         
         if (data.AfterStatus is not ApplicationStatuses.Publication) return;
@@ -1513,7 +1499,6 @@ public class FilesServices
         }
 
         _log.LogDebug("Publication saved for FileId {FileId} with Id {PublicationId}", data.fileId, pubResult);
-        perf.OfficeUnit = Roles.TrademarkExaminer;
     }
 
     private async Task<Filling?> ApplyApplicationStatusUpdateAsync(UpdateDataType data,
@@ -3514,6 +3499,88 @@ public class FilesServices
         _log.LogInformation("notification sent to {RecipientId}", notif.RecipientId);
     }
 
+    // The office unit that earns the credit for a status change is the queue the application
+    // was sitting in *before* the update, resolved against the file type. Resolved centrally so
+    // every application type gets a unit, not just NewApplication.
+    private Roles? ResolveOfficeUnit(FileTypes? fileType, ApplicationStatuses beforeStatus,
+        FormApplicationTypes? applicationType)
+    {
+        var type = fileType ?? FileTypes.Design;
+
+        // appeals and withdrawals are handled by the acceptance desk regardless of the queue
+        // the file was sitting in, so the application type wins over beforeStatus here.
+        if (applicationType is FormApplicationTypes.AppealRequest
+            or FormApplicationTypes.WithdrawalRequest)
+        {
+            return Roles.TrademarkAcceptance;
+        }
+
+        switch (beforeStatus)
+        {
+            // no office unit did this work; the transition is driven by the payment callback
+            case ApplicationStatuses.AwaitingPayment:
+            case ApplicationStatuses.AwaitingCertificatePayment:
+                return null;
+
+            case ApplicationStatuses.AwaitingSearch:
+            case ApplicationStatuses.KivSearch:
+            case ApplicationStatuses.Re_conduct:
+                return type switch
+                {
+                    FileTypes.TradeMark => Roles.TrademarkSearch,
+                    FileTypes.Patent => Roles.PatentSearch,
+                    _ => Roles.DesignSearch
+                };
+
+            case ApplicationStatuses.AwaitingExaminer:
+            case ApplicationStatuses.KivExaminer:
+            case ApplicationStatuses.FormalityFail:
+                return type switch
+                {
+                    FileTypes.TradeMark => Roles.TrademarkExaminer,
+                    FileTypes.Patent => Roles.PatentExaminer,
+                    _ => Roles.DesignExaminer
+                };
+
+            // AwaitingCertification is updated automatically, so no office unit earns credit
+            case ApplicationStatuses.AwaitingCertification:
+                return null;
+
+            case ApplicationStatuses.AwaitingCertificateConfirmation:
+            case ApplicationStatuses.Approved:
+            case ApplicationStatuses.AutoApproved:
+                return type switch
+                {
+                    FileTypes.TradeMark => Roles.TrademarkCertification,
+                    FileTypes.Patent => Roles.PatentCertification,
+                    _ => Roles.DesignCertification
+                };
+
+            // publication and opposition only exist on the trademark track
+            case ApplicationStatuses.Publication:
+            case ApplicationStatuses.BatchedManualPublication:
+            case ApplicationStatuses.Published:
+            case ApplicationStatuses.JournalRequested:
+                return type is FileTypes.TradeMark ? Roles.TrademarkPublication : null;
+
+            case ApplicationStatuses.Opposition:
+            case ApplicationStatuses.NewOpposition:
+            case ApplicationStatuses.AwaitingOppositionStaff:
+            case ApplicationStatuses.AwaitingCounter:
+            case ApplicationStatuses.AwaitingResolution:
+            case ApplicationStatuses.StatutoryDeclaration:
+                return Roles.TrademarkOpposition;
+
+            case ApplicationStatuses.AppealRequest:
+                return Roles.AppealExaminer;
+
+            default:
+                _log.LogWarning("No office unit mapped for BeforeStatus {BeforeStatus} on FileType {FileType}",
+                    beforeStatus, type);
+                return null;
+        }
+    }
+
     public void SavePerformance(PerformanceDto perf)
     {
         var performance = new StaffPerformance
@@ -3529,6 +3596,8 @@ public class FilesServices
             OfficeUnit = perf.OfficeUnit,
         };
         _performanceCollection.InsertOne(performance);
+        _log.LogInformation("Performance recorded for {FileNumber}, {Before} → {After}, unit {OfficeUnit}",
+            perf.FileNumber, perf.BeforeStatus, perf.AfterStatus, perf.OfficeUnit);
     }
 
     public async Task<(string?, string)> GenerateOppositionRRR(PaymentTypes type, string description, string name, string email, string number)
