@@ -8,6 +8,7 @@ using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;
+using System.Security.Claims;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
@@ -468,28 +469,74 @@ public class FilesController(FilesServices fileService) : ControllerBase
         return Ok(result);
     }
     [HttpGet("AvailabilitySearchCost")]
+    [Authorize]
     public async Task<IActionResult> AvailabilitySearchCost([FromQuery] string name, [FromQuery] string email,
         [FromQuery] string userId, [FromQuery] string searchTerm, [FromQuery] int? classNo = null, [FromQuery] string? fileType = null)
     {
-        var res = await fileService.AvailabilitySearchCost(name, email, userId, searchTerm, classNo, fileType);
-        if (res == null)
+        try
         {
-            return BadRequest("NOT FOUND");
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return BadRequest(new { message = "userId is required" });
+            }
+
+            var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(callerId))
+            {
+                return Unauthorized();
+            }
+
+            if (!AvailabilitySearchRules.CanAccessOwner(userId, callerId, User.IsInRole(nameof(Roles.SuperAdmin))))
+            {
+                return Forbid();
+            }
+
+            var res = await fileService.AvailabilitySearchCost(name, email, userId, searchTerm, classNo, fileType);
+            if (res == null)
+            {
+                return BadRequest(new { message = "Failed to create availability search record" });
+            }
+            return Ok(res);
         }
-        return Ok(res);
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message, details = ex.InnerException?.Message });
+        }
     }
 
     [HttpPost("UpdateAvailabilitySearchPayment")]
+    [Authorize]
     public async Task<IActionResult> UpdateAvailabilitySearchPayment([FromBody] AvailabilitySearchPaymentStatusDto dto)
     {
         try
         {
+            if (dto == null || string.IsNullOrWhiteSpace(dto.AppId) || string.IsNullOrWhiteSpace(dto.UserId))
+            {
+                return BadRequest(new { success = false, message = "appId and userId are required" });
+            }
+
+            var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(callerId))
+            {
+                return Unauthorized();
+            }
+
+            if (!AvailabilitySearchRules.CanAccessOwner(dto.UserId, callerId, User.IsInRole(nameof(Roles.SuperAdmin))))
+            {
+                return Forbid();
+            }
+
             var result = await fileService.UpdateAvailabilitySearchPayment(dto.AppId, dto.UserId);
-            return Ok(new { success = result.Item1, message = result.Item2 });
+            if (!result.Item1)
+            {
+                return BadRequest(new { success = false, message = result.Item2 });
+            }
+
+            return Ok(new { success = true });
         }
         catch (Exception e)
         {
-            return BadRequest(new { message = e.Message });
+            return BadRequest(new { success = false, message = e.Message });
         }
     }
 

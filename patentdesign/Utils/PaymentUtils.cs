@@ -375,6 +375,30 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                 break;
         }
 
+        // Validate that we have values
+        if (string.IsNullOrWhiteSpace(amount) || string.IsNullOrWhiteSpace(serviceId))
+        {
+            var missingFields = new List<string>();
+            if (string.IsNullOrWhiteSpace(amount)) 
+                missingFields.Add($"Amount for {type}");
+            if (string.IsNullOrWhiteSpace(serviceId)) 
+                missingFields.Add($"ServiceId for {type}");
+
+            var missingFieldsStr = string.Join(", ", missingFields);
+            _log.LogError("Payment configuration missing for PaymentType={PaymentType}, FileType={FileType}. Missing fields: {MissingFields}. Amount={Amount}, ServiceId={ServiceId}", 
+                type, fileType, missingFieldsStr, amount ?? "NULL", serviceId ?? "NULL");
+            throw new InvalidOperationException($"Payment configuration incomplete. Missing: {missingFieldsStr}. Please contact support.");
+        }
+
+        if (string.IsNullOrWhiteSpace(serviceFee))
+        {
+            _log.LogWarning("Payment service fee missing for PaymentType={PaymentType}, FileType={FileType}. Setting to 0.", type, fileType);
+            serviceFee = "0";
+        }
+
+        _log.LogDebug("GetCost returning: Amount={Amount}, ServiceId={ServiceId}, ServiceFee={ServiceFee} for type={PaymentType}", 
+            amount, serviceId, serviceFee ?? "NULL", type);
+
         return (amount, serviceId, serviceFee);
     }
 
