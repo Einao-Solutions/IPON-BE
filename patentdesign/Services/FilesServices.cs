@@ -5235,6 +5235,32 @@ public class FilesServices
             }
 
             _log.LogInformation("Successfully updated availability search payment status - userId={UserId}, appId={AppId}, newStatus={NewStatus}", userId, appId, ApplicationStatuses.AutoApproved);
+
+            try
+            {
+                var notif = new CreateNotificationDto
+                {
+                    Audience = NotificationAudience.User,
+                    Category = NotificationCategory.StatusUpdate,
+                    Priority = NotificationPriority.Medium,
+                    PreviousStatus = ApplicationStatuses.AwaitingPayment,
+                    NewStatus = ApplicationStatuses.AutoApproved,
+                    ApplicationType = FormApplicationTypes.AvailabilitySearch,
+                    Title = "Availability Search Completed",
+                    Message = $"Your Availability Search{(string.IsNullOrWhiteSpace(app.Title) ? string.Empty : $" for \"{app.Title}\"")} (reference {app.ReferenceNumber ?? app.id}) has been completed. You can now print your receipt.",
+                    RecipientId = userId,
+                    CreatedBy = "System",
+                    ApplicationId = appId,
+                    ActionUrl = "/home/other-applications/?tab=availabilitysearch"
+                };
+                await _notificationServices.CreateNotificationAsync(notif);
+                _log.LogInformation("notification sent to {RecipientId}", notif.RecipientId);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Availability search notification failed - userId={UserId}, appId={AppId}", userId, appId);
+            }
+
             return (true, "Availability search payment status updated successfully");
         }
         catch (KeyNotFoundException ex)

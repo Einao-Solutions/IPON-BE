@@ -506,7 +506,9 @@ public class FilesController(FilesServices fileService) : ControllerBase
 
     [HttpPost("UpdateAvailabilitySearchPayment")]
     [Authorize]
-    public async Task<IActionResult> UpdateAvailabilitySearchPayment([FromBody] AvailabilitySearchPaymentStatusDto dto)
+    public async Task<IActionResult> UpdateAvailabilitySearchPayment([FromBody] AvailabilitySearchPaymentStatusDto dto,
+        [FromServices] LettersServices lettersServices, [FromServices] UsersService usersService,
+        [FromServices] EmailServices emailServices, [FromServices] ILogger<FilesController> logger)
     {
         try
         {
@@ -530,6 +532,41 @@ public class FilesController(FilesServices fileService) : ControllerBase
             if (!result.Item1)
             {
                 return BadRequest(new { success = false, message = result.Item2 });
+            }
+
+            try
+            {
+                var owner = await usersService.GetUserById(dto.UserId);
+                var app = owner?.OtherApplications?.FirstOrDefault(a => a.id == dto.AppId);
+                if (owner != null && app != null && !string.IsNullOrWhiteSpace(app.PaymentId) &&
+                    System.Net.Mail.MailAddress.TryCreate(owner.Email, out _))
+                {
+                    var letter = await lettersServices.AvailabilitySearchReceipt(app.PaymentId, dto.UserId, false);
+                    var title = "Availability Search Receipt";
+                    var message = $"Your Availability Search receipt{(string.IsNullOrWhiteSpace(app.Title) ? string.Empty : $" for \"{app.Title}\"")} (reference {app.ReferenceNumber ?? app.id}) is attached.";
+                    await emailServices.SendMail(new EmailDto
+                    {
+                        To = owner.Email,
+                        Subject = title,
+                        Body = message,
+                        EmailType = EmailType.Notification,
+                        NotificationMail = new NotificationMail
+                        {
+                            Title = title,
+                            Message = message,
+                            ApplicantName = owner.FirstName
+                        },
+                        Attachment = new EmailAttachmentDto
+                        {
+                            FileName = $"AvailabilitySearchReceipt-{app.ReferenceNumber ?? app.id}.pdf",
+                            Content = (byte[])letter["data"]
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Availability search receipt email failed - userId={UserId}, appId={AppId}", dto.UserId, dto.AppId);
             }
 
             return Ok(new { success = true });
