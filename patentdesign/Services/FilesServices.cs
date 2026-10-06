@@ -94,6 +94,60 @@ public class FilesServices
         _publicationServices = publicationServices;
         _notificationServices = notificationServices;
         _signatures = db.GetCollection<SignatureInfo>("signatures");
+
+        EnsureFileIndexes();
+    }
+
+    private static int _indexesEnsured;
+
+    // files are looked up by FileId almost everywhere in this service; without an index
+    // every lookup is a full collection scan (surfaced as slow queries in the db logs).
+    private void EnsureFileIndexes()
+    {
+        if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var fileIdKeys = Builders<Filling>.IndexKeys.Ascending(x => x.FileId);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(fileIdKeys, new CreateIndexOptions { Name = "FileId_1", Background = true }));
+            _log.LogInformation("Ensured files index on FileId");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _indexesEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure files index on FileId");
+        }
+
+        try
+        {
+            // the paginated summary grid filters on Type (often with a DateCreated range) and
+            // counts the whole matching set, so a Type-prefixed index keeps it off a collection scan.
+            var typeKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.Type)
+                .Descending(x => x.DateCreated);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(typeKeys, new CreateIndexOptions { Name = "Type_1_DateCreated_-1", Background = true }));
+            _log.LogInformation("Ensured files index on Type and DateCreated");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on Type and DateCreated");
+        }
+
+        try
+        {
+            // GetFileByNumber matches FileId OR RtmNumber; an $or only avoids a collection scan
+            // when every branch is indexed. RtmNumber is null on most files, so keep it sparse.
+            var rtmKeys = Builders<Filling>.IndexKeys.Ascending(x => x.RtmNumber);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(rtmKeys, new CreateIndexOptions { Name = "RtmNumber_1", Background = true, Sparse = true }));
+            _log.LogInformation("Ensured files index on RtmNumber");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on RtmNumber");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -1265,10 +1319,10 @@ public class FilesServices
                 AppUserId = data.userId,
                 FileNumber = data.fileNumber,
                 FileType = data.FileType,
-                OfficeUnit = null
+                OfficeUnit = ResolveOfficeUnit(data.FileType, data.beforeStatus, data.applicationType)
             };
 
-            await ApplyNewApplicationStatusUpdatesAsync(data, userName, operations, perf);
+            await ApplyNewApplicationStatusUpdatesAsync(data, userName, operations);
             var result = await ApplyApplicationStatusUpdateAsync(data, operations);
 
             if (result == null)
@@ -1362,7 +1416,7 @@ public class FilesServices
     }
 
     private async Task ApplyNewApplicationStatusUpdatesAsync(UpdateDataType data, string userName,
-        List<UpdateDefinition<Filling>> operations, PerformanceDto perf)
+        List<UpdateDefinition<Filling>> operations)
     {
         if (data.applicationType is FormApplicationTypes.NewApplication or FormApplicationTypes.LicenseRenewal)
         {
@@ -1416,16 +1470,6 @@ public class FilesServices
                     operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.SignatureId", signatory.Value.Item2));
                     operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.SignatoryName", signatory.Value.Item1));
                 }
-
-                perf.OfficeUnit = Roles.TrademarkCertification;
-            }
-            else if (data.FileType is FileTypes.Patent)
-            {
-                perf.OfficeUnit = Roles.PatentCertification;
-            }
-            else
-            {
-                perf.OfficeUnit = Roles.DesignCertification;
             }
 
             operations.Add(Builders<Filling>.Update.Set("ApplicationHistory.$.ExpiryDate", nextDate));
@@ -1436,10 +1480,6 @@ public class FilesServices
             _log.LogInformation("Application rejected for FileId {FileId}, Status {Status}", data.fileId, data.AfterStatus);
             operations.Add(Builders<Filling>.Update.Push("ApplicationHistory.$.ApplicationLetters",
                 ApplicationLetters.NewApplicationRejection));
-
-            if (data.FileType is FileTypes.TradeMark) perf.OfficeUnit = Roles.TrademarkExaminer;
-            else if (data.FileType is FileTypes.Patent) perf.OfficeUnit = Roles.PatentExaminer;
-            else perf.OfficeUnit = Roles.DesignExaminer;
         }
         
         if (data.AfterStatus is not ApplicationStatuses.Publication) return;
@@ -1459,7 +1499,6 @@ public class FilesServices
         }
 
         _log.LogDebug("Publication saved for FileId {FileId} with Id {PublicationId}", data.fileId, pubResult);
-        perf.OfficeUnit = Roles.TrademarkExaminer;
     }
 
     private async Task<Filling?> ApplyApplicationStatusUpdateAsync(UpdateDataType data,
@@ -1514,8 +1553,13 @@ public class FilesServices
             DesignType = x.DesignType,
             FilingDate = x.FilingDate
         });
-        var count = _fillingCollection.CountDocuments(filters);
-        var result = await _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        // the count and the page are independent; run them concurrently instead of
+        // blocking a thread on a synchronous count before the page query even starts.
+        var countTask = GetSummaryCountAsync(filters);
+        var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        await Task.WhenAll(countTask, resultTask);
+        var count = await countTask;
+        var result = await resultTask;
         _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
 
         return new PaginatedResponse()
@@ -1523,6 +1567,35 @@ public class FilesServices
             result = result,
             count = count
         };
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Count, DateTime ExpiresAt)> _summaryCountCache = new();
+    private static readonly TimeSpan _summaryCountTtl = TimeSpan.FromSeconds(60);
+
+    // the paginated grid counts every matching file on each page request, which stays expensive
+    // even with an index. Totals are only used to render the pager, so a short TTL is acceptable.
+    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters)
+    {
+        var key = filters.Render(BsonSerializer.SerializerRegistry.GetSerializer<Filling>(), BsonSerializer.SerializerRegistry).ToJson();
+
+        if (_summaryCountCache.TryGetValue(key, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+        {
+            _log.LogDebug("Reusing cached summary count {Count} for filter {Filter}", cached.Count, key);
+            return cached.Count;
+        }
+
+        var count = await _fillingCollection.CountDocumentsAsync(filters);
+        _summaryCountCache[key] = (count, DateTime.UtcNow.Add(_summaryCountTtl));
+
+        if (_summaryCountCache.Count > 200)
+        {
+            foreach (var expired in _summaryCountCache.Where(x => x.Value.ExpiresAt <= DateTime.UtcNow).Select(x => x.Key))
+            {
+                _summaryCountCache.TryRemove(expired, out _);
+            }
+        }
+
+        return count;
     }
 
     public async Task<dynamic> GetCertificatePaymentCost(string fileId, string userId)
@@ -1833,6 +1906,17 @@ public class FilesServices
         }
     }
 
+    // a search term is treated as a file/RTM number when it is all digits (an RTM number, e.g. 472594)
+    // or a full slash-separated file number (e.g. NG/TM/O/2026/472594). Anything else is free text.
+    private static bool LooksLikeFileNumber(string term)
+    {
+        var trimmed = term.Trim();
+        if (trimmed.Length == 0) return false;
+
+        return trimmed.All(char.IsDigit) ||
+               (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
+    }
+
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
     {
         var filterBuilder = Builders<Filling>.Filter;
@@ -1863,13 +1947,20 @@ public class FilesServices
             : filterBuilder.In(f => f.Type, filter.types);
         var titleFilter = filter.Title == null
             ? filterBuilder.Empty
-            : filterBuilder.Or([
-                filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
-                filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
-            ]);
+            : LooksLikeFileNumber(filter.Title)
+                // a file/RTM number is an exact lookup; both fields are indexed, so this avoids
+                // the unanchored case-insensitive regex scan over the whole collection.
+                ? filterBuilder.Or([
+                    filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
+                    filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
+                ])
+                : filterBuilder.Or([
+                    filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
+                    filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
+                ]);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
@@ -3408,6 +3499,88 @@ public class FilesServices
         _log.LogInformation("notification sent to {RecipientId}", notif.RecipientId);
     }
 
+    // The office unit that earns the credit for a status change is the queue the application
+    // was sitting in *before* the update, resolved against the file type. Resolved centrally so
+    // every application type gets a unit, not just NewApplication.
+    private Roles? ResolveOfficeUnit(FileTypes? fileType, ApplicationStatuses beforeStatus,
+        FormApplicationTypes? applicationType)
+    {
+        var type = fileType ?? FileTypes.Design;
+
+        // appeals and withdrawals are handled by the acceptance desk regardless of the queue
+        // the file was sitting in, so the application type wins over beforeStatus here.
+        if (applicationType is FormApplicationTypes.AppealRequest
+            or FormApplicationTypes.WithdrawalRequest)
+        {
+            return Roles.TrademarkAcceptance;
+        }
+
+        switch (beforeStatus)
+        {
+            // no office unit did this work; the transition is driven by the payment callback
+            case ApplicationStatuses.AwaitingPayment:
+            case ApplicationStatuses.AwaitingCertificatePayment:
+                return null;
+
+            case ApplicationStatuses.AwaitingSearch:
+            case ApplicationStatuses.KivSearch:
+            case ApplicationStatuses.Re_conduct:
+                return type switch
+                {
+                    FileTypes.TradeMark => Roles.TrademarkSearch,
+                    FileTypes.Patent => Roles.PatentSearch,
+                    _ => Roles.DesignSearch
+                };
+
+            case ApplicationStatuses.AwaitingExaminer:
+            case ApplicationStatuses.KivExaminer:
+            case ApplicationStatuses.FormalityFail:
+                return type switch
+                {
+                    FileTypes.TradeMark => Roles.TrademarkExaminer,
+                    FileTypes.Patent => Roles.PatentExaminer,
+                    _ => Roles.DesignExaminer
+                };
+
+            // AwaitingCertification is updated automatically, so no office unit earns credit
+            case ApplicationStatuses.AwaitingCertification:
+                return null;
+
+            case ApplicationStatuses.AwaitingCertificateConfirmation:
+            case ApplicationStatuses.Approved:
+            case ApplicationStatuses.AutoApproved:
+                return type switch
+                {
+                    FileTypes.TradeMark => Roles.TrademarkCertification,
+                    FileTypes.Patent => Roles.PatentCertification,
+                    _ => Roles.DesignCertification
+                };
+
+            // publication and opposition only exist on the trademark track
+            case ApplicationStatuses.Publication:
+            case ApplicationStatuses.BatchedManualPublication:
+            case ApplicationStatuses.Published:
+            case ApplicationStatuses.JournalRequested:
+                return type is FileTypes.TradeMark ? Roles.TrademarkPublication : null;
+
+            case ApplicationStatuses.Opposition:
+            case ApplicationStatuses.NewOpposition:
+            case ApplicationStatuses.AwaitingOppositionStaff:
+            case ApplicationStatuses.AwaitingCounter:
+            case ApplicationStatuses.AwaitingResolution:
+            case ApplicationStatuses.StatutoryDeclaration:
+                return Roles.TrademarkOpposition;
+
+            case ApplicationStatuses.AppealRequest:
+                return Roles.AppealExaminer;
+
+            default:
+                _log.LogWarning("No office unit mapped for BeforeStatus {BeforeStatus} on FileType {FileType}",
+                    beforeStatus, type);
+                return null;
+        }
+    }
+
     public void SavePerformance(PerformanceDto perf)
     {
         var performance = new StaffPerformance
@@ -3423,6 +3596,8 @@ public class FilesServices
             OfficeUnit = perf.OfficeUnit,
         };
         _performanceCollection.InsertOne(performance);
+        _log.LogInformation("Performance recorded for {FileNumber}, {Before} → {After}, unit {OfficeUnit}",
+            perf.FileNumber, perf.BeforeStatus, perf.AfterStatus, perf.OfficeUnit);
     }
 
     public async Task<(string?, string)> GenerateOppositionRRR(PaymentTypes type, string description, string name, string email, string number)
