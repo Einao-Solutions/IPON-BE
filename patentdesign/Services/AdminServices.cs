@@ -38,7 +38,6 @@ namespace patentdesign.Services
         //private string attachmentBaseUrl = "http://localhost:5044";
 
 
-        public AdminServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<AdminServices> log, PaymentService paymentService, EmailServices emailServices)
         {
             var s = patentDesignDbSettings.Value;
             _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
