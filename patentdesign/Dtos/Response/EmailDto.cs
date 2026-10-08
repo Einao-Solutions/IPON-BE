@@ -24,6 +24,13 @@ public class EmailDto
     public RenewalReminder? RenewalReminder { get; set; }
     public WelcomeVerificationMail? WelcomeVerificationMail { get; set; }
     public NotificationMail? NotificationMail { get; set; }
+    public EmailAttachmentDto? Attachment { get; set; }
+}
+
+public class EmailAttachmentDto
+{
+    public string FileName { get; set; } = string.Empty;
+    public byte[] Content { get; set; } = Array.Empty<byte>();
 }
 
 public class NotificationMail

@@ -1,9 +1,12 @@
 ﻿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
+using patentdesign.Utils;
 
 namespace patentdesign.Controllers;
 
@@ -78,9 +81,43 @@ public class UsersController(UsersService usersService) :ControllerBase
         return Ok(user);
     }
     [HttpGet("GetOtherApplications")]
-    public async Task<IActionResult> GetOtherApplications([FromQuery] string userId)
+    [Authorize]
+    public async Task<IActionResult> GetOtherApplications([FromQuery] string? userId = null)
     {
-        var applications = await usersService.FetchOtherApplications(userId);
-        return Ok(applications);
+        try
+        {
+            var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(callerId))
+            {
+                return Unauthorized();
+            }
+
+            if (string.IsNullOrWhiteSpace(userId) && !OtherApplicationsHistoryRules.CanViewAll(User))
+            {
+                return Forbid();
+            }
+
+            if (OtherApplicationsHistoryRules.ShouldViewAll(userId, User))
+            {
+                var allApplications = await usersService.FetchAllOtherApplications();
+                return Ok(allApplications);
+            }
+
+            if (!OtherApplicationsHistoryRules.CanViewRequestedOwner(userId, User))
+            {
+                return Forbid();
+            }
+
+            var applications = await usersService.FetchOtherApplications(userId);
+            return Ok(applications ?? new List<ApplicationInfo>());
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message, details = ex.InnerException?.Message });
+        }
     }
 }
