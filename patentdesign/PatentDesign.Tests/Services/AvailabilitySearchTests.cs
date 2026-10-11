@@ -407,7 +407,7 @@ namespace patentdesign.Tests.Services
             Assert.Equal(date, record.ApplicationDate);
             Assert.Equal(_testRrr, record.PaymentId);
 Assert.Single(record.StatusHistory);
-Assert.Single(user.OtherApplications);
+            Assert.Single(user.OtherApplications);
         }
 
         [Fact]
@@ -527,8 +527,8 @@ Assert.Single(user.OtherApplications);
             });
 
             Assert.True(AvailabilitySearchRules.IsAlreadyConfirmed(application));
-        Assert.Equal(2, application.StatusHistory.Count);
-    }
+Assert.Equal(2, application.StatusHistory.Count);
+        }
 
         [Fact]
         public void ReceiptLetterType_ShouldRemainAtFrontendValue95()

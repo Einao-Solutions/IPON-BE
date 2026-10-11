@@ -5433,7 +5433,7 @@ public class FilesServices
     	{
     		_log.LogError(ex, "Unexpected exception in ConfirmAvailabilitySearchPayment - userId={UserId}, paymentId={PaymentId}", userId, paymentId);
     		throw;
-        }
+    	}
     }
 
     public async Task<RecordalDto> StatusSearchCost(string fileId, FileTypes fileType)

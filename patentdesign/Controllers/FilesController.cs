@@ -487,7 +487,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
                 return Forbid();
             }
 
-            if (string.IsNullOrWhiteSpace(searchTerm))
+if (string.IsNullOrWhiteSpace(searchTerm))
             {
                 return BadRequest(new { message = "searchTerm is required" });
             }

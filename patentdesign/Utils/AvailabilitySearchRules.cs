@@ -19,7 +19,7 @@ public static class AvailabilitySearchRules
         return filter;
     }
 
-    public const string ReferencePrefix = "AVS-";
+public const string ReferencePrefix = "AVS-";
     private const int ReferenceLength = 10;
 
     // Derived from the immutable application id, so every record (old or new) gets the same
