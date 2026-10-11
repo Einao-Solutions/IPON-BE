@@ -7,7 +7,7 @@ namespace patentdesign.Utils;
 
 public static class AvailabilitySearchRules
 {
-    // Matches users whose _id is stored as a string or as a BSON ObjectId.
+// Matches users whose _id is stored as a string or as a BSON ObjectId.
     public static FilterDefinition<AppUser> OwnerFilter(string userId)
     {
         var filter = Builders<AppUser>.Filter.Eq(x => x.Id, userId);
@@ -55,7 +55,7 @@ public static class AvailabilitySearchRules
             ApplicationDate = applicationDate ?? DateTime.UtcNow,
             PaymentId = paymentReference,
             Title = searchTerm,
-            StatusHistory = [new ApplicationHistory { Date = applicationDate ?? DateTime.UtcNow, beforeStatus = ApplicationStatuses.AwaitingPayment, afterStatus = ApplicationStatuses.AwaitingPayment, Message = "Availability search created, awaiting payment", User = "System", UserId = "System" }]
+StatusHistory = [new ApplicationHistory { Date = applicationDate ?? DateTime.UtcNow, beforeStatus = ApplicationStatuses.AwaitingPayment, afterStatus = ApplicationStatuses.AwaitingPayment, Message = "Availability search created, awaiting payment", User = "System", UserId = "System" }]
         };
 
         return EnsureReferenceNumber(application);
