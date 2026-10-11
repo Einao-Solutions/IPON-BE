@@ -406,7 +406,7 @@ namespace patentdesign.Tests.Services
             Assert.Equal(_testSearchTerm, record.Title);
             Assert.Equal(date, record.ApplicationDate);
             Assert.Equal(_testRrr, record.PaymentId);
-            Assert.Empty(record.StatusHistory);
+            Assert.Single(record.StatusHistory);
             Assert.Single(user.OtherApplications);
         }
 
@@ -527,7 +527,7 @@ namespace patentdesign.Tests.Services
             });
 
             Assert.True(AvailabilitySearchRules.IsAlreadyConfirmed(application));
-            Assert.Single(application.StatusHistory);
+            Assert.Equal(2, application.StatusHistory.Count);
         }
 
         [Fact]

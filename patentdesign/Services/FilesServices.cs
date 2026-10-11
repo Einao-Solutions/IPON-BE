@@ -73,8 +73,11 @@ public class FilesServices
     private string attachmentBaseUrl = "https://integration.iponigeria.com";
     //private string attachmentBaseUrl = "https://localhost:5044"; 
 
-    public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService, PublicationServices publicationServices, NotificationServices notificationServices)
+    public FilesServices(IMongoDatabase db, IOptions<PatentDesignDBSettings> patentDesignDbSettings, PaymentUtils remitaPaymentUtils, ILogger<FilesServices> log, PaymentService paymentService,
+    PublicationServices publicationServices, NotificationServices notificationServices, Microsoft.Extensions.Configuration.IConfiguration? configuration = null, Microsoft.Extensions.Hosting.IHostEnvironment? hostEnvironment = null)
     {
+        _configuration = configuration;
+        _hostEnvironment = hostEnvironment;
         var s = patentDesignDbSettings.Value;
         _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
         _countersCollection = db.GetCollection<Counters>(s.CountersCollectionName);
@@ -96,6 +99,60 @@ public class FilesServices
         _signatures = db.GetCollection<SignatureInfo>("signatures");
 
         EnsureFileIndexes();
+        EnsureAvailabilitySearchIndex();
+    }
+
+    private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
+    private readonly Microsoft.Extensions.Hosting.IHostEnvironment? _hostEnvironment;
+
+    // Test-only switch read from server configuration. Honoured only in Development/Test; nothing in a request can enable it.
+    private bool IsAvailabilitySearchSimulationEnabled()
+    {
+        if (_configuration?.GetValue<bool>("AvailabilitySearch:SimulatePaymentConfirmation") != true)
+        {
+            return false;
+        }
+
+        var env = _hostEnvironment?.EnvironmentName;
+        if (!string.Equals(env, "Development", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(env, "Test", StringComparison.OrdinalIgnoreCase))
+        {
+            _log.LogError("AvailabilitySearch:SimulatePaymentConfirmation is set but ignored because the environment is {Environment}", env ?? "unknown");
+            return false;
+        }
+
+        _log.LogWarning("AvailabilitySearch:SimulatePaymentConfirmation is ON - payment confirmation is simulated and Remita is NOT checked");
+        return true;
+    }
+
+    private static int _avsIndexEnsured;
+
+    // The payment reference (RRR) is the lookup key for confirming Availability Searches. The index is
+    // sparse and non-unique on purpose: a unique multikey index would collide on the many applications
+    // that have no PaymentId. RRRs are issued by Remita, so they are unique at the source.
+    private void EnsureAvailabilitySearchIndex()
+    {
+        if (Interlocked.Exchange(ref _avsIndexEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        var keys = Builders<AppUser>.IndexKeys.Ascending("OtherApplications.PaymentId");
+        try
+        {
+            _userCollection.Indexes.CreateOne(new CreateIndexModel<AppUser>(keys, new CreateIndexOptions<AppUser>
+            {
+                Name = "OtherApplications_PaymentId_1",
+                Background = true,
+                Sparse = true
+            }));
+            _log.LogInformation("Ensured appUsers index on OtherApplications.PaymentId");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _avsIndexEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure appUsers index on OtherApplications.PaymentId");
+        }
     }
 
     private static int _indexesEnsured;
@@ -5035,7 +5092,7 @@ public class FilesServices
                      a.Title == searchTerm);
             var existingUser = await _userCollection.Find(
                 Builders<AppUser>.Filter.And(
-                    Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+                    AvailabilitySearchRules.OwnerFilter(userId),
                     existingApplicationFilter))
                 .FirstOrDefaultAsync();
 
@@ -5055,7 +5112,7 @@ public class FilesServices
 
             if (existingUser == null &&
                 await _userCollection.CountDocumentsAsync(
-                    Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+                    AvailabilitySearchRules.OwnerFilter(userId),
                     new CountOptions { Limit = 1 }) == 0)
             {
                 _log.LogError("User not found during availability search creation - userId={UserId}", userId);
@@ -5082,7 +5139,7 @@ public class FilesServices
             _log.LogDebug("Created ApplicationInfo with id={AppId}, type={ApplicationType}, status={Status}", app.id, app.ApplicationType, app.CurrentStatus);
 
             var createFilter = Builders<AppUser>.Filter.And(
-                Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+                AvailabilitySearchRules.OwnerFilter(userId),
                 Builders<AppUser>.Filter.Not(existingApplicationFilter));
             var updateResult = await _userCollection.UpdateOneAsync(
                 createFilter,
@@ -5092,7 +5149,7 @@ public class FilesServices
             {
                 var retryApplication = await _userCollection
                     .Find(Builders<AppUser>.Filter.And(
-                        Builders<AppUser>.Filter.Eq(x => x.Id, userId),
+                        AvailabilitySearchRules.OwnerFilter(userId),
                         existingApplicationFilter))
                     .FirstOrDefaultAsync();
                 var application = AvailabilitySearchRules.FindAwaitingPaymentApplication(
@@ -5131,153 +5188,252 @@ public class FilesServices
         }
     }
 
-    public async Task<(bool, string)> UpdateAvailabilitySearchPayment(string appId, string userId)
+    private static readonly TimeSpan RemitaVerificationTimeout = TimeSpan.FromSeconds(10);
+
+    // Admin batch job. Every status change goes through ConfirmAvailabilitySearchPayment, so verification,
+    // atomicity, idempotency and the simulation guard are identical to the single-record flow.
+    public async Task<AvailabilitySearchReconcileReport> ReconcileAvailabilitySearchPayments(string? userId, bool dryRun, int limit)
     {
-        _log.LogInformation("Starting UpdateAvailabilitySearchPayment - userId={UserId}, appId={AppId}", userId, appId);
+        var report = new AvailabilitySearchReconcileReport { DryRun = dryRun };
+        limit = Math.Clamp(limit, 1, 5000);
 
-        try
+        var elem = Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a =>
+            a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
+            a.CurrentStatus == ApplicationStatuses.AwaitingPayment);
+        var filter = string.IsNullOrWhiteSpace(userId)
+            ? elem
+            : Builders<AppUser>.Filter.And(AvailabilitySearchRules.OwnerFilter(userId), elem);
+
+        var users = await _userCollection.Find(filter)
+            .Project(u => new { u.Id, u.OtherApplications })
+            .ToListAsync();
+
+        var work = new List<(string UserId, string AppId, string PaymentId)>();
+        foreach (var u in users)
         {
-            var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-            if (user == null)
+            foreach (var a in u.OtherApplications ?? new List<ApplicationInfo>())
             {
-                _log.LogError("User not found during payment update - userId={UserId}, appId={AppId}", userId, appId);
-                throw new KeyNotFoundException("User not found");
-            }
-
-            _log.LogDebug("Found user - userId={UserId}, otherApplicationsCount={Count}", userId, user.OtherApplications?.Count ?? 0);
-
-            var app = AvailabilitySearchRules.FindOwnedApplication(user, appId);
-            if (app == null)
-            {
-                _log.LogError("Application not found in user's OtherApplications - userId={UserId}, appId={AppId}", userId, appId);
-                throw new KeyNotFoundException("Application not found");
-            }
-
-            _log.LogDebug("Found application - appId={AppId}, currentStatus={Status}, applicationType={ApplicationType}", appId, app.CurrentStatus, app.ApplicationType);
-
-            if (string.IsNullOrWhiteSpace(app.PaymentId))
-            {
-                _log.LogError("Payment ID not found in application - userId={UserId}, appId={AppId}", userId, appId);
-                throw new InvalidOperationException("Payment ID not found");
-            }
-
-            if (AvailabilitySearchRules.IsAlreadyConfirmed(app))
-            {
-                _log.LogInformation("Application already marked as AutoApproved (idempotent call) - userId={UserId}, appId={AppId}", userId, appId);
-                return (true, "Availability search payment already processed successfully");
-            }
-
-            if (!AvailabilitySearchRules.IsAwaitingPayment(app))
-            {
-                return (false, "Application is not awaiting payment");
-            }
-
-            _log.LogInformation("Validating payment with Remita - paymentId={PaymentId}, appId={AppId}", app.PaymentId, appId);
-
-            var payment = await _remitaPaymentUtils.GetDetailsByRRR(app.PaymentId);
-            if (payment == null)
-            {
-                _log.LogError("Failed to retrieve payment details from Remita - paymentId={PaymentId}, userId={UserId}, appId={AppId}", app.PaymentId, userId, appId);
-                return (false, "Payment could not be verified with Remita");
-            }
-
-            _log.LogDebug("Remita payment details retrieved - paymentId={PaymentId}, returnedRrr={ReturnedRrr}, status={PaymentStatus}, amount={Amount}", app.PaymentId, payment.rrr, payment.status, payment.amount);
-
-            if (!AvailabilitySearchRules.CanConfirmPayment(app, payment))
-            {
-                if (!string.Equals(payment.rrr, app.PaymentId, StringComparison.Ordinal))
+                if (a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
+                    AvailabilitySearchRules.IsAwaitingPayment(a) &&
+                    !string.IsNullOrWhiteSpace(a.PaymentId))
                 {
-                    _log.LogWarning("Remita response RRR did not match the application payment reference - userId={UserId}, appId={AppId}", userId, appId);
-                    return (false, "Verified payment reference does not match the application");
+                    work.Add((u.Id, a.id, a.PaymentId));
                 }
-
-                _log.LogWarning("Payment unsuccessful - paymentId={PaymentId}, status={PaymentStatus}, userId={UserId}, appId={AppId}", app.PaymentId, payment.status, userId, appId);
-                return (false, $"Payment has not been verified as successful (status: {payment.status})");
             }
+        }
 
-            var history = new ApplicationHistory
+        work = work.Take(limit).ToList();
+        report.Scanned = work.Count;
+
+        if (dryRun)
+        {
+            report.Items.AddRange(work.Select(w => new AvailabilitySearchReconcileItem
             {
-                Date = DateTime.Now,
-                beforeStatus = ApplicationStatuses.AwaitingPayment,
-                afterStatus = ApplicationStatuses.AutoApproved,
-                Message = "Payment successful, availability search completed",
-                User = "System",
-                UserId = "System"
-            };
-
-            var filter = Builders<AppUser>.Filter.And(
-                Builders<AppUser>.Filter.Eq(x => x.Id, userId),
-                Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a =>
-                    a.id == appId &&
-                    a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
-                    a.CurrentStatus == ApplicationStatuses.AwaitingPayment &&
-                    a.PaymentId == app.PaymentId));
-
-            var result = await _userCollection.UpdateOneAsync(
-                filter,
-                Builders<AppUser>.Update
-                    .Set("OtherApplications.$.CurrentStatus", ApplicationStatuses.AutoApproved)
-                    .Push("OtherApplications.$.StatusHistory", history));
-
-            if (result.ModifiedCount == 0)
+                UserId = w.UserId, ApplicationId = w.AppId, PaymentId = w.PaymentId,
+                Outcome = "WouldVerify", Message = "Dry run - no changes made"
+            }));
+        }
+        else
+        {
+            var gate = new SemaphoreSlim(5);
+            var items = new AvailabilitySearchReconcileItem[work.Count];
+            await Task.WhenAll(work.Select(async (w, i) =>
             {
-                var latestUser = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-                var latestApplication = latestUser?.OtherApplications?.FirstOrDefault(a => a.id == appId);
-                if (latestApplication != null &&
-                    AvailabilitySearchRules.IsAlreadyConfirmed(latestApplication) &&
-                    string.Equals(latestApplication.PaymentId, app.PaymentId, StringComparison.Ordinal))
+                await gate.WaitAsync();
+                try
                 {
-                    return (true, "Availability search payment already processed successfully");
+                    var res = await ConfirmAvailabilitySearchPayment(w.UserId, w.PaymentId, w.AppId);
+                    items[i] = new AvailabilitySearchReconcileItem
+                    {
+                        UserId = w.UserId, ApplicationId = w.AppId, PaymentId = w.PaymentId,
+                        Outcome = res.Outcome.ToString(), Message = res.Message
+                    };
                 }
+                catch (Exception ex)
+                {
+                    items[i] = new AvailabilitySearchReconcileItem
+                    {
+                        UserId = w.UserId, ApplicationId = w.AppId, PaymentId = w.PaymentId,
+                        Outcome = "Error", Message = ex.Message
+                    };
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }));
 
-                _log.LogError("Failed to update application in database - userId={UserId}, appId={AppId}", userId, appId);
-                return (false, "Availability search payment status update failed");
-            }
+            report.Items.AddRange(items);
+            report.Confirmed = items.Count(x => x.Outcome == nameof(AvailabilitySearchPaymentOutcome.Confirmed));
+            report.AlreadyProcessed = items.Count(x => x.Outcome == nameof(AvailabilitySearchPaymentOutcome.AlreadyProcessed));
+            report.StillUnpaid = items.Count(x => x.Outcome == nameof(AvailabilitySearchPaymentOutcome.NotPaid));
+            report.NotFound = items.Count(x => x.Outcome == nameof(AvailabilitySearchPaymentOutcome.NotFound));
+            report.Errors = items.Count(x => x.Outcome is "Error"
+                or nameof(AvailabilitySearchPaymentOutcome.Unverifiable)
+                or nameof(AvailabilitySearchPaymentOutcome.Failed));
+        }
 
-            _log.LogInformation("Successfully updated availability search payment status - userId={UserId}, appId={AppId}, newStatus={NewStatus}", userId, appId, ApplicationStatuses.AutoApproved);
+        _log.LogInformation("AVS reconcile finished - dryRun={DryRun}, scanned={Scanned}, confirmed={Confirmed}, alreadyProcessed={Already}, stillUnpaid={Unpaid}, notFound={NotFound}, errors={Errors}",
+            dryRun, report.Scanned, report.Confirmed, report.AlreadyProcessed, report.StillUnpaid, report.NotFound, report.Errors);
+        return report;
+    }
 
+    // Confirms an Availability Search payment using only the payment reference (RRR). The owner always
+    // comes from the authenticated principal, so another user's RRR is indistinguishable from an unknown one.
+    // appId is accepted only for callers that still use the legacy { appId, userId } body.
+    public async Task<AvailabilitySearchPaymentResult> ConfirmAvailabilitySearchPayment(string userId, string? paymentId, string? appId = null)
+    {
+    	_log.LogInformation("Starting ConfirmAvailabilitySearchPayment - userId={UserId}, paymentId={PaymentId}, appId={AppId}", userId, paymentId, appId);
+
+    	try
+    	{
+    		const string notFoundMessage = "Payment ID not found";
+    		if (string.IsNullOrWhiteSpace(userId) || (string.IsNullOrWhiteSpace(paymentId) && string.IsNullOrWhiteSpace(appId)))
+    		{
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotFound, notFoundMessage);
+    		}
+
+    		var applications = await _userCollection
+    			.Find(AvailabilitySearchRules.OwnerFilter(userId))
+    			.Project(u => u.OtherApplications)
+    			.FirstOrDefaultAsync();
+
+    		var app = applications?.FirstOrDefault(a =>
+    			a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
+    			(!string.IsNullOrWhiteSpace(paymentId) ? a.PaymentId == paymentId : a.id == appId));
+
+    		if (app == null || string.IsNullOrWhiteSpace(app.PaymentId))
+    		{
+    			_log.LogWarning("Availability search not found for owner - userId={UserId}, paymentId={PaymentId}, appId={AppId}", userId, paymentId, appId);
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotFound, notFoundMessage);
+    		}
+
+    		if (AvailabilitySearchRules.IsAlreadyConfirmed(app))
+    		{
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.AlreadyProcessed,
+    				"Availability search payment already processed successfully", app);
+    		}
+
+    		if (!AvailabilitySearchRules.IsAwaitingPayment(app))
+    		{
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.Failed,
+    				"Application is not awaiting payment", app);
+    		}
+
+            var simulated = IsAvailabilitySearchSimulationEnabled();
+            RemitaResponseClass? payment;
             try
             {
-                var notif = new CreateNotificationDto
-                {
-                    Audience = NotificationAudience.User,
-                    Category = NotificationCategory.StatusUpdate,
-                    Priority = NotificationPriority.Medium,
-                    PreviousStatus = ApplicationStatuses.AwaitingPayment,
-                    NewStatus = ApplicationStatuses.AutoApproved,
-                    ApplicationType = FormApplicationTypes.AvailabilitySearch,
-                    Title = "Availability Search Completed",
-                    Message = $"Your Availability Search{(string.IsNullOrWhiteSpace(app.Title) ? string.Empty : $" for \"{app.Title}\"")} (reference {app.ReferenceNumber ?? app.id}) has been completed. You can now print your receipt.",
-                    RecipientId = userId,
-                    CreatedBy = "System",
-                    ApplicationId = appId,
-                    ActionUrl = "/home/other-applications/?tab=availabilitysearch"
-                };
-                await _notificationServices.CreateNotificationAsync(notif);
-                _log.LogInformation("notification sent to {RecipientId}", notif.RecipientId);
+                payment = simulated
+                    ? new RemitaResponseClass { rrr = app.PaymentId, status = "00" }
+                    : await _remitaPaymentUtils.GetDetailsByRRR(app.PaymentId).WaitAsync(RemitaVerificationTimeout);
             }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Availability search notification failed - userId={UserId}, appId={AppId}", userId, appId);
-            }
+    		catch (TimeoutException)
+    		{
+    			_log.LogWarning("Remita verification timed out - paymentId={PaymentId}", app.PaymentId);
+    			payment = null;
+    		}
 
-            return (true, "Availability search payment status updated successfully");
-        }
-        catch (KeyNotFoundException ex)
-        {
-            _log.LogError(ex, "KeyNotFoundException in UpdateAvailabilitySearchPayment - userId={UserId}, appId={AppId}", userId, appId);
-            throw;
-        }
-        catch (InvalidOperationException ex)
-        {
-            _log.LogError(ex, "InvalidOperationException in UpdateAvailabilitySearchPayment - userId={UserId}, appId={AppId}", userId, appId);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "Unexpected exception in UpdateAvailabilitySearchPayment - userId={UserId}, appId={AppId}", userId, appId);
-            throw;
-        }
+    		if (payment == null)
+    		{
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.Unverifiable,
+    				"Payment could not be verified with Remita. Please try again shortly.", app);
+    		}
+
+    		if (!AvailabilitySearchRules.CanConfirmPayment(app, payment))
+    		{
+    			if (!string.Equals(payment.rrr, app.PaymentId, StringComparison.Ordinal))
+    			{
+    				_log.LogWarning("Remita response RRR did not match the application payment reference - userId={UserId}, paymentId={PaymentId}", userId, app.PaymentId);
+    				return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotPaid,
+    					"Unsuccessful payment - verified payment reference does not match", app);
+    			}
+
+    			_log.LogWarning("Payment unsuccessful - paymentId={PaymentId}, status={PaymentStatus}", app.PaymentId, payment.status);
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotPaid,
+    				$"Unsuccessful payment - status: {payment.status}", app);
+    		}
+
+    		var history = new ApplicationHistory
+    		{
+    			Date = DateTime.UtcNow,
+    			beforeStatus = ApplicationStatuses.AwaitingPayment,
+    			afterStatus = ApplicationStatuses.AutoApproved,
+                Message = simulated ? "Payment simulated (test mode)" : "Payment successful, availability search completed",
+    			User = "System",
+    			UserId = "System"
+    		};
+
+    		// The AwaitingPayment condition is evaluated inside the same atomic document update, so when
+    		// callers race only one of them modifies the record and appends the history entry.
+    		var filter = Builders<AppUser>.Filter.And(
+    			AvailabilitySearchRules.OwnerFilter(userId),
+    			Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a =>
+    				a.id == app.id &&
+    				a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
+    				a.CurrentStatus == ApplicationStatuses.AwaitingPayment &&
+    				a.PaymentId == app.PaymentId));
+
+    		var result = await _userCollection.UpdateOneAsync(
+    			filter,
+    			Builders<AppUser>.Update
+    				.Set(x => x.OtherApplications.FirstMatchingElement().CurrentStatus, ApplicationStatuses.AutoApproved)
+    				.Push(x => x.OtherApplications.FirstMatchingElement().StatusHistory, history));
+
+    		if (result.ModifiedCount == 0)
+    		{
+    			var latest = await _userCollection
+    				.Find(AvailabilitySearchRules.OwnerFilter(userId))
+    				.Project(u => u.OtherApplications)
+    				.FirstOrDefaultAsync();
+    			var latestApp = latest?.FirstOrDefault(a => a.id == app.id);
+    			if (latestApp != null && AvailabilitySearchRules.IsAlreadyConfirmed(latestApp) &&
+    				string.Equals(latestApp.PaymentId, app.PaymentId, StringComparison.Ordinal))
+    			{
+    				return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.AlreadyProcessed,
+    					"Availability search payment already processed successfully", latestApp);
+    			}
+
+    			_log.LogError("Failed to update availability search payment status - userId={UserId}, paymentId={PaymentId}", userId, app.PaymentId);
+    			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.Failed,
+    				"Availability search payment status update failed", app);
+    		}
+
+    		_log.LogInformation("Availability search payment confirmed - userId={UserId}, paymentId={PaymentId}", userId, app.PaymentId);
+
+    		// Side effects run only for the caller that actually changed the status.
+    		try
+    		{
+    			var notif = new CreateNotificationDto
+    			{
+    				Audience = NotificationAudience.User,
+    				Category = NotificationCategory.StatusUpdate,
+    				Priority = NotificationPriority.Medium,
+    				PreviousStatus = ApplicationStatuses.AwaitingPayment,
+    				NewStatus = ApplicationStatuses.AutoApproved,
+    				ApplicationType = FormApplicationTypes.AvailabilitySearch,
+    				Title = "Availability Search Completed",
+    				Message = $"Your Availability Search{(string.IsNullOrWhiteSpace(app.Title) ? string.Empty : $" for \"{app.Title}\"")} (reference {app.ReferenceNumber ?? AvailabilitySearchRules.BuildReferenceNumber(app.id) ?? app.id}) has been completed. You can now print your receipt.",
+    				RecipientId = userId,
+    				CreatedBy = "System",
+    				ApplicationId = app.id,
+    				ActionUrl = "/home/other-applications/?tab=availabilitysearch"
+    			};
+    			await _notificationServices.CreateNotificationAsync(notif);
+    		}
+    		catch (Exception ex)
+    		{
+    			_log.LogError(ex, "Availability search notification failed - userId={UserId}, paymentId={PaymentId}", userId, app.PaymentId);
+    		}
+
+    		return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.Confirmed,
+    			"Availability search payment status updated successfully", AvailabilitySearchRules.EnsureReferenceNumber(app));
+    	}
+    	catch (Exception ex)
+    	{
+    		_log.LogError(ex, "Unexpected exception in ConfirmAvailabilitySearchPayment - userId={UserId}, paymentId={PaymentId}", userId, paymentId);
+    		throw;
+    	}
     }
 
     public async Task<RecordalDto> StatusSearchCost(string fileId, FileTypes fileType)

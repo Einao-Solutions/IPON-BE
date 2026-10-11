@@ -409,7 +409,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         return (rrr, details.Item1);
     }
     
-    public async Task<string?> GenerateRemitaPaymentId(string total, string serviceFee,string serviceId, string description, 
+    public virtual async Task<string?> GenerateRemitaPaymentId(string total, string serviceFee,string serviceId, string description, 
         string applicantName, string applicantEmail, string applicantNumber) {
         if (string.IsNullOrWhiteSpace(total) || string.IsNullOrWhiteSpace(serviceFee))
         {
@@ -602,7 +602,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         };
     }
 
-    public async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
+    public virtual async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
     {
         if (string.IsNullOrWhiteSpace(rrr))
         {
