@@ -84,6 +84,17 @@ public class EmailServices
 
         message.To.Add(dto.To);
 
+        if (dto.Attachment is { Content.Length: > 0 })
+        {
+            message.Attachments = new List<EmailAttachment>
+            {
+                new EmailAttachment
+                {
+                    Filename = dto.Attachment.FileName,
+                    Content = dto.Attachment.Content
+                }
+            };
+        }
         if (!string.IsNullOrWhiteSpace(dto.Subject))
         {
             message.Subject = dto.Subject;

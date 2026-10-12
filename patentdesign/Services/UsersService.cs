@@ -8,6 +8,7 @@ using patentdesign.Controllers;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
+using patentdesign.Utils;
 
 namespace patentdesign.Services;
 
@@ -216,14 +217,32 @@ public class UsersService
     public async Task<List<ApplicationInfo>> FetchOtherApplications(string userId)
     {
         _log.LogInformation($"Fetching other applications for user {userId}");
-        var user = await _userCollection.Find(u => u.Id == userId).FirstOrDefaultAsync();
-        if (user is null)
+        var filter = Builders<AppUser>.Filter.Eq(u => u.Id, userId);
+        if (ObjectId.TryParse(userId, out var objectId))
+        {
+            filter |= new BsonDocument("_id", objectId);
+        }
+        // Only the applications array is needed, not the whole user document.
+        var matches = await _userCollection.Find(filter)
+            .Project(u => u.OtherApplications)
+            .Limit(1)
+            .ToListAsync();
+        if (matches.Count == 0)
         {
             _log.LogError("User not found");
             throw new KeyNotFoundException("User not found");
         }
-        var otherApplications = user.OtherApplications ?? new List<ApplicationInfo>();
-        return otherApplications;
+        return OtherApplicationsHistoryRules.FlattenApplications(matches);
+    }
+
+    public async Task<List<ApplicationInfo>> FetchAllOtherApplications()
+    {
+        _log.LogInformation("Fetching other applications for all users");
+        var applicationLists = await _userCollection
+            .Find(Builders<AppUser>.Filter.SizeGt(u => u.OtherApplications, 0))
+            .Project(u => u.OtherApplications)
+            .ToListAsync();
+        return OtherApplicationsHistoryRules.FlattenApplications(applicationLists);
     }
 
 }

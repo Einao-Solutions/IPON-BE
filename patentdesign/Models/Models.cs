@@ -14,6 +14,7 @@ namespace patentdesign.Models;
 public class AppUser
 {
     [BsonId]
+    [BsonSerializer(typeof(patentdesign.Utils.AppUserIdSerializer))]
     public string Id { get; set; }
     public string? CreatorId { get; set; }
     public string FirstName { get; set; } = "";
@@ -634,6 +635,8 @@ public record ApplicationInfo
     public string? SignatureId { get; set; }
     public string? FileNumber { get; set; }
     public string? Title { get; set; }
+    [JsonPropertyName("referenceNumber")]
+    public string? ReferenceNumber { get; set; }
 }
 
 

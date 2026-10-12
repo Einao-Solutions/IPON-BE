@@ -139,12 +139,13 @@ public class LettersServices
 
     public async Task<Dictionary<string, object>> GenerateLetter(string? fileId = null,
         ApplicationLetters? letterType = null,
-        string? applicationId = null, string? oppositionId = null, string? rrr = null)
+        string? applicationId = null, string? oppositionId = null, string? rrr = null,
+        string? requestingUserId = null, bool isSuperAdmin = false)
     {
         switch (letterType)
         {
             case ApplicationLetters.AvailabilitySearchReceipt:
-                return await AvailabilitySearchReceipt(rrr);
+                return await AvailabilitySearchReceipt(rrr, requestingUserId, isSuperAdmin);
             case ApplicationLetters.NewApplicationCertificateReceipt:
                 var data1 = _fillingCollection.Find(x => x.FileId == fileId).FirstOrDefault();
                 PaymentInfo? response1 = null;
@@ -1700,31 +1701,28 @@ public class LettersServices
         return ReturnDocument(data);
     }
 
-    public async Task<Dictionary<string, object>> AvailabilitySearchReceipt(string? rrr)
+    public async Task<Dictionary<string, object>> AvailabilitySearchReceipt(string? rrr, string? requestingUserId = null, bool isSuperAdmin = false)
     {
         if (string.IsNullOrWhiteSpace(rrr))
             throw new ArgumentException("rrr is required to generate an Availability Search receipt", nameof(rrr));
 
-        var remitaResponse = await _remitaPaymentUtils.GetDetailsByRRR(rrr);
-        if (remitaResponse == null)
-            throw new Exception("Payment details not found for the provided rrr");
-
-        // Find the ApplicationInfo (in any user's OtherApplications) matching this rrr, so we
-        // can retrieve the searched title and re-run the same matching logic used by the
-        // frontend results page.
+        // The AutoApproved state is set only after the payment-update flow verifies this RRR with Remita.
         var user = await _userCollection
-            .Find(Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a => a.PaymentId == rrr))
+            .Find(Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications,
+                a => a.PaymentId == rrr && a.ApplicationType == FormApplicationTypes.AvailabilitySearch))
             .FirstOrDefaultAsync();
 
-        var app = user?.OtherApplications?.FirstOrDefault(a => a.PaymentId == rrr);
+        var app = user?.OtherApplications?.FirstOrDefault(a =>
+            a.PaymentId == rrr && a.ApplicationType == FormApplicationTypes.AvailabilitySearch);
 
         if (app == null)
             throw new Exception("Application not found for the provided payment reference");
 
-        // Check if application status is AutoApproved
-        // This ensures payment was successful and user completed the search workflow
+        if (!AvailabilitySearchRules.CanAccessOwner(user!.Id, requestingUserId, isSuperAdmin))
+            throw new UnauthorizedAccessException("Not authorized to access this availability search receipt");
+
         if (app.CurrentStatus != ApplicationStatuses.AutoApproved)
-            throw new Exception($"Letter can only be generated for approved applications. Current status: {app.CurrentStatus}");
+            throw new InvalidOperationException("Payment has not been completed for this availability search. Complete payment to print your receipt.");
 
         List<AvailabilitySearchDto> matches = new();
         if (!string.IsNullOrWhiteSpace(app.Title))
@@ -1732,7 +1730,7 @@ public class LettersServices
             matches = await _filesServices.GetRelatedTitles(app.Title);
         }
 
-        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(remitaResponse, rrr, app?.Title, matches, app?.ApplicationDate).GeneratePdf();
+        var data = new patentdesign.pdfs.AvailabilitySearchReceipt(app.Title, matches, app.ApplicationDate).GeneratePdf();
         return ReturnDocument(data);
     }
 

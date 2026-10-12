@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 
@@ -18,13 +20,22 @@ public class LettersController(LettersServices lettersServices) : ControllerBase
         }
 
         var r = Enum.GetValues<ApplicationLetters>().ToList()[letterType.Value];
+        var requestingUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var isSuperAdmin = User.IsInRole(nameof(Roles.SuperAdmin));
+        if (r == ApplicationLetters.AvailabilitySearchReceipt &&
+            (string.IsNullOrWhiteSpace(requestingUserId) || User.Identity?.IsAuthenticated != true))
+        {
+            return Unauthorized();
+        }
+
         Console.WriteLine("App Letter Type: " + r);
         Console.WriteLine("FileId: " + fileId);
         Console.WriteLine("ApplicationId: " + applicationId);
         Console.WriteLine("OppositionId: " + oppositionId);
         try
         {
-            var result = await lettersServices.GenerateLetter(fileId, r, applicationId, oppositionId, rrr);
+            var result = await lettersServices.GenerateLetter(fileId, r, applicationId, oppositionId, rrr,
+                requestingUserId, isSuperAdmin);
             if (result == null || !result.ContainsKey("data") || result["data"] == null)
             {
                 Console.WriteLine("Result: " + JsonSerializer.Serialize(result));
@@ -36,8 +47,18 @@ public class LettersController(LettersServices lettersServices) : ControllerBase
         }
         catch (Exception ex)
         {
+            if (ex is UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+
             Console.WriteLine($"Letter generation error: {ex.Message}\n{ex.StackTrace}");
-            return StatusCode(500, new { message = ex.Message, stackTrace = ex.StackTrace });
+            if (ex is InvalidOperationException && r == ApplicationLetters.AvailabilitySearchReceipt)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+
+            return StatusCode(500, new { message = ex.Message });
         }
     }
     [HttpGet("GetDocuments")]

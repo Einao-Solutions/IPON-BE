@@ -22,6 +22,7 @@ public class PaymentService
     private static IMongoCollection<FinanceHistory> _financeCollection;
     private static IMongoCollection<XpayApplicant> _payxApplicants;
     private static IMongoCollection<XpayTwallet> _payxWallet;
+    private static IMongoCollection<AppUser> _users;
     private readonly ILogger<PaymentService> _log;
     private PaymentUtils _remitaPaymentUtils;
 
@@ -41,6 +42,7 @@ public class PaymentService
         _financeCollection = db.GetCollection<FinanceHistory>(s.FinanceCollectionName);
         _payxApplicants = db.GetCollection<XpayApplicant>("xpayApplicants");
         _payxWallet = db.GetCollection<XpayTwallet>("xpayTwallet");
+        _users = db.GetCollection<AppUser>("appUsers");
         _log = log;
     }
 
@@ -177,6 +179,23 @@ public class PaymentService
 
     public async Task<RemitaResponseClass?> CheckPayment(string rrr)
     {
+        var availabilitySearch = await _users.Find(Builders<AppUser>.Filter.ElemMatch(
+                x => x.OtherApplications,
+                a => a.ApplicationType == FormApplicationTypes.AvailabilitySearch && a.PaymentId == rrr))
+            .FirstOrDefaultAsync();
+        if (availabilitySearch != null)
+        {
+            try
+            {
+                return await _remitaPaymentUtils.GetDetailsByRRR(rrr);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Failed to verify Availability Search RRR {Rrr} with Remita", rrr);
+                return null;
+            }
+        }
+
         if (rrr.Contains("IPO"))
         {
             // check via order_id

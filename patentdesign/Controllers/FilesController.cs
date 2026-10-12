@@ -8,6 +8,7 @@ using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 using patentdesign.Utils;
+using System.Security.Claims;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
@@ -468,28 +469,152 @@ public class FilesController(FilesServices fileService) : ControllerBase
         return Ok(result);
     }
     [HttpGet("AvailabilitySearchCost")]
-    public async Task<IActionResult> AvailabilitySearchCost([FromQuery] string name, [FromQuery] string email,
-        [FromQuery] string userId, [FromQuery] string searchTerm, [FromQuery] int? classNo = null, [FromQuery] string? fileType = null)
-    {
-        var res = await fileService.AvailabilitySearchCost(name, email, userId, searchTerm, classNo, fileType);
-        if (res == null)
-        {
-            return BadRequest("NOT FOUND");
-        }
-        return Ok(res);
-    }
-
-    [HttpPost("UpdateAvailabilitySearchPayment")]
-    public async Task<IActionResult> UpdateAvailabilitySearchPayment([FromBody] AvailabilitySearchPaymentStatusDto dto)
+    [Authorize]
+    public async Task<IActionResult> AvailabilitySearchCost([FromQuery] string? name, [FromQuery] string? email,
+        [FromQuery] string? userId, [FromQuery] string? searchTerm, [FromQuery] int? classNo = null, [FromQuery] string? fileType = null)
     {
         try
         {
-            var result = await fileService.UpdateAvailabilitySearchPayment(dto.AppId, dto.UserId);
-            return Ok(new { success = result.Item1, message = result.Item2 });
+            // The owner is always the authenticated user; a client-supplied userId is never trusted over the token.
+            var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(callerId))
+            {
+                return Unauthorized();
+            }
+
+            if (!string.IsNullOrWhiteSpace(userId) && !string.Equals(userId, callerId, StringComparison.Ordinal))
+            {
+                return Forbid();
+            }
+
+if (string.IsNullOrWhiteSpace(searchTerm))
+            {
+                return BadRequest(new { message = "searchTerm is required" });
+            }
+
+            var res = await fileService.AvailabilitySearchCost(name ?? string.Empty, email ?? string.Empty, callerId, searchTerm, classNo, fileType);
+            if (res == null)
+            {
+                return BadRequest(new { message = "Failed to create availability search record" });
+            }
+            return Ok(res);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message, details = ex.InnerException?.Message });
+        }
+    }
+
+    // Mirrors POST /api/opposition/UpdateOppositionPayment?paymentId={rrr}: the payment reference identifies the
+    // record and the caller comes from the token. A legacy { appId, userId } body is still accepted when no
+    // paymentId is supplied, but ownership is always enforced from the token.
+    [HttpPost("UpdateAvailabilitySearchPayment")]
+    [Authorize]
+    public async Task<IActionResult> UpdateAvailabilitySearchPayment([FromQuery] string? paymentId,
+        [FromBody] AvailabilitySearchPaymentStatusDto? dto,
+        [FromServices] LettersServices lettersServices, [FromServices] UsersService usersService,
+        [FromServices] EmailServices emailServices, [FromServices] ILogger<FilesController> logger)
+    {
+        try
+        {
+            var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrWhiteSpace(callerId))
+            {
+                return Unauthorized();
+            }
+
+            if (string.IsNullOrWhiteSpace(paymentId) && string.IsNullOrWhiteSpace(dto?.AppId))
+            {
+                return BadRequest(new { success = false, message = "paymentId is required" });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto?.UserId) && !string.Equals(dto.UserId, callerId, StringComparison.Ordinal))
+            {
+                return Forbid();
+            }
+
+            var result = await fileService.ConfirmAvailabilitySearchPayment(callerId, paymentId, dto?.AppId);
+            switch (result.Outcome)
+            {
+                case AvailabilitySearchPaymentOutcome.Confirmed:
+                    await SendAvailabilitySearchReceiptEmail(callerId, result.Application, lettersServices, usersService, emailServices, logger);
+                    return Ok(new { success = true, message = result.Message });
+                case AvailabilitySearchPaymentOutcome.AlreadyProcessed:
+                    return Ok(new { success = true, message = result.Message });
+                case AvailabilitySearchPaymentOutcome.NotFound:
+                    return NotFound(new { success = false, message = result.Message });
+                case AvailabilitySearchPaymentOutcome.Unverifiable:
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable, new { success = false, message = result.Message });
+                default:
+                    return BadRequest(new { success = false, message = result.Message });
+            }
         }
         catch (Exception e)
         {
-            return BadRequest(new { message = e.Message });
+            logger.LogError(e, "UpdateAvailabilitySearchPayment failed - paymentId={PaymentId}", paymentId);
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    [HttpPost("ReconcileAvailabilitySearchPayments")]
+    [Authorize(Roles = "SuperAdmin,Tech")]
+    public async Task<IActionResult> ReconcileAvailabilitySearchPayments([FromQuery] string? userId,
+        [FromQuery] bool dryRun = true, [FromQuery] int limit = 200)
+    {
+        try
+        {
+            var report = await fileService.ReconcileAvailabilitySearchPayments(userId, dryRun, limit);
+            return Ok(report);
+        }
+        catch (Exception e)
+        {
+            return BadRequest(new { success = false, message = e.Message });
+        }
+    }
+
+    // Runs only for the request that actually moved the search to AutoApproved, so the email is sent once.
+    private static async Task SendAvailabilitySearchReceiptEmail(string userId, ApplicationInfo? app,
+        LettersServices lettersServices, UsersService usersService, EmailServices emailServices, ILogger logger)
+    {
+        try
+        {
+            if (app == null || string.IsNullOrWhiteSpace(app.PaymentId))
+            {
+                return;
+            }
+
+            var owner = await usersService.GetUserById(userId);
+            if (owner == null || !System.Net.Mail.MailAddress.TryCreate(owner.Email, out _))
+            {
+                return;
+            }
+
+            var reference = app.ReferenceNumber ?? AvailabilitySearchRules.BuildReferenceNumber(app.id) ?? app.id;
+            var letter = await lettersServices.AvailabilitySearchReceipt(app.PaymentId, userId, false);
+            var title = "Availability Search Receipt";
+            var message = $"Your Availability Search receipt{(string.IsNullOrWhiteSpace(app.Title) ? string.Empty : $" for \"{app.Title}\"")} (reference {reference}) is attached.";
+            await emailServices.SendMail(new EmailDto
+            {
+                To = owner.Email,
+                Subject = title,
+                Body = message,
+                EmailType = EmailType.Notification,
+                NotificationMail = new NotificationMail
+                {
+                    Title = title,
+                    Message = message,
+                    ApplicantName = owner.FirstName
+                },
+                Attachment = new EmailAttachmentDto
+                {
+                    FileName = $"AvailabilitySearchReceipt-{reference}.pdf",
+                    Content = (byte[])letter["data"]
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Availability search receipt email failed - userId={UserId}", userId);
         }
     }
 
