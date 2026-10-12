@@ -1,3 +1,5 @@
+using MongoDB.Bson;
+using MongoDB.Driver;
 using patentdesign.Enums;
 using patentdesign.Models;
 
@@ -5,7 +7,19 @@ namespace patentdesign.Utils;
 
 public static class AvailabilitySearchRules
 {
-    public const string ReferencePrefix = "AVS-";
+// Matches users whose _id is stored as a string or as a BSON ObjectId.
+    public static FilterDefinition<AppUser> OwnerFilter(string userId)
+    {
+        var filter = Builders<AppUser>.Filter.Eq(x => x.Id, userId);
+        if (ObjectId.TryParse(userId, out var objectId))
+        {
+            filter |= new BsonDocument("_id", objectId);
+        }
+
+        return filter;
+    }
+
+public const string ReferencePrefix = "AVS-";
     private const int ReferenceLength = 10;
 
     // Derived from the immutable application id, so every record (old or new) gets the same
@@ -41,7 +55,7 @@ public static class AvailabilitySearchRules
             ApplicationDate = applicationDate ?? DateTime.UtcNow,
             PaymentId = paymentReference,
             Title = searchTerm,
-            StatusHistory = []
+StatusHistory = [new ApplicationHistory { Date = applicationDate ?? DateTime.UtcNow, beforeStatus = ApplicationStatuses.AwaitingPayment, afterStatus = ApplicationStatuses.AwaitingPayment, Message = "Availability search created, awaiting payment", User = "System", UserId = "System" }]
         };
 
         return EnsureReferenceNumber(application);
