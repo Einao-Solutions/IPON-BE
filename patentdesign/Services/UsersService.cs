@@ -171,7 +171,7 @@ public class UsersService
         {
             var removeUpdate = Builders<AppUser>.Update
                 .PullAll(u => u.UserRoles, request.RemoveRoles)
-                .Set(u => u.LastUpdatedAt, DateTime.Now);
+                .Set(u => u.LastUpdatedAt, DateTime.UtcNow);
 
             var removeResult = await _userCollection.UpdateOneAsync(filter, removeUpdate);
             matched |= removeResult.MatchedCount > 0;
@@ -181,7 +181,7 @@ public class UsersService
         {
             var addUpdate = Builders<AppUser>.Update
                 .AddToSetEach(u => u.UserRoles, request.AddRoles)
-                .Set(u => u.LastUpdatedAt, DateTime.Now);
+                .Set(u => u.LastUpdatedAt, DateTime.UtcNow);
 
             var addResult = await _userCollection.UpdateOneAsync(filter, addUpdate);
             matched |= addResult.MatchedCount > 0;

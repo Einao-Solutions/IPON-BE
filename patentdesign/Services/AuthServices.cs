@@ -509,7 +509,7 @@ namespace patentdesign.Services
                     Address = corr?.address ?? "",
                     AccountType = accType,
                     UserRoles = roles,
-                    CreatedAt = DateTime.Now,
+                    CreatedAt = DateTime.UtcNow,
                     isVerified = dto.verified ?? false,
                     PasswordHash = hashedPassword,
                     Nationality = "",
@@ -666,7 +666,7 @@ namespace patentdesign.Services
                     return false;
                 }
 
-                updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.LastUpdatedAt, DateTime.Now));
+                updateDefinitions.Add(Builders<AppUser>.Update.Set(u => u.LastUpdatedAt, DateTime.UtcNow));
 
                 var combinedUpdate = Builders<AppUser>.Update.Combine(updateDefinitions);
                 var filter = Builders<AppUser>.Filter.Eq(u => u.Id, dto.UserId);

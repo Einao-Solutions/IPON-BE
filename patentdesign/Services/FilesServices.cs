@@ -1,4 +1,4 @@
-using Amazon.Runtime.Internal;
+﻿using Amazon.Runtime.Internal;
 using Azure.Core;
 using Bogus.DataSets;
 using CloudinaryDotNet.Actions;
@@ -303,7 +303,7 @@ public class FilesServices
         }
 
         var paymentInfo = await ValidateAndGetPaymentInfo(application);
-        var paymentDate = DateTime.TryParse(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
+        var paymentDate = patentdesign.Utils.AppTime.TryParseToUtc(paymentInfo.paymentDate, out var paidAt) ? paidAt : DateTime.UtcNow;
 
         application.StatusHistory ??= new List<ApplicationHistory>();
 
@@ -328,7 +328,7 @@ public class FilesServices
     private async void SavePayment(RemitaResponseClass pay, PaymentTypes type, string fileId, string appId)
     {
         _log.LogDebug("Saving payment record for FileId {FileId}, AppId {AppId}, Type {PaymentType}", fileId, appId, type);
-        var paymentDate = DateTime.TryParse(pay.paymentDate, out var paidAt) ? paidAt : DateTime.Now;
+        var paymentDate = patentdesign.Utils.AppTime.TryParseToUtc(pay.paymentDate, out var paidAt) ? paidAt : DateTime.UtcNow;
         var fileType = await _fillingCollection
             .Find(f => f.FileId == fileId)
             .Project(f => (FileTypes?)f.Type)
@@ -545,7 +545,7 @@ public class FilesServices
                 {
                     beforeStatus = ApplicationStatuses.AwaitingExaminer,
                     afterStatus = ApplicationStatuses.AwaitingCertificateConfirmation,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     Message = "Examination completed, awaiting certificate confirmation",
                     User = userName,
                     UserId = user.Id
@@ -556,7 +556,7 @@ public class FilesServices
                     BeforeStatus = statusHistory.beforeStatus,
                     AppUserId = userId,
                     ApplicationType = FormApplicationTypes.NewApplication,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     FileNumber = fileId,
                     FileType = file.Type,
                     Reason = statusHistory.Message,
@@ -569,7 +569,7 @@ public class FilesServices
                 {
                     beforeStatus = ApplicationStatuses.AwaitingExaminer,
                     afterStatus = ApplicationStatuses.Active,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     Message = "Certified, file is now Active",
                     User = userName,
                     UserId = user.Id
@@ -581,7 +581,7 @@ public class FilesServices
                     BeforeStatus = statusHistory.beforeStatus,
                     AppUserId = userId,
                     ApplicationType = FormApplicationTypes.NewApplication,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     FileNumber = fileId,
                     FileType = file.Type,
                     Reason = statusHistory.Message,
@@ -885,7 +885,7 @@ public class FilesServices
         {
             beforeStatus = ApplicationStatuses.FormalityFail,
             afterStatus = ApplicationStatuses.AwaitingSearch,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = "user updated data, awaiting search",
             User = userName,
             UserId = userId
@@ -959,7 +959,7 @@ public class FilesServices
             id = revision.revisionId,
             CurrentStatus = ApplicationStatuses.AutoApproved,
             ApplicationType = FormApplicationTypes.DataUpdate,
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             ExpiryDate = null,
             PaymentId = null,
             NewValue = revision.newValue,
@@ -967,7 +967,7 @@ public class FilesServices
             FieldToChange = revision.fieldToChange,
             StatusHistory = [new ApplicationHistory()
             {
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 afterStatus = ApplicationStatuses.AutoApproved,
                 beforeStatus = ApplicationStatuses.None,
                 Message = $"Automatically approved data update for field -{revision.fieldToChange}-",
@@ -1064,7 +1064,7 @@ public class FilesServices
         {
             beforeStatus = ApplicationStatuses.AwaitingPayment,
             afterStatus = ApplicationStatuses.AwaitingSearch,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = "payment confirmed, awaiting search",
             User = data.userName,
             UserId = data.userID
@@ -1098,7 +1098,7 @@ public class FilesServices
         var newApp = new ApplicationInfo()
         {
             id = data.revisionId,
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
             ApplicationType = FormApplicationTypes.DataUpdate,
             OldValue = data.oldValue,
@@ -1112,7 +1112,7 @@ public class FilesServices
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingPayment,
                     Message = "Data update saved, awaiting payment",
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     User = data.user,
                     UserId = data.userId
                 }
@@ -1168,7 +1168,7 @@ public class FilesServices
         var applicationId = Guid.NewGuid().ToString();
         var app = new ApplicationInfo()
         {
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             CurrentStatus = ApplicationStatuses.AwaitingSearch,
             ExpiryDate = null,
             ApplicationType = FormApplicationTypes.LicenseRenewal,
@@ -1182,7 +1182,7 @@ public class FilesServices
                 {
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = ApplicationStatuses.AwaitingSearch,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     Message = "Renewal Payment confirmed, awaiting search",
                     User = data.user,
                     UserId = data.userId
@@ -1205,7 +1205,7 @@ public class FilesServices
     private DateOnly getNewExpiryDate(List<DateOnly?> allPreviousDates, FileTypes fileType, string fileId, FormApplicationTypes appType)
     {
         DateOnly furthestDate;
-        furthestDate = allPreviousDates?.Where(x => x != null).Max() ?? DateOnly.FromDateTime(DateTime.Now);
+        furthestDate = allPreviousDates?.Where(x => x != null).Max() ?? DateOnly.FromDateTime(patentdesign.Utils.AppTime.LagosNow);
         if (fileType is FileTypes.Patent)
         {
             if (appType == FormApplicationTypes.NewApplication)
@@ -1239,9 +1239,9 @@ public class FilesServices
         if (fileType is FileTypes.TradeMark)
         {
             var newDate = allPreviousDates?.Where(x => x != null).Max() == null ?
-                DateOnly.FromDateTime(DateTime.Now).AddYears(7) : allPreviousDates
+                DateOnly.FromDateTime(patentdesign.Utils.AppTime.LagosNow).AddYears(7) : allPreviousDates
                 ?.Where(x => x != null).Max().Value.AddYears(14);
-            return newDate ?? DateOnly.FromDateTime(DateTime.Now).AddYears(7);
+            return newDate ?? DateOnly.FromDateTime(patentdesign.Utils.AppTime.LagosNow).AddYears(7);
         }
         return furthestDate;
     }
@@ -1269,7 +1269,7 @@ public class FilesServices
     //    {
     //        beforeStatus = data.beforeStatus,
     //        afterStatus = data.AfterStatus,
-    //        Date = DateTime.Now,
+    //        Date = DateTime.UtcNow,
     //        Message = data.message,
     //        User = data.user,
     //        UserId = data.userId
@@ -1303,7 +1303,7 @@ public class FilesServices
     //        fil.Id, fil.applicants[0].country, fil.Type, fil.DesignType, fil.PatentType, fil.TrademarkType, fil.TrademarkClass, null
     //        );
     //    SavePerformance(PerformanceType.Application, FormApplicationTypes.NewApplication, null, null,
-    //        DateTime.Now, data.user, result.Id, result.Type, result.PatentType, result.DesignType, result.TrademarkType);
+    //        DateTime.UtcNow, data.user, result.Id, result.Type, result.PatentType, result.DesignType, result.TrademarkType);
 
     //    return result;
     //}
@@ -1318,7 +1318,7 @@ public class FilesServices
         _financeCollection.InsertOne(new FinanceHistory()
         {
             remitaResonse = response,
-            date = DateTime.Parse(response.paymentDate),
+            date = patentdesign.Utils.AppTime.ParseToUtc(response.paymentDate),
             total = response.amount ?? 0,
             ministryFee = response.lineItems[0].beneficiaryAmount,
             techFee = response.lineItems[1].beneficiaryAmount,
@@ -1352,7 +1352,7 @@ public class FilesServices
             var paymentOk = await ValidatePaymentIfRequiredAsync(data);
             if (!paymentOk) return null;
 
-            var now = DateTime.Now;
+            var now = DateTime.UtcNow;
             var newStatusHistory = new ApplicationHistory
             {
                 beforeStatus = data.beforeStatus,
@@ -1698,7 +1698,7 @@ public class FilesServices
         var certApp = new ApplicationInfo
         {
             id = Guid.NewGuid().ToString(),
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             CurrentStatus = ApplicationStatuses.AwaitingCertification,
             ApplicationType = FormApplicationTypes.Certification,
             PaymentId = rrr,
@@ -1709,7 +1709,7 @@ public class FilesServices
                 {
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingCertification,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     Message = "Certificate application initiated, awaiting payment",
                     User = username,
                     UserId = user.Id
@@ -2266,7 +2266,7 @@ public class FilesServices
             }
         }
 
-        var applicationDate = DateTime.Now;
+        var applicationDate = DateTime.UtcNow;
         var applicantNationality = newFile.applicants.Select(x => x.country).Any(y => y.ToLower() != "nigeria") ? "Other" : "nigeria";
         // create fileId,
         var fileId = CreateTempFileNumber(newFile.Type, applicantNationality, newFile.PatentType, newFile.DesignType, newFile.TrademarkType);
@@ -2357,7 +2357,7 @@ public class FilesServices
         var firstSection = applicantsCountry.ToLower() == "nigeria".ToLower() ? "NG" : "F";
         var secondSection = type is FileTypes.Design ? "DS" : type is FileTypes.Patent ? "PT" : "TM";
         var thirdSection = "";
-        var year = DateTime.Now.Year.ToString();
+        var year = patentdesign.Utils.AppTime.LagosNow.Year.ToString();
         if (type == FileTypes.Patent)
         {
             thirdSection = patentType == PatentTypes.Conventional ? "C" :
@@ -2730,7 +2730,7 @@ public class FilesServices
         if (renew is null) return null;
         var app = new ApplicationInfo
         {
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             CurrentStatus = ApplicationStatuses.AwaitingPayment,
             ExpiryDate = renew.NextRenewalDue,
             LicenseType = "Renewal",
@@ -2740,7 +2740,7 @@ public class FilesServices
             [
                 new ApplicationHistory
                 {
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingPayment,
                     Message = "Renewal initiated, awaiting payment",
@@ -2770,7 +2770,7 @@ public class FilesServices
 
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
-            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            if (renewalDue.HasValue && DateTime.UtcNow < renewalDue.Value)
             {
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
@@ -2821,7 +2821,7 @@ public class FilesServices
             var lateRenewal = file.FileStatus == ApplicationStatuses.Inactive;
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
-            if (renewalDue.HasValue && DateTime.Now < renewalDue.Value)
+            if (renewalDue.HasValue && DateTime.UtcNow < renewalDue.Value)
             {
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
@@ -3008,7 +3008,7 @@ public class FilesServices
             var lastRenewal = file.ApplicationHistory.LastOrDefault(a => a.ApplicationType == FormApplicationTypes.LicenseRenewal && a.CurrentStatus == ApplicationStatuses.Approved);
             var renewalDue = lastRenewal?.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90) ?? firstApp.ExpiryDate?.ToDateTime(TimeOnly.MinValue).AddDays(-90);
             Console.WriteLine($"Renewal due date: {renewalDue?.ToString("yyyy-MM-dd")}");
-            if (!lateRenewal && (renewalDue.HasValue && DateTime.Now < renewalDue.Value))
+            if (!lateRenewal && (renewalDue.HasValue && DateTime.UtcNow < renewalDue.Value))
             {
                 _log.LogWarning($"Renewal attempted before due date: {renewalDue.Value.ToString("yyyy-MM-dd")}");
                 throw new Exception($"Renewal can only begin on or after: {renewalDue.Value.ToString("yyyy-MM-dd")}");
@@ -3439,7 +3439,7 @@ public class FilesServices
         {
             afterStatus = req.afterStatus,
             beforeStatus = req.beforeStatus,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = $"Application status recalled. {req.reason}",
             User = req.userName,
             UserId = req.userId
@@ -3521,7 +3521,7 @@ public class FilesServices
         }
 
         //savePerformance(PerformanceType.Staff, FormApplicationTypes.None, req.beforeStatus, req.afterStatus,
-        //    DateTime.Now, req.userName, result.Id, result.Type, result.PatentType, result.DesignType, result.TrademarkType);
+        //    DateTime.UtcNow, req.userName, result.Id, result.Type, result.PatentType, result.DesignType, result.TrademarkType);
         return result;
     }
 
@@ -3897,7 +3897,7 @@ public class FilesServices
                      {
                          beforeStatus = file.ApplicationHistory[0].CurrentStatus,
                          afterStatus = ApplicationStatuses.AwaitingCertificateConfirmation,
-                         Date = DateTime.Now,
+                         Date = DateTime.UtcNow,
                          Message = "Certificate Payment successful, awaiting confirmation",
                          User = userName,
                          UserId = userId
@@ -4797,7 +4797,7 @@ public class FilesServices
                     PaymentId = rrr,
                     ApplicationType = FormApplicationTypes.LicenseRenewal,
                     CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                    ApplicationDate = DateTime.Now,
+                    ApplicationDate = DateTime.UtcNow,
                     LicenseType = "Renewal",
                     StatusHistory =
                     [
@@ -4806,7 +4806,7 @@ public class FilesServices
                              beforeStatus = ApplicationStatuses.None,
                              afterStatus = ApplicationStatuses.AwaitingPayment,
                              Message = "Remita ID generated, awaiting Payment",
-                             Date = DateTime.Now,
+                             Date = DateTime.UtcNow,
                              User = userName,
                              UserId = userId
                          }
@@ -5033,7 +5033,7 @@ public class FilesServices
                     paymentId = remitaResponse,
                     status = ApplicationStatuses.AwaitingPayment,
                     fileId = fileNumber,
-                    date = DateTime.Now,
+                    date = DateTime.UtcNow,
                     applicantName = applicantName.ToString()
                 });
             }
@@ -5065,7 +5065,7 @@ public class FilesServices
                      {
                          afterStatus = newStatus,
                          Message = req.reasons,
-                         Date = DateTime.Now,
+                         Date = DateTime.UtcNow,
                          User = req.userName,
                          UserId = req.userId,
                      }),
@@ -6336,7 +6336,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
             CurrentStatus = status,
-            ApplicationDate = dto.CtcRequestDate ?? DateTime.Now,
+            ApplicationDate = dto.CtcRequestDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Design CTC Application",
             NewValue = "",
@@ -6344,7 +6344,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.CtcRequestDate ?? DateTime.Now,
+                    Date = dto.CtcRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = status,
                     Message = statusMessage,
@@ -6361,9 +6361,9 @@ public class FilesServices
             RecordalType = "Design CTC Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            FilingDate = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.CtcRequestDate ?? DateTime.UtcNow).ToString(),
             RequestedAttachments = dto.AttachmentIds,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -6522,7 +6522,7 @@ public class FilesServices
                 {
                     id = Guid.NewGuid().ToString(),
                     ApplicationType = FormApplicationTypes.WithdrawalRequest,
-                    ApplicationDate = DateTime.Now,
+                    ApplicationDate = DateTime.UtcNow,
                     CurrentStatus = ApplicationStatuses.AwaitingPayment,
                     PaymentId = paymentId,
                     FieldToChange = "Withdrawal Request",
@@ -6531,7 +6531,7 @@ public class FilesServices
                     {
                         new ApplicationHistory
                         {
-                            Date = DateTime.Now,
+                            Date = DateTime.UtcNow,
                             Message = "Withdrawal request initiated - awaiting payment",
                             beforeStatus = ApplicationStatuses.None,
                             afterStatus = ApplicationStatuses.AwaitingPayment,
@@ -6781,7 +6781,7 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.RegisteredUser,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = regUser.rrr,
                 FieldToChange = "registeredUser",
                 OldValue = new Dictionary<string, object?>
@@ -6818,7 +6818,7 @@ public class FilesServices
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Registered user application submitted, awaiting approval",
@@ -6846,9 +6846,9 @@ public class FilesServices
                 RecordalType = "Registered User",
                 FileNumber = regUser.FileId,
                 rrr = regUser.rrr,
-                dateOfRecordal = DateTime.Now.ToString(),
+                dateOfRecordal = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 documentUrl = docUrl,
-                FilingDate = DateTime.Now.ToString(),
+                FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 Name = regUser.Name,
                 Email = regUser.Email,
                 Phone = regUser.Phone,
@@ -6910,7 +6910,7 @@ public class FilesServices
             // Update post reg
             var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
             if (recordal == null) return false;
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status
@@ -6944,7 +6944,7 @@ public class FilesServices
                 BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
                 ApplicationType = FormApplicationTypes.Assignment,
                 AppUserId = recordalApp.userId,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileNumber = recordalApp.fileId,
                 FileType = file.Type,
                 OfficeUnit = Roles.TrademarkCertification,
@@ -7070,7 +7070,7 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.Reclassification,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = dto.rrr,
                 FieldToChange = "Reclassification of Trademark",
                 NewValue = "",
@@ -7078,7 +7078,7 @@ public class FilesServices
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Reclassification application submitted",
@@ -7090,7 +7090,7 @@ public class FilesServices
             var app = new PostRegistrationApp
             {
                 Id = appHistory.id,
-                FilingDate = DateTime.Now.ToString(),
+                FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 rrr = dto.rrr,
                 FileNumber = dto.FileId,
                 OldClass = file.TrademarkClass,
@@ -7161,7 +7161,7 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.Merger,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = mergerApp.rrr,
                 FieldToChange = "merger",
                 OldValue = new Dictionary<string, object?>
@@ -7199,7 +7199,7 @@ public class FilesServices
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Merger application submitted",
@@ -7212,7 +7212,7 @@ public class FilesServices
             {
                 Id = mergerHistory.id,
                 dateOfRecordal = mergerApp.MergerDate,
-                FilingDate = DateTime.Now.ToString(),
+                FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 rrr = mergerApp.rrr,
                 FileNumber = mergerApp.FileId,
                 OldAddress = applicant?.Address,
@@ -7265,7 +7265,7 @@ public class FilesServices
             var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
             if (recordal == null) return false;
 
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status in App History
@@ -7303,7 +7303,7 @@ public class FilesServices
                 BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
                 ApplicationType = FormApplicationTypes.Assignment,
                 AppUserId = recordalApp.userId,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileNumber = recordalApp.fileId,
                 FileType = file.Type,
                 OfficeUnit = Roles.TrademarkCertification,
@@ -7565,7 +7565,7 @@ public class FilesServices
                     ? FormApplicationTypes.ChangeOfName
                     : FormApplicationTypes.ChangeOfAddress,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = newData.rrr,
                 FieldToChange = newData.ChangeType == "Name"
                     ? "changeOfName"
@@ -7601,7 +7601,7 @@ public class FilesServices
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Change Data",
@@ -7614,7 +7614,7 @@ public class FilesServices
             var recordal = new PostRegistrationApp
             {
                 Id = appHistory.id,
-                FilingDate = DateTime.Now.ToString(),
+                FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 rrr = newData.rrr,
                 FileNumber = newData.FileId,
                 documentUrl = docUrl,
@@ -7835,7 +7835,7 @@ public class FilesServices
                 _log.LogError("Recordal not found");
                 return false;
             }
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status
@@ -7852,7 +7852,7 @@ public class FilesServices
             {
                 beforeStatus = ApplicationStatuses.AwaitingPayment,
                 afterStatus = ApplicationStatuses.Approved,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 User = user.Name ?? $"{user.FirstName} {user.LastName}",
                 UserId = recordalApp.userId,
                 Message = "Payment successful, Awaiting Approval"
@@ -7898,7 +7898,7 @@ public class FilesServices
                 BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
                 ApplicationType = app.ApplicationType,
                 AppUserId = recordalApp.userId,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileNumber = recordalApp.fileId,
                 FileType = file.Type,
                 OfficeUnit = Roles.TrademarkCertification,
@@ -7943,13 +7943,13 @@ public class FilesServices
             if (recordal != null)
             {
                 // PostRegistrationApp.DateTreated is stored as string elsewhere — keep consistency
-                recordal.DateTreated = DateTime.Now.ToString();
+                recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
                 recordal.Reason = recordalApp.reason;
             }
 
             if (clerical != null)
             {
-                clerical.DateTreated = DateTime.Now;
+                clerical.DateTreated = DateTime.UtcNow;
                 clerical.Reason = recordalApp.reason;
                 clerical.IsApproved = false;
             }
@@ -7979,7 +7979,7 @@ public class FilesServices
                 BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
                 ApplicationType = FormApplicationTypes.Assignment,
                 AppUserId = recordalApp.userId,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileNumber = recordalApp.fileId,
                 FileType = file.Type,
                 OfficeUnit = Roles.TrademarkCertification,
@@ -8012,7 +8012,7 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.LicenseRenewal,
                 CurrentStatus = ApplicationStatuses.Approved,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = rrr,
                 FieldToChange = "Renewal Application",
                 NewValue = "",
@@ -8020,7 +8020,7 @@ public class FilesServices
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.AwaitingPayment,
                         afterStatus = ApplicationStatuses.Approved,
                         Message = "Renewal Application",
@@ -8033,8 +8033,8 @@ public class FilesServices
             var renewal = new PostRegistrationApp
             {
                 Id = renewalHistory.id,
-                dateOfRecordal = DateTime.Now.ToString(),
-                FilingDate = DateTime.Now.ToString(),
+                dateOfRecordal = patentdesign.Utils.AppTime.LagosNow.ToString(),
+                FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 rrr = rrr,
                 FileNumber = fileId,
                 RecordalType = "Renewal"
@@ -8075,7 +8075,7 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.StatusSearch,
                 CurrentStatus = file.FileStatus,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = rrr,
                 FieldToChange = "Status Search",
                 NewValue = "",
@@ -8083,7 +8083,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     beforeStatus = file.FileStatus,
                     afterStatus = file.FileStatus,
                     Message = "File Status Search",
@@ -8166,7 +8166,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.OfflineRenewalRequest,
             CurrentStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             PaymentId = paymentId,
             FieldToChange = "Offline Renewal Request",
             NewValue = "",
@@ -8174,7 +8174,7 @@ public class FilesServices
             {
                 new()
                 {
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
                     Message = "Offline renewal request submitted",
@@ -8200,7 +8200,7 @@ public class FilesServices
             RenewalReceiptAttachments = receiptUrls,
             RenewalCertificateAttachments = certificateUrls,
             Status = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation,
-            SubmittedAt = DateTime.Now,
+            SubmittedAt = DateTime.UtcNow,
             PendingApplicationHistoryId = pendingHistory.id
         };
 
@@ -8354,7 +8354,7 @@ public class FilesServices
 
         request.PendingApplicationHistoryId = pendingHistory.id;
         request.DecisionReason = dto.Reason.Trim();
-        request.DecidedAt = DateTime.Now;
+        request.DecidedAt = DateTime.UtcNow;
         request.DecidedByUserId = staff.Id;
         request.DecidedByName = staff.Name;
 
@@ -8366,7 +8366,7 @@ public class FilesServices
             pendingHistory.CurrentStatus = ApplicationStatuses.Rejected;
             pendingHistory.StatusHistory.Add(new ApplicationHistory
             {
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 beforeStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
                 afterStatus = ApplicationStatuses.Rejected,
                 Message = "Offline renewal request refused",
@@ -8404,7 +8404,7 @@ public class FilesServices
         refreshedPendingHistory.StatusHistory ??= new List<ApplicationHistory>();
         refreshedPendingHistory.StatusHistory.Add(new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             beforeStatus = ApplicationStatuses.AwaitingRenewalConfirmation,
             afterStatus = ApplicationStatuses.Approved,
             Message = "Offline renewal request approved",
@@ -8464,7 +8464,7 @@ public class FilesServices
             var payment = new PaymentRecord
             {
                 PaymentType = "Publication Status Update",
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileId = file.FileId,
                 FileType = file.Type.ToString(),
                 RemitaResponse = payDetails
@@ -8479,7 +8479,7 @@ public class FilesServices
 
         // Update publication date
         file.PublicationDate = dto.PublicationDate;
-        file.PublicationRequestDate = DateTime.Now;
+        file.PublicationRequestDate = DateTime.UtcNow;
         var applicant = file.applicants.FirstOrDefault();
 
         // Handle attachments as files (TT), not just URLs
@@ -8514,7 +8514,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
             CurrentStatus = ApplicationStatuses.AwaitingStatusUpdate,
-            ApplicationDate = DateTime.Now,
+            ApplicationDate = DateTime.UtcNow,
             PaymentId = dto.PaymentRRR,
             FieldToChange = "Publication Status Update",
             NewValue = "",
@@ -8522,7 +8522,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = ApplicationStatuses.AwaitingStatusUpdate,
                     Message = "Publication Status Update",
@@ -8574,7 +8574,7 @@ public class FilesServices
             var payment = new PaymentRecord
             {
                 PaymentType = "File Withdrawal",
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileId = file.FileId,
                 FileType = file.Type.ToString(),
                 RemitaResponse = payDetails
@@ -8587,7 +8587,7 @@ public class FilesServices
         }
 
         // Only set withdrawal request date; actual withdrawal date set on approval
-        file.WithdrawalRequestDate = DateTime.Now;
+        file.WithdrawalRequestDate = DateTime.UtcNow;
 
         // Handle attachments
         file.Attachments ??= new List<AttachmentType>();
@@ -8792,7 +8792,7 @@ public class FilesServices
         // Prepare new status history entry
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = approve ? "Payment confirmed - withdrawal request approved" : "Withdrawal request refused",
             beforeStatus = ApplicationStatuses.AwaitingPayment,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -8810,7 +8810,7 @@ public class FilesServices
         if (approve)
         {
             file.FileStatus = ApplicationStatuses.Withdrawn;
-            file.WithdrawalDate = DateTime.Now;  // Set withdrawal date ONLY on approval
+            file.WithdrawalDate = DateTime.UtcNow;  // Set withdrawal date ONLY on approval
         }
 
         // Save changes
@@ -8878,7 +8878,7 @@ public class FilesServices
         // Prepare new status history entry
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = approve ? "Publication status approved" : "Publication status refused",
             beforeStatus = ApplicationStatuses.AwaitingStatusUpdate,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -8910,7 +8910,7 @@ public class FilesServices
            {
                var pubUpdate = Builders<PublicationInfo>.Update.Combine(
                    Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true),
-                   Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, DateTime.Now));
+                   Builders<PublicationInfo>.Update.Set(p => p.BatchPublishDate, DateTime.UtcNow));
 
                await _publicationCollection.UpdateOneAsync(
                    Builders<PublicationInfo>.Filter.Eq(p => p.Id, pubId),
@@ -9045,7 +9045,7 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.Assignment,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = assignmentApp.rrr,
                 FieldToChange = "Assignment Application",
                 NewValue = "",
@@ -9053,7 +9053,7 @@ public class FilesServices
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Assignment application submitted, awaiting approval",
@@ -9089,10 +9089,10 @@ public class FilesServices
                 RecordalType = "Assignment",
                 FileNumber = assignmentApp.FileId,
                 rrr = assignmentApp.rrr,
-                dateOfRecordal = DateTime.Now.ToString(),
+                dateOfRecordal = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 documentUrl = assignDeedUrl,
                 document2Url = authLetterUrl,
-                FilingDate = DateTime.Now.ToString(),
+                FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
                 OldName = assignmentApp.AssignorName,
                 Name = assignmentApp.AssigneeName,
                 OldEmail = assignmentApp.AssignorEmail,
@@ -9200,7 +9200,7 @@ public class FilesServices
 
         // Get the ApplicationInfo for this assignment to retrieve the ApplicationDate
         var applicationInfo = file.ApplicationHistory?.FirstOrDefault(a => a.id == appId);
-        var dateOfAssignment = applicationInfo?.ApplicationDate.ToString("yyyy-MM-dd") ?? DateTime.Now.ToString("yyyy-MM-dd");
+        var dateOfAssignment = applicationInfo?.ApplicationDate.ToString("yyyy-MM-dd") ?? patentdesign.Utils.AppTime.LagosNow.ToString("yyyy-MM-dd");
 
         var assigneeDetails = new AssignmentAppDto
         {
@@ -9260,7 +9260,7 @@ public class FilesServices
             // Update post reg
             var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == recordalApp.appId);
             if (recordal == null) return false;
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = recordalApp.reason;
 
             // Update Application Status
@@ -9304,7 +9304,7 @@ public class FilesServices
                 BeforeStatus = ApplicationStatuses.AwaitingRecordalProcess,
                 ApplicationType = FormApplicationTypes.Assignment,
                 AppUserId = recordalApp.userId,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileNumber = recordalApp.fileId,
                 FileType = file.Type,
                 OfficeUnit = Roles.TrademarkCertification,
@@ -9523,7 +9523,7 @@ public class FilesServices
                 var existingUpdate = file.ClericalUpdates?.FirstOrDefault(c =>
                     c.PaymentRRR == updateData.PaymentRRR &&
                     c.UpdateType == updateData.UpdateType.ToString() &&
-                    c.FilingDate.Date == DateTime.Now.Date
+                    c.FilingDate.Date == DateTime.UtcNow.Date
                 );
 
                 if (existingUpdate != null)
@@ -9544,7 +9544,7 @@ public class FilesServices
             var appHistory = new ApplicationInfo
             {
                 id = appHistoryId,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = updateData.PaymentRRR,
                 ApplicationType = isAmendment
                     ? FormApplicationTypes.Amendment
@@ -9554,7 +9554,7 @@ public class FilesServices
                 [
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.AwaitingPayment,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
                         Message = "Clerical Update",
@@ -9651,7 +9651,7 @@ public class FilesServices
         {
             Id = appHistoryId,
             UpdateType = updateData.UpdateType.ToString(),
-            FilingDate = DateTime.Now,
+            FilingDate = DateTime.UtcNow,
             PaymentRRR = updateData.PaymentRRR
         };
 
@@ -10325,7 +10325,7 @@ public class FilesServices
             if (app.ApplicationType != FormApplicationTypes.Amendment)
             {
                 clerical.IsApproved = true;
-                clerical.DateTreated = DateTime.Now;
+                clerical.DateTreated = DateTime.UtcNow;
                 app.CurrentStatus = ApplicationStatuses.AutoApproved;
 
                 if (isTrademark && (file.FileStatus == ApplicationStatuses.AwaitingExaminer || file.FileStatus == ApplicationStatuses.Re_conduct))
@@ -10345,7 +10345,7 @@ public class FilesServices
             else
             {
                 app.CurrentStatus = ApplicationStatuses.AwaitingApproval;
-                clerical.DateTreated = DateTime.Now;
+                clerical.DateTreated = DateTime.UtcNow;
                 updates.Add(Builders<Filling>.Update.Set(f => f.ApplicationHistory, file.ApplicationHistory));
                 updates.Add(Builders<Filling>.Update.Set(f => f.ClericalUpdates, file.ClericalUpdates));
             }
@@ -10487,7 +10487,7 @@ public class FilesServices
             var payment = new PaymentRecord
             {
                 PaymentType = recordal.ApplicationType.ToString(),
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileId = fileId,
                 ApplicationId = recordal.id,
                 FileType = file.Type.ToString(),
@@ -10558,7 +10558,7 @@ public class FilesServices
 
             var newStatusHistory = new ApplicationHistory
             {
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 beforeStatus = ApplicationStatuses.AwaitingCertification,
                 afterStatus = ApplicationStatuses.AwaitingCertificateConfirmation,
                 Message = "Payment Successful moving to Awaiting Certificate Confirmation",
@@ -11248,12 +11248,12 @@ public class FilesServices
                 id = Guid.NewGuid().ToString(),
                 ApplicationType = FormApplicationTypes.AppealRequest,
                 CurrentStatus = ApplicationStatuses.AppealRequest,
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 StatusHistory = new List<ApplicationHistory>
                 {
                     new ApplicationHistory
                     {
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AppealRequest,
                         Message = "Appeal Request",
@@ -11266,7 +11266,7 @@ public class FilesServices
             var appeal = new Appeal
             {
                 Id = appHistory.id,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 AppealDocs = appealDocUrls
             };
 
@@ -11337,13 +11337,13 @@ public class FilesServices
             if (req.IsApproved)
             {
                 history.CurrentStatus = ApplicationStatuses.Approved;
-                appeal.DateTreated = DateTime.Now;
+                appeal.DateTreated = DateTime.UtcNow;
                 file.FileStatus = ApplicationStatuses.Publication;
             }
             else
             {
                 history.CurrentStatus = ApplicationStatuses.Rejected;
-                appeal.DateTreated = DateTime.Now;
+                appeal.DateTreated = DateTime.UtcNow;
                 file.FileStatus = ApplicationStatuses.Rejected;
             }
 
@@ -11362,7 +11362,7 @@ public class FilesServices
                 BeforeStatus = ApplicationStatuses.Rejected,
                 ApplicationType = FormApplicationTypes.Assignment,
                 AppUserId = req.UserId,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 FileNumber = file.FileId,
                 FileType = file.Type,
                 OfficeUnit = Roles.TrademarkAcceptance,
@@ -11492,7 +11492,7 @@ public class FilesServices
         // Update in-memory state for audit
         app.CurrentStatus = ApplicationStatuses.Approved;
         clerical.IsApproved = true;
-        clerical.DateTreated = DateTime.Now;
+        clerical.DateTreated = DateTime.UtcNow;
         clerical.Reason = dto.reason;
 
         Console.WriteLine($"Approving amendment ({clerical.UpdateType}) for file {dto.fileId}");
@@ -11617,7 +11617,7 @@ public class FilesServices
             FileNumber = dto.fileId,
             FileType = file.Type,
             Reason = dto.reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.TrademarkAcceptance
         };
         SavePerformance(performance);
@@ -11707,7 +11707,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.Assignment,
             CurrentStatus = status,
-            ApplicationDate = dto.AssignmentDate ?? DateTime.Now,
+            ApplicationDate = dto.AssignmentDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Patent Assignment Application",
             NewValue = "",
@@ -11715,7 +11715,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.AssignmentRequestDate ?? DateTime.Now,
+                    Date = dto.AssignmentRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -11732,8 +11732,8 @@ public class FilesServices
             RecordalType = "Patent Assignment Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.AssignmentDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.AssignmentRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.AssignmentDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.AssignmentRequestDate ?? DateTime.UtcNow).ToString(),
             // Old assignor (previous patent holder)
             OldAssignorName = dto.OldAssignorName,
             OldAssignorEmail = dto.OldAssignorEmail,
@@ -11751,7 +11751,7 @@ public class FilesServices
             Nationality = dto.NewAssigneeNationality,
             State = dto.NewAssigneeState,
             City = dto.NewAssigneeCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -11849,7 +11849,7 @@ public class FilesServices
         var beforeStatus = assignmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = assignmentApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -11878,7 +11878,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.PatentExaminer
         };
         SavePerformance(performance);
@@ -11970,7 +11970,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.License,
             CurrentStatus = status,
-            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
+            ApplicationDate = dto.LicenseDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Patent License Application",
             NewValue = "",
@@ -11978,7 +11978,7 @@ public class FilesServices
         {
             new ApplicationHistory
             {
-                Date = dto.LicenseRequestDate ?? DateTime.Now,
+                Date = dto.LicenseRequestDate ?? DateTime.UtcNow,
                 beforeStatus = ApplicationStatuses.AwaitingPayment,
                 afterStatus = status,
                 Message = statusMessage,
@@ -11995,8 +11995,8 @@ public class FilesServices
             RecordalType = "Patent License Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.LicenseDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.LicenseRequestDate ?? DateTime.UtcNow).ToString(),
             // Old licensor (previous patent holder)
             OldLicensorName = dto.OldLicensorName,
             OldLicensorEmail = dto.OldLicensorEmail,
@@ -12014,7 +12014,7 @@ public class FilesServices
             Nationality = dto.NewLicenseeNationality,
             State = dto.NewLicenseeState,
             City = dto.NewLicenseeCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -12113,7 +12113,7 @@ public class FilesServices
         var beforeStatus = licenseApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = licenseApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -12142,7 +12142,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.PatentExaminer
         };
         SavePerformance(performance);
@@ -12233,7 +12233,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.Mortgage,
             CurrentStatus = status,
-            ApplicationDate = dto.MortgageDate ?? DateTime.Now,
+            ApplicationDate = dto.MortgageDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Patent Mortgage Application",
             NewValue = "",
@@ -12241,7 +12241,7 @@ public class FilesServices
         {
             new ApplicationHistory
             {
-                Date = dto.MortgageRequestDate ?? DateTime.Now,
+                Date = dto.MortgageRequestDate ?? DateTime.UtcNow,
                 beforeStatus = ApplicationStatuses.AwaitingPayment,
                 afterStatus = status,
                 Message = statusMessage,
@@ -12258,8 +12258,8 @@ public class FilesServices
             RecordalType = "Patent Mortgage Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.MortgageDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.MortgageRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.MortgageDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.MortgageRequestDate ?? DateTime.UtcNow).ToString(),
             // Old mortgagor (previous patent holder)
             OldMortgagorName = dto.OldMortgageeName,
             OldMortgagorEmail = dto.OldMortgageeEmail,
@@ -12276,7 +12276,7 @@ public class FilesServices
             Nationality = dto.NewMortgagorNationality,
             State = dto.NewMortgagorState,
             City = dto.NewMortgagorCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -12374,7 +12374,7 @@ public class FilesServices
         var beforeStatus = mortgageApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = mortgageApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -12403,7 +12403,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.PatentExaminer
         };
         SavePerformance(performance);
@@ -12494,7 +12494,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.Merger,
             CurrentStatus = status,
-            ApplicationDate = dto.MergerDate ?? DateTime.Now,
+            ApplicationDate = dto.MergerDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Patent Merger Application",
             NewValue = "",
@@ -12502,7 +12502,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.MergerRequestDate ?? DateTime.Now,
+                    Date = dto.MergerRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -12519,8 +12519,8 @@ public class FilesServices
             RecordalType = "Patent Merger Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.MergerDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.MergerRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.MergerDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.MergerRequestDate ?? DateTime.UtcNow).ToString(),
             // Old merger party (previous patent holder)
             OldMergerName = dto.OldMergerName,
             OldMergerEmail = dto.OldMergerEmail,
@@ -12537,7 +12537,7 @@ public class FilesServices
             Nationality = dto.NewMergerNationality,
             State = dto.NewMergerState,
             City = dto.NewMergerCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -12633,7 +12633,7 @@ public class FilesServices
         var beforeStatus = mergerApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = mergerApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -12659,7 +12659,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.PatentExaminer
         };
         SavePerformance(performance);
@@ -12718,7 +12718,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
             CurrentStatus = status,
-            ApplicationDate = dto.CtcRequestDate ?? DateTime.Now,
+            ApplicationDate = dto.CtcRequestDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Patent Certified True Copy Application",
             NewValue = string.Join(", ", requestedAttachments), // Store requested attachment IDs
@@ -12726,7 +12726,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.CtcRequestDate ?? DateTime.Now,
+                    Date = dto.CtcRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -12743,11 +12743,11 @@ public class FilesServices
             RecordalType = "Patent Certified True Copy",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.CtcRequestDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.CtcRequestDate ?? DateTime.UtcNow).ToString(),
             message = $"Certified copies requested for: {string.Join(", ", dto.AttachmentIds)}",
             RequestedAttachments = requestedAttachments,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -12821,7 +12821,7 @@ public class FilesServices
         var beforeStatus = ctcApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = ctcApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -12836,7 +12836,7 @@ public class FilesServices
         var recordal = file.PostRegApplications?.FirstOrDefault(p => p.Id == appId);
         if (recordal != null)
         {
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = reason;
         }
 
@@ -12852,7 +12852,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.PatentExaminer
         };
         SavePerformance(performance);
@@ -12871,8 +12871,8 @@ public class FilesServices
             RecordalType = "Patent Amendment",
             FileNumber = dto.FileId,
             rrr = dto.PaymentRRR,
-            dateOfRecordal = (dto.AmendmentRequestDate ?? DateTime.Now).ToString(),
-            FilingDate = DateTime.Now.ToString(),
+            dateOfRecordal = (dto.AmendmentRequestDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
             AmendmentType = dto.UpdateType.ToString(),
             IsAmendment = true,
             IsApproved = false,
@@ -13186,7 +13186,7 @@ public class FilesServices
             id = appHistoryId,
             ApplicationType = FormApplicationTypes.Amendment,
             CurrentStatus = status,
-            ApplicationDate = dto.AmendmentRequestDate ?? DateTime.Now,
+            ApplicationDate = dto.AmendmentRequestDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Patent Amendment Application",
             NewValue = dto.UpdateType.ToString(),
@@ -13194,7 +13194,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.AmendmentRequestDate ?? DateTime.Now,
+                    Date = dto.AmendmentRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -13302,8 +13302,8 @@ public class FilesServices
             RecordalType = "Design Amendment",
             FileNumber = dto.FileId,
             rrr = dto.PaymentRRR,
-            dateOfRecordal = (dto.AmendmentRequestDate ?? DateTime.Now).ToString(),
-            FilingDate = DateTime.Now.ToString(),
+            dateOfRecordal = (dto.AmendmentRequestDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = patentdesign.Utils.AppTime.LagosNow.ToString(),
             AmendmentType = dto.UpdateType.ToString(),
             IsAmendment = true,
             IsApproved = false,
@@ -13504,7 +13504,7 @@ public class FilesServices
             id = appHistoryId,
             ApplicationType = FormApplicationTypes.Amendment,
             CurrentStatus = status,
-            ApplicationDate = dto.AmendmentRequestDate ?? DateTime.Now,
+            ApplicationDate = dto.AmendmentRequestDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Design Amendment Application",
             NewValue = dto.UpdateType.ToString(),
@@ -13512,7 +13512,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.AmendmentRequestDate ?? DateTime.Now,
+                    Date = dto.AmendmentRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -13714,7 +13714,7 @@ public class FilesServices
         var beforeStatus = amendmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = amendmentApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -13725,7 +13725,7 @@ public class FilesServices
         amendmentApp.StatusHistory.Add(newStatus);
         amendmentApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
         amendmentRecord.IsApproved = approve;
-        amendmentRecord.DateTreated = DateTime.Now.ToString();
+        amendmentRecord.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
         amendmentRecord.Reason = reason;
 
         // ✅ Apply changes if approved
@@ -13745,7 +13745,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.PatentExaminer
         };
         SavePerformance(performance);
@@ -13843,7 +13843,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.License,
             CurrentStatus = status,
-            ApplicationDate = dto.LicenseDate ?? DateTime.Now,
+            ApplicationDate = dto.LicenseDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Design License Application",
             NewValue = "",
@@ -13851,7 +13851,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.LicenseRequestDate ?? DateTime.Now,
+                    Date = dto.LicenseRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -13867,8 +13867,8 @@ public class FilesServices
             RecordalType = "Design License Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.LicenseDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.LicenseRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.LicenseDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.LicenseRequestDate ?? DateTime.UtcNow).ToString(),
             OldLicensorName = dto.OldLicensorName,
             OldLicensorEmail = dto.OldLicensorEmail,
             OldLicensorPhone = dto.OldLicensorPhone,
@@ -13883,7 +13883,7 @@ public class FilesServices
             Nationality = dto.NewLicenseeNationality,
             State = dto.NewLicenseeState,
             City = dto.NewLicenseeCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -13980,7 +13980,7 @@ public class FilesServices
         var beforeStatus = licenseApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = licenseApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -14007,7 +14007,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.DesignExaminer
         };
         SavePerformance(performance);
@@ -14101,7 +14101,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.Mortgage,
             CurrentStatus = status,
-            ApplicationDate = dto.MortgageDate ?? DateTime.Now,
+            ApplicationDate = dto.MortgageDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Design Mortgage Application",
             NewValue = string.Empty,
@@ -14109,7 +14109,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.MortgageRequestDate ?? DateTime.Now,
+                    Date = dto.MortgageRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -14125,8 +14125,8 @@ public class FilesServices
             RecordalType = "Design Mortgage Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.MortgageDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.MortgageRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.MortgageDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.MortgageRequestDate ?? DateTime.UtcNow).ToString(),
             OldMortgagorName = dto.OldMortgageeName,
             OldMortgagorEmail = dto.OldMortgageeEmail,
             OldMortgagorPhone = dto.OldMortgageePhone,
@@ -14141,7 +14141,7 @@ public class FilesServices
             Nationality = dto.NewMortgagorNationality,
             State = dto.NewMortgagorState,
             City = dto.NewMortgagorCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : string.Empty
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : string.Empty
         };
 
         var update = Builders<Filling>.Update
@@ -14238,7 +14238,7 @@ public class FilesServices
         var beforeStatus = mortgageApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = mortgageApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -14255,7 +14255,7 @@ public class FilesServices
 
         if (recordal != null)
         {
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = reason;
         }
 
@@ -14286,7 +14286,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.DesignExaminer
         };
         SavePerformance(performance);
@@ -14380,7 +14380,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.Assignment,
             CurrentStatus = status,
-            ApplicationDate = dto.AssignmentDate ?? DateTime.Now,
+            ApplicationDate = dto.AssignmentDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Design Assignment Application",
             NewValue = string.Empty,
@@ -14388,7 +14388,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.AssignmentRequestDate ?? DateTime.Now,
+                    Date = dto.AssignmentRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.AwaitingPayment,
                     afterStatus = status,
                     Message = statusMessage,
@@ -14404,8 +14404,8 @@ public class FilesServices
             RecordalType = "Design Assignment Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            dateOfRecordal = (dto.AssignmentDate ?? DateTime.Now).ToString(),
-            FilingDate = (dto.AssignmentRequestDate ?? DateTime.Now).ToString(),
+            dateOfRecordal = (dto.AssignmentDate ?? DateTime.UtcNow).ToString(),
+            FilingDate = (dto.AssignmentRequestDate ?? DateTime.UtcNow).ToString(),
             OldAssignorName = dto.OldAssignorName,
             OldAssignorEmail = dto.OldAssignorEmail,
             OldAssignorPhone = dto.OldAssignorPhone,
@@ -14420,7 +14420,7 @@ public class FilesServices
             Nationality = dto.NewAssigneeNationality,
             State = dto.NewAssigneeState,
             City = dto.NewAssigneeCity,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : string.Empty
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : string.Empty
         };
 
         var update = Builders<Filling>.Update
@@ -14521,7 +14521,7 @@ public class FilesServices
         var beforeStatus = assignmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = assignmentApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -14539,7 +14539,7 @@ public class FilesServices
 
         if (recordal != null)
         {
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = reason;
         }
 
@@ -14590,7 +14590,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.DesignExaminer
         };
         SavePerformance(performance);
@@ -14687,8 +14687,8 @@ public class FilesServices
             ? "Payment successful, awaiting recordal process"
             : "Merger application submitted, awaiting payment";
 
-        var mergerDate = dto.MergerDate ?? DateTime.Now;
-        var requestDate = dto.MergerRequestDate ?? DateTime.Now;
+        var mergerDate = dto.MergerDate ?? DateTime.UtcNow;
+        var requestDate = dto.MergerRequestDate ?? DateTime.UtcNow;
 
         // Application history entry
         var mergerHistory = new ApplicationInfo
@@ -14737,7 +14737,7 @@ public class FilesServices
             Nationality = dto.NewMergerNationality ?? applicant?.country,
             State = dto.NewMergerState ?? applicant?.State,
             City = dto.NewMergerCity ?? applicant?.city,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : string.Empty
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : string.Empty
         };
 
         var update = Builders<Filling>.Update
@@ -15218,7 +15218,7 @@ public class FilesServices
         var beforeStatus = amendmentApp.CurrentStatus;
         var newStatus = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = amendmentApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -15229,7 +15229,7 @@ public class FilesServices
         amendmentApp.StatusHistory.Add(newStatus);
         amendmentApp.CurrentStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected;
         amendmentRecord.IsApproved = approve;
-        amendmentRecord.DateTreated = DateTime.Now.ToString();
+        amendmentRecord.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
         amendmentRecord.Reason = reason;
 
         // Apply changes if approved
@@ -15249,7 +15249,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.DesignExaminer
         };
         SavePerformance(performance);
@@ -15282,7 +15282,7 @@ public class FilesServices
         var beforeStatus = mergerApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = mergerApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -15299,7 +15299,7 @@ public class FilesServices
 
         if (recordal != null)
         {
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = reason;
         }
 
@@ -15349,7 +15349,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.DesignExaminer
         };
         SavePerformance(performance);
@@ -15381,7 +15381,7 @@ public class FilesServices
         var beforeStatus = ctcApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = ctcApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -15398,7 +15398,7 @@ public class FilesServices
 
         if (recordal != null)
         {
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = reason;
         }
 
@@ -15413,7 +15413,7 @@ public class FilesServices
             FileNumber = file.FileId,
             FileType = file.Type,
             Reason = reason,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             OfficeUnit = Roles.DesignExaminer
         };
         SavePerformance(performance);
@@ -15449,7 +15449,7 @@ public class FilesServices
             id = Guid.NewGuid().ToString(),
             ApplicationType = FormApplicationTypes.CertifiedTrueCopy,
             CurrentStatus = status,
-            ApplicationDate = dto.CtcRequestDate ?? DateTime.Now,
+            ApplicationDate = dto.CtcRequestDate ?? DateTime.UtcNow,
             PaymentId = dto.Rrr,
             FieldToChange = "Trademark CTC Application",
             NewValue = "",
@@ -15457,7 +15457,7 @@ public class FilesServices
             {
                 new ApplicationHistory
                 {
-                    Date = dto.CtcRequestDate ?? DateTime.Now,
+                    Date = dto.CtcRequestDate ?? DateTime.UtcNow,
                     beforeStatus = ApplicationStatuses.None,
                     afterStatus = status,
                     Message = statusMessage,
@@ -15474,9 +15474,9 @@ public class FilesServices
             RecordalType = "Trademark CTC Recordal",
             FileNumber = dto.FileId,
             rrr = dto.Rrr,
-            FilingDate = (dto.CtcRequestDate ?? DateTime.Now).ToString(),
+            FilingDate = (dto.CtcRequestDate ?? DateTime.UtcNow).ToString(),
             RequestedAttachments = dto.AttachmentIds,
-            DateTreated = paymentSuccessful ? DateTime.Now.ToString() : ""
+            DateTreated = paymentSuccessful ? patentdesign.Utils.AppTime.LagosNow.ToString() : ""
         };
 
         var update = Builders<Filling>.Update
@@ -15573,7 +15573,7 @@ public class FilesServices
         var beforeStatus = ctcApp.CurrentStatus;
         var statusEntry = new ApplicationHistory
         {
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             Message = reason,
             beforeStatus = ctcApp.CurrentStatus,
             afterStatus = approve ? ApplicationStatuses.Approved : ApplicationStatuses.Rejected,
@@ -15590,7 +15590,7 @@ public class FilesServices
 
         if (recordal != null)
         {
-            recordal.DateTreated = DateTime.Now.ToString();
+            recordal.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
             recordal.Reason = reason;
         }
 
@@ -15607,7 +15607,7 @@ public class FilesServices
                 FileNumber = file.FileId,
                 FileType = file.Type,
                 Reason = reason,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 OfficeUnit = Roles.TrademarkCertification
             };
             SavePerformance(performance);
@@ -15954,7 +15954,7 @@ public async Task<RestorationDto> CreateRestorationApplication(string fileId, st
 
     var app = new ApplicationInfo
     {
-        ApplicationDate = DateTime.Now,
+        ApplicationDate = DateTime.UtcNow,
         CurrentStatus = ApplicationStatuses.PendingRenewal,
         ExpiryDate = null,
         LicenseType = "",
@@ -15964,7 +15964,7 @@ public async Task<RestorationDto> CreateRestorationApplication(string fileId, st
         [
             new ApplicationHistory
             {
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 beforeStatus = ApplicationStatuses.None,
                 afterStatus = ApplicationStatuses.PendingRenewal,
                 Message = "File Restoration initiated (free), awaiting renewal application",
@@ -15977,7 +15977,7 @@ public async Task<RestorationDto> CreateRestorationApplication(string fileId, st
     // Paid restoration mode (disabled for now): keep application/file at AwaitingPayment until payment confirmation step.
     // var app = new ApplicationInfo
     // {
-    //     ApplicationDate = DateTime.Now,
+    //     ApplicationDate = DateTime.UtcNow,
     //     CurrentStatus = ApplicationStatuses.AwaitingPayment,
     //     ExpiryDate = null,
     //     LicenseType = "",
@@ -15987,7 +15987,7 @@ public async Task<RestorationDto> CreateRestorationApplication(string fileId, st
     //     [
     //         new ApplicationHistory
     //         {
-    //             Date = DateTime.Now,
+    //             Date = DateTime.UtcNow,
     //             beforeStatus = ApplicationStatuses.None,
     //             afterStatus = ApplicationStatuses.AwaitingPayment,
     //             Message = "File Restoration initiated, awaiting payment",

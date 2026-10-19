@@ -113,7 +113,7 @@ namespace patentdesign.pdfs
                     row.RelativeItem().Text(txt =>
                     {
                         var approvalDate = model.ApplicationHistory?.FirstOrDefault()?.StatusHistory
-                            ?.LastOrDefault(x => x.afterStatus == ApplicationStatuses.Active)?.Date ?? DateTime.Now;
+                            ?.LastOrDefault(x => x.afterStatus == ApplicationStatuses.Active)?.Date ?? DateTime.UtcNow;
                         txt.Span($"Sealed at my direction, this date \n{approvalDate:D}").SemiBold().FontFamily(Fonts.TimesNewRoman);
                         txt.EmptyLine();
                         txt.Span("The Trade Marks Registry,").SemiBold().FontFamily(Fonts.TimesNewRoman);

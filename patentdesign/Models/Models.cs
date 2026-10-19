@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.Contracts;
 using System.Net.Mail;
@@ -29,7 +29,7 @@ public class AppUser
     public bool isVerified { get; set; } = false;
     public string? Signature { get; set; }
     public AccountType? AccountType { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
@@ -228,7 +228,7 @@ public record OfflineRenewalRequest
     public List<string> RenewalCertificateAttachments { get; set; } = [];
     public OfflineRenewalRequestStatus Status { get; set; } = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation;
     public string? DecisionReason { get; set; }
-    public DateTime SubmittedAt { get; set; } = DateTime.Now;
+    public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? DecidedAt { get; set; }
     public string? DecidedByUserId { get; set; }
     public string? DecidedByName { get; set; }
@@ -245,7 +245,7 @@ public record Filling
     public DateTime LastRequestDate { get; set; }
     public string CreatorAccount { get; set; } = "";
     public ApplicationStatuses FileStatus { get; set; }
-    public DateTime DateCreated { get; set; } = DateTime.Now;
+    public DateTime DateCreated { get; set; } = DateTime.UtcNow;
     public FileTypes Type { get; set; } = FileTypes.Design;
     public string? FilingCountry { get; set; } = string.Empty;
     public string? FileOrigin { get; set; }
@@ -307,7 +307,7 @@ public record FileTicketRef
 {
     public string TicketId { get; set; }
     public string TicketNumber { get; set; }
-    public DateTime Created { get; set; } = DateTime.Now;
+    public DateTime Created { get; set; } = DateTime.UtcNow;
 }
 
 public record ClericalUpdate
@@ -612,7 +612,7 @@ public record ApplicationInfo
     public string? CertificatePaymentId { get; set; }
 
     [JsonPropertyName("applicationDate")]
-    public DateTime ApplicationDate { get; set; }=DateTime.Now;
+    public DateTime ApplicationDate { get; set; }=DateTime.UtcNow;
     public string? LicenseType { get; set; }
     [JsonPropertyName("oldValue")]
     public object? OldValue { get; set; }
@@ -1018,7 +1018,7 @@ public record Revision
     public string Property {get;set;}
     public string  AmountPaid {get;set;}
     public string  TransactionId {get;set;}
-    public DateTime DateTime { get; set; } = DateTime.Now;
+    public DateTime DateTime { get; set; } = DateTime.UtcNow;
     public string? userName { get; set; }
     public string? userId { get; set; }
     public ApplicationStatuses? currentStatus { get; set; }
@@ -1030,7 +1030,7 @@ public record RevisionChanges
     public string id { get; set; } = Guid.NewGuid().ToString();
     // public RevisionStatus Status { get; set; } = RevisionStatus.awaiting_payment;
     public string Message { get; set; } = "Waiting for payment";
-    public DateTime Date { get; set; }= DateTime.Now;
+    public DateTime Date { get; set; }= DateTime.UtcNow;
 }
 
 public record PriorityInfo
@@ -1151,7 +1151,7 @@ CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
 public record NotificationTypeModel
 {
     public string ApplicantName { get; set; }
-    public DateTime date { get; set; } = DateTime.Now;
+    public DateTime date { get; set; } = DateTime.UtcNow;
     public string userId { get; set; }
     public string id { get; set; } = Guid.NewGuid().ToString();
     public string message { get; set; }
@@ -1164,7 +1164,7 @@ public record NotificationTypeModel
 public record StaffNotificationTypeModel
 {
     public string ApplicantName { get; set; }
-    public DateTime date { get; set; } = DateTime.Now;
+    public DateTime date { get; set; } = DateTime.UtcNow;
     public UserTypes UserType { get; set; }
     public string id { get; set; } = Guid.NewGuid().ToString();
     public string message { get; set; }
@@ -1228,7 +1228,7 @@ public record TicketInfo
     public List<TicketCorrespondence>? Correspondences { get; set; }
     public TicketState Status { get; set; }
     public ResolveInfo? resolution { get; set; }
-    public DateTime Created { get; set; } = DateTime.Now;
+    public DateTime Created { get; set; } = DateTime.UtcNow;
     public List<AffectedFile>? AffectedFiles { get; set; }
     public TicketCategory? RegistryCategory { get; set; }
     public string? AccountEmail { get; set; }
@@ -1242,7 +1242,7 @@ public record AffectedFile
 
 public record ResolveInfo
 {
-    public DateTime Date { get; set; } = DateTime.Now;
+    public DateTime Date { get; set; } = DateTime.UtcNow;
     public string? StaffId { get; set; }
     public string? StaffName { get; set; }
 }
@@ -1254,7 +1254,7 @@ public  record TicketCorrespondence
     public string? Attachment { get; set; }
     public string SenderId { get; set; }
     public string SenderName { get; set; }
-    public DateTime DateAdded { get; set; }=  DateTime.Now;
+    public DateTime DateAdded { get; set; }=  DateTime.UtcNow;
 }
 
 
@@ -1670,7 +1670,7 @@ public record ClaimRequests
     public DateTime? LastRequestDate { get; set; }
     public string? CreatorAccount { get; set; } = "";
     public ApplicationStatuses? FileStatus { get; set; }
-    public DateTime? DateCreated { get; set; } = DateTime.Now;
+    public DateTime? DateCreated { get; set; } = DateTime.UtcNow;
     public FileTypes? Type { get; set; } = FileTypes.Design;
     public string? FilingCountry { get; set; } = string.Empty;
     public string? FileOrigin { get; set; }
@@ -1925,7 +1925,7 @@ public record CounterStatement
     public string? PaymentId { get; set; }
     public bool? Paid { get; set; } = false;
     public string? UserId { get; set; }
-    public DateTime SubmittedDate { get; set; } = DateTime.Now;
+    public DateTime SubmittedDate { get; set; } = DateTime.UtcNow;
 }
 
 public record StatutoryDeclaration
@@ -1940,7 +1940,7 @@ public record StatutoryDeclaration
     public string? UserId { get; set; }
     public string? Role { get; set; }
     public ApplicationStatuses? ApplicationStatus { get; set; } = ApplicationStatuses.AwaitingPayment;
-    public DateTime SubmittedDate { get; set; } = DateTime.Now;
+    public DateTime SubmittedDate { get; set; } = DateTime.UtcNow;
 }
 
 public class StatusChangeLog
@@ -1952,7 +1952,7 @@ public class StatusChangeLog
     public string Reason { get; set; }
     public string ChangedBy { get; set; }
     public string ChangedById { get; set; }
-    public DateTime DateChanged { get; set; } = DateTime.Now;
+    public DateTime DateChanged { get; set; } = DateTime.UtcNow;
     public bool IsSuccessful { get; set; } = false;
 }
 
@@ -1988,7 +1988,7 @@ public record SignatureInfo
     public string Name { get; set; }
     public byte[] SignatureData { get; set; }
     public string? Designation { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public List<FormApplicationTypes> ApplicationTypes { get; set; } = new ();
     public bool IsActive { get; set; } = true;
 }

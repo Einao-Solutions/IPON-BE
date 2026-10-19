@@ -187,7 +187,7 @@ public class OppositionService
                 id = Guid.NewGuid().ToString(),
                 FileNumber = data.FileNumber,
                 Name = data.Name,
-                OppositionDate = DateTime.Now,
+                OppositionDate = DateTime.UtcNow,
                 PaymentId = data.PaymentId,
                 Phone = data.Phone,
                 Email = data.Email,
@@ -281,7 +281,7 @@ public class OppositionService
             {
                 afterStatus = ApplicationStatuses.Opposition,
                 beforeStatus = ApplicationStatuses.Publication,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 Message = dto.Reason,
                 User = userName,
                 UserId = dto.StaffId,
@@ -292,7 +292,7 @@ public class OppositionService
                 id = Guid.NewGuid().ToString(),
                 FileNumber = dto.FileNumber,
                 Name = userName,
-                OppositionDate = DateTime.Now,
+                OppositionDate = DateTime.UtcNow,
                 PaymentId = null,
                 Phone = staff.PhoneNumber,
                 Email = staff.Email,
@@ -323,7 +323,7 @@ public class OppositionService
                 AppUserId = staff.Id,
                 ApplicationType = FormApplicationTypes.NewApplication,
                 BeforeStatus = ApplicationStatuses.Publication,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 OfficeUnit = Roles.TrademarkOpposition,
                 FileNumber = oppose.FileNumber,
                 FileType = FileTypes.TradeMark
@@ -348,13 +348,13 @@ public class OppositionService
             if (opp.Paid == true) return true;
 
             opp.Paid = true;
-            opp.OppositionDate = DateTime.Now;
+            opp.OppositionDate = DateTime.UtcNow;
             await _oppositionCollection.UpdateOneAsync(
                 Builders<Opposition>.Filter.Eq(x => x.PaymentId, paymentId),
                 Builders<Opposition>.Update.Combine(
                     Builders<Opposition>.Update.Set(x => x.Paid, true),
                     Builders<Opposition>.Update.Set(x => x.Status, ApplicationStatuses.AwaitingCounter),
-                    Builders<Opposition>.Update.Set(x => x.OppositionDate, DateTime.Now)
+                    Builders<Opposition>.Update.Set(x => x.OppositionDate, DateTime.UtcNow)
                 ));
             // File status and opposition status — only update AFTER payment confirmed
             var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
@@ -410,7 +410,7 @@ public class OppositionService
                         OppositionId = opp.id,
                         FileNumber = opp.FileNumber,
                         FileTitle = opp.FileTitle,
-                        OppositionDate = opp.OppositionDate?.ToString("dd MMMM yyyy") ?? DateTime.Now.ToString("dd MMMM yyyy"),
+                        OppositionDate = opp.OppositionDate?.ToString("dd MMMM yyyy") ?? patentdesign.Utils.AppTime.LagosNow.ToString("dd MMMM yyyy"),
                         PaymentReference = opp.PaymentId
                     }
                 });
@@ -504,13 +504,13 @@ public class OppositionService
             await _emailServices.SendMail(email);
 
             opp.ApplicantNotified = true;
-            opp.ApplicantNotifiedDate = DateTime.Now;
+            opp.ApplicantNotifiedDate = DateTime.UtcNow;
 
             await _oppositionCollection.UpdateOneAsync(
                 Builders<Opposition>.Filter.Eq(x => x.id, oppositionId),
                 Builders<Opposition>.Update.Combine(
                     Builders<Opposition>.Update.Set(x => x.ApplicantNotified, true),
-                    Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.Now)
+                    Builders<Opposition>.Update.Set(x => x.ApplicantNotifiedDate, DateTime.UtcNow)
                 ));
 
             return true;
@@ -915,7 +915,7 @@ public class OppositionService
                 Attachments = attachmentUrls,
                 PaymentId = rrr,
                 UserId = dto.UserId,
-                SubmittedDate = DateTime.Now
+                SubmittedDate = DateTime.UtcNow
             };
             await _counterStatementCollection.InsertOneAsync(cs);
             _log.LogInformation($"Counter Statement {cs.Id} saved with RRR {rrr}");
@@ -977,7 +977,7 @@ public class OppositionService
                 Builders<Opposition>.Filter.Eq(o => o.id, cs.OppositionId),
                 Builders<Opposition>.Update.Combine(
                     Builders<Opposition>.Update.Set(o => o.IsCountered, true),
-                    Builders<Opposition>.Update.Set(o => o.CounteredDate, DateTime.Now.ToString()),
+                    Builders<Opposition>.Update.Set(o => o.CounteredDate, patentdesign.Utils.AppTime.LagosNow.ToString()),
                     Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.StatutoryDeclaration),
                     Builders<Opposition>.Update.Push(o => o.CounterStatements, cs)
                 ));
@@ -1002,7 +1002,7 @@ public class OppositionService
                 ApplicationType = FormApplicationTypes.CounterStatement,
                 CurrentStatus = ApplicationStatuses.StatutoryDeclaration,
                 PaymentId = cs.PaymentId,
-                ApplicationDate = DateTime.Now
+                ApplicationDate = DateTime.UtcNow
             };
             await _fillingCollection.UpdateOneAsync(
                 Builders<Filling>.Filter.Eq(f => f.FileId, opp.FileNumber),
@@ -1028,7 +1028,7 @@ public class OppositionService
                     ApplicantName = fileOwnerName,
                     FileNumber = opp.FileNumber,
                     FileTitle = fileTitle,
-                    CounterStatementDate = DateTime.Now.ToString("dd MMMM yyyy"),
+                    CounterStatementDate = patentdesign.Utils.AppTime.LagosNow.ToString("dd MMMM yyyy"),
                     SignatoryName = ""
                 };
                 await _emailServices.SendMail(new EmailDto
@@ -1307,7 +1307,7 @@ public class OppositionService
                 UserId = dto.UserId,
                 Role = dto.Role?.ToLower(),
                 Paid = false,
-                SubmittedDate = DateTime.Now
+                SubmittedDate = DateTime.UtcNow
             };
             await _statutoryDeclarationCollection.InsertOneAsync(sd);
             _log.LogInformation($"Statutory Declaration {sd.Id} saved with RRR {rrr}");
@@ -1437,7 +1437,7 @@ public class OppositionService
                             FileNumber = opp.FileNumber,
                             FileTitle = fileTitle,
                             OppositionId = opp.id,
-                            DateFiled = DateTime.Now.ToString("dd MMMM yyyy")
+                            DateFiled = patentdesign.Utils.AppTime.LagosNow.ToString("dd MMMM yyyy")
                         }
                     });
                     _log.LogInformation("Statutory declaration notification sent to applicant");
@@ -1461,7 +1461,7 @@ public class OppositionService
                             FileNumber = opp.FileNumber,
                             FileTitle = fileTitle,
                             OppositionId = opp.id,
-                            DateFiled = DateTime.Now.ToString("dd MMMM yyyy")
+                            DateFiled = patentdesign.Utils.AppTime.LagosNow.ToString("dd MMMM yyyy")
                         }
                     });
                     _log.LogInformation($"Statutory declaration notification sent to opposer {opposerEmail}");
@@ -1531,7 +1531,7 @@ public class OppositionService
                 Builders<Opposition>.Update.Combine(
                     Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.Resolved),
                     Builders<Opposition>.Update.Set(o => o.IsResolved, true),
-                    Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.Now)));
+                    Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.UtcNow)));
 
             _log.LogInformation($"Opposition {oppositionId} declined. File {opp.FileNumber} restored to {restoreStatus}");
             return (true, "Opposition declined. Trademark file restored to previous status.");
@@ -1559,7 +1559,7 @@ public class OppositionService
                 Builders<Opposition>.Update.Combine(
                     Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.Approved),
                     Builders<Opposition>.Update.Set(o => o.IsResolved, true),
-                    Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.Now)));
+                    Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.UtcNow)));
 
             // Trademark file → Rejected (11)
             await _fillingCollection.UpdateOneAsync(
@@ -1773,7 +1773,7 @@ public class OppositionService
                     Builders<Opposition>.Update.Combine(
                         Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.Approved),
                         Builders<Opposition>.Update.Set(o => o.IsResolved, true),
-                        Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.Now),
+                        Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.UtcNow),
                         Builders<Opposition>.Update.Set(o => o.Decision, "upheld"),
                         Builders<Opposition>.Update.Set(o => o.ResolutionStatement, dto.Statement),
                         Builders<Opposition>.Update.Set(o => o.ResolvedBy, dto.UserName),
@@ -1798,7 +1798,7 @@ public class OppositionService
                     Builders<Opposition>.Update.Combine(
                         Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.Resolved),
                         Builders<Opposition>.Update.Set(o => o.IsResolved, true),
-                        Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.Now),
+                        Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.UtcNow),
                         Builders<Opposition>.Update.Set(o => o.Decision, "declined"),
                         Builders<Opposition>.Update.Set(o => o.ResolutionStatement, dto.Statement),
                         Builders<Opposition>.Update.Set(o => o.ResolvedBy, dto.UserName),
@@ -1821,7 +1821,7 @@ public class OppositionService
                     Builders<Opposition>.Update.Combine(
                         Builders<Opposition>.Update.Set(o => o.Status, ApplicationStatuses.Resolved),
                         Builders<Opposition>.Update.Set(o => o.IsResolved, true),
-                        Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.Now),
+                        Builders<Opposition>.Update.Set(o => o.ResolvedDate, DateTime.UtcNow),
                         Builders<Opposition>.Update.Set(o => o.ResolutionStatement, dto.Statement),
                         Builders<Opposition>.Update.Set(o => o.ResolvedBy, dto.UserName),
                         Builders<Opposition>.Update.Set(o => o.ResolvedByUserId, dto.UserId)));
@@ -2199,7 +2199,7 @@ public class OppositionService
                                     FileNumber = opp.FileNumber,
                                     FileTitle = fileTitle,
                                     OppositionId = opp.id,
-                                    WithdrawalDate = DateTime.Now.ToString("dd MMMM yyyy")
+                                    WithdrawalDate = patentdesign.Utils.AppTime.LagosNow.ToString("dd MMMM yyyy")
                                 }
                             });
                                     _log.LogInformation("Withdrawal notification sent to applicant");
@@ -2512,7 +2512,7 @@ public class OppositionService
             }
             var application = new ApplicationInfo
             {
-                ApplicationDate = DateTime.Now,
+                ApplicationDate = DateTime.UtcNow,
                 PaymentId = dto.PaymentId,
                 ApplicationType = FormApplicationTypes.Amendment,
                 CurrentStatus = ApplicationStatuses.AwaitingPayment,
@@ -2523,7 +2523,7 @@ public class OppositionService
                     {
                         beforeStatus = ApplicationStatuses.None,
                         afterStatus = ApplicationStatuses.AwaitingPayment,
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         Message = "Amendment of opposedfile",
                         User = user.Name ?? $"{user.FirstName} {user.LastName}",
                         UserId = user.Id
@@ -2533,7 +2533,7 @@ public class OppositionService
             var update = new ClericalUpdate
             {
                 Id = application.id,
-                FilingDate = DateTime.Now,
+                FilingDate = DateTime.UtcNow,
                 UpdateType = "Opposition Amendment",
                 PaymentRRR = dto.PaymentId,
             };
@@ -2668,7 +2668,7 @@ public class OppositionService
 
             // Mark clerical as approved
             clerical.IsApproved = true;
-            clerical.DateTreated = DateTime.Now;
+            clerical.DateTreated = DateTime.UtcNow;
             clerical.Reason = dto.reason;
 
             // Update application history entry
@@ -2680,7 +2680,7 @@ public class OppositionService
             {
                 beforeStatus = previousStatus,
                 afterStatus = ApplicationStatuses.Approved,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 Message = string.IsNullOrWhiteSpace(dto.reason) ? "Opposition amendment approved" : dto.reason,
                 User = userName,
                 UserId = dto.userId
@@ -2710,7 +2710,7 @@ public class OppositionService
                         ApplicationId = dto.appId,
                         AppUserId = user.Id,
                         ApplicationType = FormApplicationTypes.Amendment,
-                        Date = DateTime.Now,
+                        Date = DateTime.UtcNow,
                         FileNumber = dto.fileId,
                         FileType = file.Type,
                         OfficeUnit = Roles.TrademarkOpposition,
