@@ -20,8 +20,15 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     [HttpPost("Create")]
     public async Task<ActionResult> CreateNewTicket([FromBody] TicketInfo ticket)
     {
-        await ticketService.CreateTicketAsync(ticket);
-        return CreatedAtAction(nameof(GetTicket), new { id = ticket.id }, ticket);
+        try
+        {
+            await ticketService.CreateTicketAsync(ticket);
+            return CreatedAtAction(nameof(GetTicket), new { id = ticket.id }, ticket);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     /// <summary>
@@ -48,15 +55,22 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     }
 
     /// <summary>
-    /// Closes one or more tickets and records a resolution.
+    /// Resolves one or more tickets. Unanswered tickets close automatically after 24 hours.
     /// </summary>
     /// <param name="res">Ticket ids with resolution text.</param>
     /// <returns>Operation acknowledgement status.</returns>
     [HttpPost("CloseTicket")]
     public async Task<ActionResult> CloseTickets([FromBody] ResolveTicketType res)
     {
-        var result=await ticketService.CloseTicketsAsync(res);
-        return Ok(result);
+        try
+        {
+            var result = await ticketService.CloseTicketsAsync(res);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
     
     /// <summary>
@@ -81,8 +95,20 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     [HttpPost("AddMessage")]
     public async Task<ActionResult> AddMessageToTicket([FromBody] NewCorrespondenceType newMessageInfo)
     {
-        var res= await ticketService.AddMessageAsync(newMessageInfo);
-        return Ok(res);
+        try
+        {
+            var res = await ticketService.AddMessageAsync(newMessageInfo);
+            if (res == null) return NotFound();
+            return Ok(res);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
     #endregion
 
@@ -114,6 +140,30 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     #endregion
 
     #region Ticket escalation and search endpoints
+    /// <summary>
+    /// Escalates an active technical ticket to developers and marks it In Progress.
+    /// </summary>
+    /// <param name="request">Ticket identifier and escalation actor details.</param>
+    /// <returns>The updated ticket, or a validation or conflict response.</returns>
+    [HttpPost("EscalateToDev")]
+    public async Task<ActionResult<TicketInfo>> EscalateTicketToDev([FromBody] EscalateTicketToDevRequest request)
+    {
+        try
+        {
+            var result = await ticketService.EscalateTicketToDevAsync(request);
+            if (result == null) return NotFound();
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+    }
+
     /// <summary>
     /// Escalates a ticket to another support category.
     /// </summary>
