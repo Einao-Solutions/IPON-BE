@@ -1177,7 +1177,7 @@ public record StaffNotificationTypeModel
 
 public enum TicketState
 {
-    AwaitingUser, AwaitingStaff, Closed
+    AwaitingUser = 0, AwaitingStaff = 1, Closed = 2, InProgress = 3, Resolved = 4
 }
 
 public record TicketCreator
@@ -1196,6 +1196,10 @@ public record TicketSummary
     public TicketType? TicketType { get; set; }
     public bool IsEscalated { get; set; } = false;
     public TicketCategory? EscalatedFromCategory { get; set; }
+    public bool IsEscalatedToDev { get; set; }
+    public DateTime? EscalatedToDevAt { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public DateTime? ClosedAt { get; set; }
     public TicketCreator Creator { get; set; }
     public DateTime DateCreated { get; set; }
     public DateTime LastInteraction { get; set; }
@@ -1224,6 +1228,12 @@ public record TicketInfo
     public DateTime? EscalatedAt { get; set; }
     public string? EscalatedById { get; set; }
     public string? EscalatedByName { get; set; }
+    public bool IsEscalatedToDev { get; set; }
+    public DateTime? EscalatedToDevAt { get; set; }
+    public string? EscalatedToDevById { get; set; }
+    public string? EscalatedToDevByName { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public DateTime? ClosedAt { get; set; }
     public bool RaisedByRegistryStaff { get; set; } = false;
     public List<TicketCorrespondence>? Correspondences { get; set; }
     public TicketState Status { get; set; }

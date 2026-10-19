@@ -25,6 +25,7 @@ namespace patentdesign.Enums;
         public TicketState? status { get; set; }
         public TicketCategory? category { get; set; }
         public bool? isEscalated { get; set; }
+        public bool? isEscalatedToDev { get; set; }
         public bool? raisedByRegistryStaff { get; set; }
         public string? ticketNumber { get; set; }
         public string? fileNumber { get; set; }
@@ -150,6 +151,8 @@ namespace patentdesign.Enums;
         public long user { get; set; }
         public long staff { get; set; }
         public long closed { get; set; }
+        public long inProgress { get; set; }
+        public long resolved { get; set; }
     }
 
     public record UserUpdateReq
