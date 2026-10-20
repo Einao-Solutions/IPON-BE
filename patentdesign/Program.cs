@@ -289,6 +289,7 @@ builder.Services.AddScoped<NotificationServices>();
 //builder.Services.AddHostedService<PublishTrademarkJob>();
 builder.Services.AddHostedService<NotificationJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
+builder.Services.AddHostedService<TicketAutoCloseService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();

@@ -10,6 +10,7 @@ using patentdesign.Utils;
 
 namespace patentdesign.Controllers;
 
+[Authorize]
 [ApiController] [Route("api/users")]
 
 public class UsersController(UsersService usersService) :ControllerBase

@@ -1,4 +1,4 @@
-using patentdesign.Models;
+﻿using patentdesign.Models;
 using patentdesign.Utils;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -408,7 +408,7 @@ namespace Tfunctions.pdfs
                                 //    .Text($"{start:d MMMM yyyy} — {end:d MMMM yyyy}")
                                 //    .FontSize(9).FontColor(GreenMuted).FontFamily("Arial");
                                 meta.Item().PaddingTop(2).AlignRight()
-                                    .Text($"Generated: {DateTime.Now:d MMM yyyy}")
+                                    .Text($"Generated: {patentdesign.Utils.AppTime.LagosNow:d MMM yyyy}")
                                     .FontSize(8).FontColor(GreenBorder).FontFamily("Arial");
                             });
                         });

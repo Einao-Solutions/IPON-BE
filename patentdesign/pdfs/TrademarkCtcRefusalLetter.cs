@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using patentdesign.Enums;
 using patentdesign.Models;
@@ -108,7 +108,7 @@ namespace patentdesign.pdfs
                     .FirstOrDefault(h => h.afterStatus == ApplicationStatuses.Rejected);
 
                 FullWidthBox(col, "Reason for Refusal:", F(rejectionHistory?.Message ?? ctcRecordal?.Reason ?? "No reason provided"));
-                FullWidthBox(col, "Decision Date:", F(DateTime.Now));
+                FullWidthBox(col, "Decision Date:", F(patentdesign.Utils.AppTime.LagosNow));
 
                 // APPLICANT INFORMATION
                 col.Item().Element(Header).Text("APPLICANT INFORMATION")

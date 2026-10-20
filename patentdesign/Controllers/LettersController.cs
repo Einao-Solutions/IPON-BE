@@ -1,3 +1,4 @@
+﻿using Microsoft.AspNetCore.Authorization;
 using System.Text.Json;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
@@ -5,6 +6,7 @@ using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
 
+[Authorize]
 [ApiController]
 [Route("api/letters")]
 public class LettersController(LettersServices lettersServices) : ControllerBase
@@ -89,6 +91,7 @@ public class LettersController(LettersServices lettersServices) : ControllerBase
         }
     }
 
+    [AllowAnonymous]
     [HttpGet("verify-trademark")]
     public async Task<IActionResult> VerifyTmDoc([FromQuery]string fileId)
     {

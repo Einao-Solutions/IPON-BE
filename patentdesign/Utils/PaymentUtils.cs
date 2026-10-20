@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Globalization;
@@ -421,7 +421,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             throw new ArgumentException("Total or Service Fee must be valid integers.");
         }
         var _client = new HttpClient();
-             var orderId =$"IPONMWD{DateTime.Now.Ticks}";
+             var orderId =$"IPONMWD{DateTime.UtcNow.Ticks}";
              // var serviceId = "4019135160";
              var merchantId = "6230040240";
              var apiKey = "192753";
@@ -502,7 +502,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             throw new ArgumentException("Total or Service Fee must be valid integers.");
         }
         var _client = new HttpClient();
-        var orderId = $"IPONMWD{DateTime.Now.Ticks}";
+        var orderId = $"IPONMWD{DateTime.UtcNow.Ticks}";
         // var serviceId = "4019135160";
         var merchantId = "6230040240";
         var apiKey = "192753";
@@ -590,7 +590,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             country = country,
             techFee = remitaResonse.lineItems[1].beneficiaryAmount,
             ministryFee = remitaResonse.lineItems[0].beneficiaryAmount,
-            date = DateTime.Parse(remitaResonse.paymentDate??DateTime.MinValue.ToString()),
+            date = patentdesign.Utils.AppTime.ParseToUtc(remitaResonse.paymentDate??DateTime.MinValue.ToString()),
             applicationID = applicationID,
             fileId =  fileId,
             DesignType =  DesignType,

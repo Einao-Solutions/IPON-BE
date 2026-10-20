@@ -1,4 +1,4 @@
-using Azure.Core;
+﻿using Azure.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Mvc;
@@ -12,7 +12,7 @@ using System.Security.Claims;
 using System.Text.Json;
 namespace patentdesign.Controllers;
 
-//[Authorize]
+[Authorize]
 [ApiController]
 [Route("api/files")]
 public class FilesController(FilesServices fileService) : ControllerBase
@@ -169,6 +169,7 @@ public class FilesController(FilesServices fileService) : ControllerBase
         return Ok(res);
     }
 
+    [AllowAnonymous]
     [HttpGet("GetAttachment")]
     public async Task<IActionResult> GetAttachment([FromQuery] string fileId)
     {
