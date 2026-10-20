@@ -5211,12 +5211,84 @@ public class FilesServices
         }
     }
 
-    public async Task<AvailabilitySearchDto> AvailabilitySearchCost(string name, string email, string userId, string searchTerm, int? classNo = null, string? fileType = null)
+    public class AvailabilitySearchJob
+    {
+        public string RequestId { get; init; } = Guid.NewGuid().ToString("N");
+        public string UserId { get; init; } = "";
+        public string Key { get; init; } = "";
+        public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
+        public volatile string Status = "pending";
+        public AvailabilitySearchDto? Result;
+        public string? Error;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, AvailabilitySearchJob> AvailabilitySearchJobs = new();
+
+    // Idempotent: an in-flight job for the same user and search term is returned instead of starting another.
+    public AvailabilitySearchJob StartAvailabilitySearch(string name, string email, string userId, string searchTerm)
+    {
+        var key = $"{userId}\u001f{searchTerm}";
+        AvailabilitySearchJob job;
+        lock (AvailabilitySearchJobs)
+        {
+            foreach (var old in AvailabilitySearchJobs.Values.Where(j => j.Status != "pending" && j.CreatedUtc < DateTime.UtcNow.AddMinutes(-30)))
+            {
+                AvailabilitySearchJobs.TryRemove(old.RequestId, out _);
+            }
+
+            var existing = AvailabilitySearchJobs.Values.FirstOrDefault(j => j.Key == key && j.Status == "pending");
+            if (existing != null) return existing;
+
+            job = new AvailabilitySearchJob { UserId = userId, Key = key };
+            AvailabilitySearchJobs[job.RequestId] = job;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var dto = await AvailabilitySearchCost(name, email, userId, searchTerm);
+                if (dto == null || string.IsNullOrWhiteSpace(dto.rrr) || string.IsNullOrWhiteSpace(dto.cost))
+                {
+                    job.Error = "Failed to generate a payment reference. Please try again.";
+                    job.Status = "failed";
+                }
+                else
+                {
+                    job.Result = dto;
+                    job.Status = "succeeded";
+                }
+            }
+            catch (RemitaUnavailableException ex)
+            {
+                job.Error = ex.Message;
+                job.Status = "failed";
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Availability search job {RequestId} failed", job.RequestId);
+                job.Error = "Failed to generate a payment reference. Please try again.";
+                job.Status = "failed";
+            }
+        });
+        return job;
+    }
+
+    public AvailabilitySearchJob? GetAvailabilitySearchJob(string requestId, string userId) =>
+        AvailabilitySearchJobs.TryGetValue(requestId, out var job) && job.UserId == userId ? job : null;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> AvailabilitySearchLocks = new();
+
+    public async Task<AvailabilitySearchDto> AvailabilitySearchCost(string name, string email, string userId, string searchTerm, int? classNo = null, string? fileType = null, CancellationToken cancellationToken = default)
     {
         _log.LogInformation("Starting AvailabilitySearchCost for userId={UserId}, searchTerm={SearchTerm}, email={Email}", userId, searchTerm, email);
-
+        var total = System.Diagnostics.Stopwatch.StartNew();
+        using var correlationScope = _log.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = System.Diagnostics.Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString("N") });
+        var gate = AvailabilitySearchLocks.GetOrAdd($"{userId}\u001f{searchTerm}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var existingApplicationFilter = Builders<AppUser>.Filter.ElemMatch(
                 x => x.OtherApplications,
                 a => a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
@@ -5226,7 +5298,8 @@ public class FilesServices
                 Builders<AppUser>.Filter.And(
                     AvailabilitySearchRules.OwnerFilter(userId),
                     existingApplicationFilter))
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
+            _log.LogInformation("AvailabilitySearchCost MongoDB lookup took {ElapsedMs}ms", sw.ElapsedMilliseconds);
 
             var existingApplication = AvailabilitySearchRules.FindAwaitingPaymentApplication(
                 existingUser?.OtherApplications, searchTerm);
@@ -5254,9 +5327,11 @@ public class FilesServices
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.AvailabilitySearch, null, "", null, null, null);
             _log.LogDebug("Retrieved payment cost: amount={Amount}, serviceFee={ServiceFee}", data.Item1, data.Item2);
 
+            sw.Restart();
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "Availability Search",
-                name, email, "");
+                name, email, "", cancellationToken);
+            _log.LogInformation("AvailabilitySearchCost Remita RRR generation took {ElapsedMs}ms", sw.ElapsedMilliseconds);
 
             if (paymentId == null)
             {
@@ -5273,9 +5348,11 @@ public class FilesServices
             var createFilter = Builders<AppUser>.Filter.And(
                 AvailabilitySearchRules.OwnerFilter(userId),
                 Builders<AppUser>.Filter.Not(existingApplicationFilter));
+            sw.Restart();
             var updateResult = await _userCollection.UpdateOneAsync(
                 createFilter,
                 Builders<AppUser>.Update.Push(x => x.OtherApplications, app));
+            _log.LogInformation("AvailabilitySearchCost database save took {ElapsedMs}ms", sw.ElapsedMilliseconds);
 
             if (updateResult.ModifiedCount == 0)
             {
@@ -5310,7 +5387,7 @@ public class FilesServices
                 AppId = app.id
             };
 
-            _log.LogInformation("Returning AvailabilitySearchDto - AppId={AppId}, RRR={PaymentId}, Cost={Cost}", app.id, paymentId, data.Item1);
+            _log.LogInformation("Returning AvailabilitySearchDto - AppId={AppId}, RRR={PaymentId}, Cost={Cost}, TotalMs={TotalMs}", app.id, paymentId, data.Item1, total.ElapsedMilliseconds);
             return searchCost;
         }
         catch (Exception ex)
@@ -5318,9 +5395,13 @@ public class FilesServices
             _log.LogError(ex, "Exception in AvailabilitySearchCost - userId={UserId}, email={Email}", userId, email);
             throw;
         }
+        finally
+        {
+            gate.Release();
+        }
     }
 
-    private static readonly TimeSpan RemitaVerificationTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RemitaVerificationTimeout = TimeSpan.FromSeconds(70);
 
     // Admin batch job. Every status change goes through ConfirmAvailabilitySearchPayment, so verification,
     // atomicity, idempotency and the simulation guard are identical to the single-record flow.
@@ -5483,8 +5564,20 @@ public class FilesServices
 
     			_log.LogWarning("Payment unsuccessful - paymentId={PaymentId}, status={PaymentStatus}", app.PaymentId, payment.status);
     			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotPaid,
-    				$"Unsuccessful payment - status: {payment.status}", app);
-    		}
+                    $"Unsuccessful payment - status: {payment.status}", app);
+            }
+
+            if (!simulated)
+            {
+                var expectedAmount = Convert.ToDecimal(_remitaPaymentUtils.GetCost(PaymentTypes.AvailabilitySearch, null, "", null, null, null).Item1);
+                decimal? paidAmount = payment.amount == null ? null : Convert.ToDecimal(payment.amount);
+                if (paidAmount != expectedAmount)
+                {
+                    _log.LogWarning("Remita amount did not match expected availability search cost - userId={UserId}, paymentId={PaymentId}", userId, app.PaymentId);
+                    return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotPaid,
+                        "Unsuccessful payment - paid amount does not match the expected amount", app);
+                }
+            }
 
     		var history = new ApplicationHistory
     		{
