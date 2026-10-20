@@ -3333,7 +3333,7 @@ public class FilesServices
     //     return link;
     // }
 
-    public async Task<(byte[], string, string)?> GetAttachment(string fileId)
+    public async Task<(byte[], string, string)?> GetAttachment(string fileId, string? requestingUserId = null)
     {
         _log.LogInformation("Fetching attachment for FileId {FileId}", fileId);
 
@@ -3342,15 +3342,37 @@ public class FilesServices
             .Find(filter)
             .FirstOrDefaultAsync();
 
-        if (attachmentInfo != null)
+        if (attachmentInfo == null)
         {
-            _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
-                fileId, attachmentInfo.ContentType);
-            return (attachmentInfo.Data, attachmentInfo.ContentType, attachmentInfo.Id);
+            _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
+            return null;
         }
 
-        _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
-        return null;
+        // Verify access control: if requestingUserId is provided, verify the user has access to this attachment's associated file
+        if (!string.IsNullOrWhiteSpace(requestingUserId) && !string.IsNullOrWhiteSpace(attachmentInfo.AssociatedFileId))
+        {
+            var file = await _fillingCollection
+                .Find(f => f.FileId == attachmentInfo.AssociatedFileId)
+                .FirstOrDefaultAsync();
+
+            if (file == null)
+            {
+                _log.LogWarning("Associated file not found for attachment {FileId}. File: {AssociatedFileId}", fileId, attachmentInfo.AssociatedFileId);
+                return null;
+            }
+
+            // Verify the requesting user is the owner (CreatorAccount) of the file
+            if (!string.Equals(file.CreatorAccount, requestingUserId, StringComparison.Ordinal))
+            {
+                _log.LogWarning("User {UserId} attempted unauthorized access to attachment {FileId} for file {FileId2}",
+                    requestingUserId, fileId, attachmentInfo.AssociatedFileId);
+                return null;
+            }
+        }
+
+        _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
+            fileId, attachmentInfo.ContentType);
+        return (attachmentInfo.Data, attachmentInfo.ContentType, attachmentInfo.Id);
     }
 
     //public async Task<BatchRenewRes> GetBatchRenewalInfo(BatchRenewReq data)
@@ -4102,6 +4124,12 @@ public class FilesServices
                 ["address"] = data.newCorrespondence?.address,
                 ["state"] = data.newCorrespondence?.state,
                 ["nationality"] = data.newCorrespondence?.Nationality,
+                ["poa"] = new Dictionary<string, object?>
+                {
+                    ["fileName"] = sanitizedOriginalName,
+                    ["contentType"] = poa.contentType,
+                    ["url"] = poaUrl,
+                },
                 ["attachments"] = new List<Dictionary<string, object?>>
                 {
                     new()
@@ -4292,6 +4320,110 @@ public class FilesServices
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Async version of NormalizeOwnershipHistory that queries the AttachmentInfo collection
+    /// to reconstruct POA URLs for historical Change of Agent entries that were missing them.
+    /// This is crucial for legacy ownership changes that occurred before the POA URL system.
+    /// </summary>
+    private async Task NormalizeOwnershipHistoryAsync(Filling? file, string fileId)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        // Collect all POA attachments for this file from the AttachmentInfo collection
+        var poaFilter = Builders<AttachmentInfo>.Filter.And(
+            Builders<AttachmentInfo>.Filter.Eq(a => a.AssociatedFileId, fileId),
+            Builders<AttachmentInfo>.Filter.Eq(a => a.AssociationType, ReAssignPoaAssociationType)
+        );
+
+        var allPoasFromDb = await _attachmentCollection
+            .Find(poaFilter)
+            .Sort(Builders<AttachmentInfo>.Sort.Ascending(a => a.UploadedAtUtc))
+            .ToListAsync() ?? new List<AttachmentInfo>();
+
+        // Also collect POAs from the embedded file.Attachments (for backward compatibility)
+        var poaAttachmentUrls = new List<string>();
+        if (file.Attachments != null)
+        {
+            poaAttachmentUrls.AddRange(
+                file.Attachments
+                    .Where(a => a != null
+                        && !string.IsNullOrWhiteSpace(a.name)
+                        && a.name.IndexOf(ReAssignPoaAssociationType, StringComparison.OrdinalIgnoreCase) >= 0
+                        && a.url != null)
+                    .SelectMany(a => a.url!)
+                    .Where(u => !string.IsNullOrWhiteSpace(u))
+            );
+        }
+
+        // Add URLs from database POAs
+        poaAttachmentUrls.AddRange(
+            allPoasFromDb
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
+                .Select(p => $"{attachmentBaseUrl}/api/files/getAttachment?fileId={p.Id}")
+        );
+
+        if (poaAttachmentUrls.Count == 0)
+        {
+            // No POAs found, normalize without URLs
+            NormalizeOwnershipHistory(file);
+            return;
+        }
+
+        var poaUrlIndex = 0;
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            if (entry == null || entry.ApplicationType != FormApplicationTypes.Ownership) continue;
+
+            entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+            entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+
+            var hasNew = HasName(entry.NewValue);
+            if (!hasNew)
+            {
+                // Try to reconstruct from legacy audit message
+                var message = entry.StatusHistory?
+                    .Select(s => s?.Message)
+                    .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m));
+
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    var (oldParsed, newParsed) = ParseLegacyOwnershipMessage(message!);
+                    if (newParsed != null)
+                    {
+                        entry.NewValue = newParsed;
+                    }
+                }
+            }
+
+            // Ensure newValue has a poa.url (create one if missing)
+            if (entry.NewValue is Dictionary<string, object?> newValueDict)
+            {
+                if (!newValueDict.ContainsKey("poa"))
+                {
+                    newValueDict["poa"] = new Dictionary<string, object?>();
+                }
+
+                if (newValueDict["poa"] is Dictionary<string, object?> poaDict)
+                {
+                    // If poa doesn't have a URL, assign the next available one
+                    if (!poaDict.ContainsKey("url") || string.IsNullOrWhiteSpace(poaDict["url"] as string))
+                    {
+                        if (poaUrlIndex < poaAttachmentUrls.Count)
+                        {
+                            poaDict["url"] = poaAttachmentUrls[poaUrlIndex++];
+                        }
+                    }
+                    else
+                    {
+                        // URL already exists, skip to next POA
+                        poaUrlIndex++;
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -7715,7 +7847,8 @@ public class FilesServices
                 FirstPriorityInfo = f.FirstPriorityInfo,
                 WithdrawalDate = f.WithdrawalDate,
                 WithdrawalRequestDate = f.WithdrawalRequestDate,
-                IsRenewalEligible = f.IsRenewalEligible
+                IsRenewalEligible = f.IsRenewalEligible,
+                OwnershipHistory = new List<ApplicationInfo>()
             });
 
             result = await _fillingCollection
@@ -7726,10 +7859,27 @@ public class FilesServices
             foreach (var dto in result)
             {
                 var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
+
+                // Populate logo URL
                 var repAttachment = file?.Attachments
                     .FirstOrDefault(a => a.name == "representation" && a.url != null && a.url.Count > 0);
 
                 dto.LogoUrl = repAttachment?.url.FirstOrDefault();
+
+                // Populate ownership history with POA URLs
+                if (file?.ApplicationHistory != null && file.ApplicationHistory.Count > 0)
+                {
+                    // Normalize ownership history to ensure POA URLs are properly associated
+                    // This includes querying the database for old POAs from historical Change of Agent operations
+                    await NormalizeOwnershipHistoryAsync(file, dto.FileId);
+
+                    // Filter to only ownership entries and add to DTO
+                    var ownershipEntries = file.ApplicationHistory
+                        .Where(h => h != null && h.ApplicationType == FormApplicationTypes.Ownership)
+                        .ToList();
+
+                    dto.OwnershipHistory = ownershipEntries;
+                }
             }
         }
         catch (Exception ex)
@@ -10813,6 +10963,12 @@ public class FilesServices
         }
     }
 
+
+    public async Task<FileUpdateDto?> GetAvailabilitySearchByReference(string referenceNumber)
+    {
+        var match = await AvailabilitySearchRules.FindByReferenceAsync(_userCollection, referenceNumber);
+        return match == null ? null : AvailabilitySearchRules.ToFileUpdateDto(match.Value.Application);
+    }
 
     public async Task<FileUpdateDto?> GetAllFileDetails(string fileNumber)
     {

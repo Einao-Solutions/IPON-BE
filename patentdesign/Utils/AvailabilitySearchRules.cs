@@ -92,4 +92,88 @@ StatusHistory = [new ApplicationHistory { Date = applicationDate ?? DateTime.Utc
         payment != null &&
         payment.status == "00" &&
         string.Equals(payment.rrr, expectedRrr, StringComparison.Ordinal);
+
+    private static readonly System.Text.RegularExpressions.Regex ReferencePattern =
+        new("^AVS-[A-Z0-9]{1,10}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // Returns the canonical (trimmed, upper-case) reference, or null when it is not a valid AVS reference.
+    public static string? NormalizeReference(string? referenceNumber)
+    {
+        var normalized = referenceNumber?.Trim().ToUpperInvariant();
+        return normalized != null && ReferencePattern.IsMatch(normalized) ? normalized : null;
+    }
+
+    public static bool MatchesReference(ApplicationInfo application, string normalizedReference)
+    {
+        if (application.ApplicationType != FormApplicationTypes.AvailabilitySearch)
+        {
+            return false;
+        }
+
+        var stored = application.ReferenceNumber?.Trim();
+        var reference = !string.IsNullOrWhiteSpace(stored) ? stored : BuildReferenceNumber(application.id);
+        return string.Equals(reference, normalizedReference, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static (AppUser Owner, ApplicationInfo Application)? FindByReference(IEnumerable<AppUser> users, string? referenceNumber)
+    {
+        var reference = NormalizeReference(referenceNumber);
+        if (reference == null) return null;
+
+        foreach (var user in users)
+        {
+            var app = user.OtherApplications?.FirstOrDefault(a => MatchesReference(a, reference));
+            if (app != null) return (user, app);
+        }
+
+        return null;
+    }
+
+    public static async Task<(AppUser Owner, ApplicationInfo Application)?> FindByReferenceAsync(
+        IMongoCollection<AppUser> users, string? referenceNumber)
+    {
+        var reference = NormalizeReference(referenceNumber);
+        if (reference == null) return null;
+
+        var filter = Builders<AppUser>.Filter.ElemMatch(
+            u => u.OtherApplications,
+            a => a.ApplicationType == FormApplicationTypes.AvailabilitySearch);
+
+        using var cursor = await users.Find(filter).ToCursorAsync();
+        while (await cursor.MoveNextAsync())
+        {
+            var match = FindByReference(cursor.Current, reference);
+            if (match != null) return match;
+        }
+
+        return null;
+    }
+
+    // Applies the editable fields; returns false when nothing was supplied.
+    public static bool ApplyUpdate(ApplicationInfo application, DateTime? applicationDate,
+        ApplicationStatuses? currentStatus, string? paymentId, string? certificatePaymentId)
+    {
+        var changed = false;
+        if (applicationDate.HasValue) { application.ApplicationDate = applicationDate.Value; changed = true; }
+        if (currentStatus.HasValue) { application.CurrentStatus = currentStatus.Value; changed = true; }
+        if (!string.IsNullOrWhiteSpace(paymentId)) { application.PaymentId = paymentId; changed = true; }
+        if (!string.IsNullOrWhiteSpace(certificatePaymentId)) { application.CertificatePaymentId = certificatePaymentId; changed = true; }
+        return changed;
+    }
+
+    public static bool IsSuperAdmin(System.Security.Claims.ClaimsPrincipal? user) =>
+        user?.Identity?.IsAuthenticated == true && user.IsInRole("SuperAdmin");
+
+    public static patentdesign.Dtos.Request.FileUpdateDto ToFileUpdateDto(ApplicationInfo application)
+    {
+        EnsureReferenceNumber(application);
+        return new patentdesign.Dtos.Request.FileUpdateDto
+        {
+            FileId = application.ReferenceNumber ?? string.Empty,
+            ReferenceNumber = application.ReferenceNumber,
+            FileStatus = application.CurrentStatus,
+            Comment = application.Title,
+            ApplicationHistory = new List<ApplicationInfo> { application }
+        };
+    }
 }

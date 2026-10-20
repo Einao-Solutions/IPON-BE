@@ -172,7 +172,15 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpGet("GetAttachment")]
     public async Task<IActionResult> GetAttachment([FromQuery] string fileId)
     {
-        var attachmentInfo = await fileService.GetAttachment(fileId);
+        var requestingUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        var attachmentInfo = await fileService.GetAttachment(fileId, requestingUserId);
+
+        if (attachmentInfo == null)
+        {
+            return NotFound();
+        }
+
         Response.Headers.Add("Content-Disposition", $"inline; filename={attachmentInfo.Value.Item3}");
         Response.Headers.Add("Content-Type", attachmentInfo.Value.Item2);
         return File(attachmentInfo.Value.Item1, attachmentInfo.Value.Item2);
@@ -840,9 +848,22 @@ if (string.IsNullOrWhiteSpace(searchTerm))
         return Ok(new { success = true, message });
     }
     [HttpGet("GetAllFileDetails")]
-    public async Task<IActionResult> GetAllFileDetails([FromQuery] string fileNumber)
+    public async Task<IActionResult> GetAllFileDetails([FromQuery] string? fileNumber = null, [FromQuery] string? referenceNumber = null)
     {
-        var res = await fileService.GetAllFileDetails(fileNumber);
+        if (string.IsNullOrWhiteSpace(fileNumber) && !string.IsNullOrWhiteSpace(referenceNumber))
+        {
+            if (User?.Identity?.IsAuthenticated != true) return Unauthorized();
+            if (!AvailabilitySearchRules.IsSuperAdmin(User)) return Forbid();
+            if (AvailabilitySearchRules.NormalizeReference(referenceNumber) == null)
+                return BadRequest(new { message = "referenceNumber must be an Availability Search reference such as AVS-XXXXXXXXXX" });
+
+            var avs = await fileService.GetAvailabilitySearchByReference(referenceNumber);
+            return avs == null
+                ? NotFound(new { message = "Availability Search record not found" })
+                : Ok(avs);
+        }
+
+        var res = await fileService.GetAllFileDetails(fileNumber!);
         if (res == null)
         {
             return NotFound();
