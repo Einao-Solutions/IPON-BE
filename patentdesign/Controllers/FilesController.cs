@@ -173,7 +173,15 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpGet("GetAttachment")]
     public async Task<IActionResult> GetAttachment([FromQuery] string fileId)
     {
-        var attachmentInfo = await fileService.GetAttachment(fileId);
+        var requestingUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        var attachmentInfo = await fileService.GetAttachment(fileId, requestingUserId);
+
+        if (attachmentInfo == null)
+        {
+            return NotFound();
+        }
+
         Response.Headers.Add("Content-Disposition", $"inline; filename={attachmentInfo.Value.Item3}");
         Response.Headers.Add("Content-Type", attachmentInfo.Value.Item2);
         return File(attachmentInfo.Value.Item1, attachmentInfo.Value.Item2);
@@ -469,6 +477,36 @@ public class FilesController(FilesServices fileService) : ControllerBase
         }
         return Ok(result);
     }
+    [HttpPost("AvailabilitySearchRequest")]
+    [Authorize]
+    public IActionResult AvailabilitySearchRequest([FromQuery] string? name, [FromQuery] string? email, [FromQuery] string? searchTerm)
+    {
+        var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(callerId)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(searchTerm)) return BadRequest(new { message = "searchTerm is required" });
+        var job = fileService.StartAvailabilitySearch(name ?? string.Empty, email ?? string.Empty, callerId, searchTerm);
+        return Accepted(new { requestId = job.RequestId, status = job.Status });
+    }
+
+    [HttpGet("AvailabilitySearchStatus/{requestId}")]
+    [Authorize]
+    public IActionResult AvailabilitySearchStatus(string requestId)
+    {
+        var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(callerId)) return Unauthorized();
+        var job = fileService.GetAvailabilitySearchJob(requestId, callerId);
+        if (job == null) return NotFound(new { message = "Request not found" });
+        return Ok(new
+        {
+            requestId = job.RequestId,
+            status = job.Status,
+            cost = job.Result?.cost,
+            rrr = job.Result?.rrr,
+            AppId = job.Result?.AppId,
+            message = job.Error
+        });
+    }
+
     [HttpGet("AvailabilitySearchCost")]
     [Authorize]
     public async Task<IActionResult> AvailabilitySearchCost([FromQuery] string? name, [FromQuery] string? email,
@@ -493,12 +531,20 @@ if (string.IsNullOrWhiteSpace(searchTerm))
                 return BadRequest(new { message = "searchTerm is required" });
             }
 
-            var res = await fileService.AvailabilitySearchCost(name ?? string.Empty, email ?? string.Empty, callerId, searchTerm, classNo, fileType);
+            var res = await fileService.AvailabilitySearchCost(name ?? string.Empty, email ?? string.Empty, callerId, searchTerm, classNo, fileType, HttpContext.RequestAborted);
             if (res == null)
             {
                 return BadRequest(new { message = "Failed to create availability search record" });
             }
             return Ok(res);
+        }
+        catch (RemitaUnavailableException ex)
+        {
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new { message = ex.Message });
+        }
+        catch (OperationCanceledException)
+        {
+            return StatusCode(499);
         }
         catch (Exception ex)
         {
@@ -841,9 +887,22 @@ if (string.IsNullOrWhiteSpace(searchTerm))
         return Ok(new { success = true, message });
     }
     [HttpGet("GetAllFileDetails")]
-    public async Task<IActionResult> GetAllFileDetails([FromQuery] string fileNumber)
+    public async Task<IActionResult> GetAllFileDetails([FromQuery] string? fileNumber = null, [FromQuery] string? referenceNumber = null)
     {
-        var res = await fileService.GetAllFileDetails(fileNumber);
+        if (string.IsNullOrWhiteSpace(fileNumber) && !string.IsNullOrWhiteSpace(referenceNumber))
+        {
+            if (User?.Identity?.IsAuthenticated != true) return Unauthorized();
+            if (!AvailabilitySearchRules.IsSuperAdmin(User)) return Forbid();
+            if (AvailabilitySearchRules.NormalizeReference(referenceNumber) == null)
+                return BadRequest(new { message = "referenceNumber must be an Availability Search reference such as AVS-XXXXXXXXXX" });
+
+            var avs = await fileService.GetAvailabilitySearchByReference(referenceNumber);
+            return avs == null
+                ? NotFound(new { message = "Availability Search record not found" })
+                : Ok(avs);
+        }
+
+        var res = await fileService.GetAllFileDetails(fileNumber!);
         if (res == null)
         {
             return NotFound();

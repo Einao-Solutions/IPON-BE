@@ -3333,7 +3333,7 @@ public class FilesServices
     //     return link;
     // }
 
-    public async Task<(byte[], string, string)?> GetAttachment(string fileId)
+    public async Task<(byte[], string, string)?> GetAttachment(string fileId, string? requestingUserId = null)
     {
         _log.LogInformation("Fetching attachment for FileId {FileId}", fileId);
 
@@ -3342,15 +3342,37 @@ public class FilesServices
             .Find(filter)
             .FirstOrDefaultAsync();
 
-        if (attachmentInfo != null)
+        if (attachmentInfo == null)
         {
-            _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
-                fileId, attachmentInfo.ContentType);
-            return (attachmentInfo.Data, attachmentInfo.ContentType, attachmentInfo.Id);
+            _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
+            return null;
         }
 
-        _log.LogWarning("Attachment not found for FileId {FileId}", fileId);
-        return null;
+        // Verify access control: if requestingUserId is provided, verify the user has access to this attachment's associated file
+        if (!string.IsNullOrWhiteSpace(requestingUserId) && !string.IsNullOrWhiteSpace(attachmentInfo.AssociatedFileId))
+        {
+            var file = await _fillingCollection
+                .Find(f => f.FileId == attachmentInfo.AssociatedFileId)
+                .FirstOrDefaultAsync();
+
+            if (file == null)
+            {
+                _log.LogWarning("Associated file not found for attachment {FileId}. File: {AssociatedFileId}", fileId, attachmentInfo.AssociatedFileId);
+                return null;
+            }
+
+            // Verify the requesting user is the owner (CreatorAccount) of the file
+            if (!string.Equals(file.CreatorAccount, requestingUserId, StringComparison.Ordinal))
+            {
+                _log.LogWarning("User {UserId} attempted unauthorized access to attachment {FileId} for file {FileId2}",
+                    requestingUserId, fileId, attachmentInfo.AssociatedFileId);
+                return null;
+            }
+        }
+
+        _log.LogInformation("Attachment found for FileId {FileId}. ContentType {ContentType}",
+            fileId, attachmentInfo.ContentType);
+        return (attachmentInfo.Data, attachmentInfo.ContentType, attachmentInfo.Id);
     }
 
     //public async Task<BatchRenewRes> GetBatchRenewalInfo(BatchRenewReq data)
@@ -4102,6 +4124,12 @@ public class FilesServices
                 ["address"] = data.newCorrespondence?.address,
                 ["state"] = data.newCorrespondence?.state,
                 ["nationality"] = data.newCorrespondence?.Nationality,
+                ["poa"] = new Dictionary<string, object?>
+                {
+                    ["fileName"] = sanitizedOriginalName,
+                    ["contentType"] = poa.contentType,
+                    ["url"] = poaUrl,
+                },
                 ["attachments"] = new List<Dictionary<string, object?>>
                 {
                     new()
@@ -4292,6 +4320,110 @@ public class FilesServices
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Async version of NormalizeOwnershipHistory that queries the AttachmentInfo collection
+    /// to reconstruct POA URLs for historical Change of Agent entries that were missing them.
+    /// This is crucial for legacy ownership changes that occurred before the POA URL system.
+    /// </summary>
+    private async Task NormalizeOwnershipHistoryAsync(Filling? file, string fileId)
+    {
+        if (file?.ApplicationHistory == null || file.ApplicationHistory.Count == 0) return;
+
+        // Collect all POA attachments for this file from the AttachmentInfo collection
+        var poaFilter = Builders<AttachmentInfo>.Filter.And(
+            Builders<AttachmentInfo>.Filter.Eq(a => a.AssociatedFileId, fileId),
+            Builders<AttachmentInfo>.Filter.Eq(a => a.AssociationType, ReAssignPoaAssociationType)
+        );
+
+        var allPoasFromDb = await _attachmentCollection
+            .Find(poaFilter)
+            .Sort(Builders<AttachmentInfo>.Sort.Ascending(a => a.UploadedAtUtc))
+            .ToListAsync() ?? new List<AttachmentInfo>();
+
+        // Also collect POAs from the embedded file.Attachments (for backward compatibility)
+        var poaAttachmentUrls = new List<string>();
+        if (file.Attachments != null)
+        {
+            poaAttachmentUrls.AddRange(
+                file.Attachments
+                    .Where(a => a != null
+                        && !string.IsNullOrWhiteSpace(a.name)
+                        && a.name.IndexOf(ReAssignPoaAssociationType, StringComparison.OrdinalIgnoreCase) >= 0
+                        && a.url != null)
+                    .SelectMany(a => a.url!)
+                    .Where(u => !string.IsNullOrWhiteSpace(u))
+            );
+        }
+
+        // Add URLs from database POAs
+        poaAttachmentUrls.AddRange(
+            allPoasFromDb
+                .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Id))
+                .Select(p => $"{attachmentBaseUrl}/api/files/getAttachment?fileId={p.Id}")
+        );
+
+        if (poaAttachmentUrls.Count == 0)
+        {
+            // No POAs found, normalize without URLs
+            NormalizeOwnershipHistory(file);
+            return;
+        }
+
+        var poaUrlIndex = 0;
+
+        foreach (var entry in file.ApplicationHistory)
+        {
+            if (entry == null || entry.ApplicationType != FormApplicationTypes.Ownership) continue;
+
+            entry.OldValue = CoerceOwnershipValue(entry.OldValue);
+            entry.NewValue = CoerceOwnershipValue(entry.NewValue);
+
+            var hasNew = HasName(entry.NewValue);
+            if (!hasNew)
+            {
+                // Try to reconstruct from legacy audit message
+                var message = entry.StatusHistory?
+                    .Select(s => s?.Message)
+                    .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m));
+
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    var (oldParsed, newParsed) = ParseLegacyOwnershipMessage(message!);
+                    if (newParsed != null)
+                    {
+                        entry.NewValue = newParsed;
+                    }
+                }
+            }
+
+            // Ensure newValue has a poa.url (create one if missing)
+            if (entry.NewValue is Dictionary<string, object?> newValueDict)
+            {
+                if (!newValueDict.ContainsKey("poa"))
+                {
+                    newValueDict["poa"] = new Dictionary<string, object?>();
+                }
+
+                if (newValueDict["poa"] is Dictionary<string, object?> poaDict)
+                {
+                    // If poa doesn't have a URL, assign the next available one
+                    if (!poaDict.ContainsKey("url") || string.IsNullOrWhiteSpace(poaDict["url"] as string))
+                    {
+                        if (poaUrlIndex < poaAttachmentUrls.Count)
+                        {
+                            poaDict["url"] = poaAttachmentUrls[poaUrlIndex++];
+                        }
+                    }
+                    else
+                    {
+                        // URL already exists, skip to next POA
+                        poaUrlIndex++;
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -5079,12 +5211,84 @@ public class FilesServices
         }
     }
 
-    public async Task<AvailabilitySearchDto> AvailabilitySearchCost(string name, string email, string userId, string searchTerm, int? classNo = null, string? fileType = null)
+    public class AvailabilitySearchJob
+    {
+        public string RequestId { get; init; } = Guid.NewGuid().ToString("N");
+        public string UserId { get; init; } = "";
+        public string Key { get; init; } = "";
+        public DateTime CreatedUtc { get; init; } = DateTime.UtcNow;
+        public volatile string Status = "pending";
+        public AvailabilitySearchDto? Result;
+        public string? Error;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, AvailabilitySearchJob> AvailabilitySearchJobs = new();
+
+    // Idempotent: an in-flight job for the same user and search term is returned instead of starting another.
+    public AvailabilitySearchJob StartAvailabilitySearch(string name, string email, string userId, string searchTerm)
+    {
+        var key = $"{userId}\u001f{searchTerm}";
+        AvailabilitySearchJob job;
+        lock (AvailabilitySearchJobs)
+        {
+            foreach (var old in AvailabilitySearchJobs.Values.Where(j => j.Status != "pending" && j.CreatedUtc < DateTime.UtcNow.AddMinutes(-30)))
+            {
+                AvailabilitySearchJobs.TryRemove(old.RequestId, out _);
+            }
+
+            var existing = AvailabilitySearchJobs.Values.FirstOrDefault(j => j.Key == key && j.Status == "pending");
+            if (existing != null) return existing;
+
+            job = new AvailabilitySearchJob { UserId = userId, Key = key };
+            AvailabilitySearchJobs[job.RequestId] = job;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var dto = await AvailabilitySearchCost(name, email, userId, searchTerm);
+                if (dto == null || string.IsNullOrWhiteSpace(dto.rrr) || string.IsNullOrWhiteSpace(dto.cost))
+                {
+                    job.Error = "Failed to generate a payment reference. Please try again.";
+                    job.Status = "failed";
+                }
+                else
+                {
+                    job.Result = dto;
+                    job.Status = "succeeded";
+                }
+            }
+            catch (RemitaUnavailableException ex)
+            {
+                job.Error = ex.Message;
+                job.Status = "failed";
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Availability search job {RequestId} failed", job.RequestId);
+                job.Error = "Failed to generate a payment reference. Please try again.";
+                job.Status = "failed";
+            }
+        });
+        return job;
+    }
+
+    public AvailabilitySearchJob? GetAvailabilitySearchJob(string requestId, string userId) =>
+        AvailabilitySearchJobs.TryGetValue(requestId, out var job) && job.UserId == userId ? job : null;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> AvailabilitySearchLocks = new();
+
+    public async Task<AvailabilitySearchDto> AvailabilitySearchCost(string name, string email, string userId, string searchTerm, int? classNo = null, string? fileType = null, CancellationToken cancellationToken = default)
     {
         _log.LogInformation("Starting AvailabilitySearchCost for userId={UserId}, searchTerm={SearchTerm}, email={Email}", userId, searchTerm, email);
-
+        var total = System.Diagnostics.Stopwatch.StartNew();
+        using var correlationScope = _log.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = System.Diagnostics.Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString("N") });
+        var gate = AvailabilitySearchLocks.GetOrAdd($"{userId}\u001f{searchTerm}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var existingApplicationFilter = Builders<AppUser>.Filter.ElemMatch(
                 x => x.OtherApplications,
                 a => a.ApplicationType == FormApplicationTypes.AvailabilitySearch &&
@@ -5094,7 +5298,8 @@ public class FilesServices
                 Builders<AppUser>.Filter.And(
                     AvailabilitySearchRules.OwnerFilter(userId),
                     existingApplicationFilter))
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
+            _log.LogInformation("AvailabilitySearchCost MongoDB lookup took {ElapsedMs}ms", sw.ElapsedMilliseconds);
 
             var existingApplication = AvailabilitySearchRules.FindAwaitingPaymentApplication(
                 existingUser?.OtherApplications, searchTerm);
@@ -5122,9 +5327,11 @@ public class FilesServices
             var data = _remitaPaymentUtils.GetCost(PaymentTypes.AvailabilitySearch, null, "", null, null, null);
             _log.LogDebug("Retrieved payment cost: amount={Amount}, serviceFee={ServiceFee}", data.Item1, data.Item2);
 
+            sw.Restart();
             var paymentId = await _remitaPaymentUtils.GenerateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "Availability Search",
-                name, email, "");
+                name, email, "", cancellationToken);
+            _log.LogInformation("AvailabilitySearchCost Remita RRR generation took {ElapsedMs}ms", sw.ElapsedMilliseconds);
 
             if (paymentId == null)
             {
@@ -5141,9 +5348,11 @@ public class FilesServices
             var createFilter = Builders<AppUser>.Filter.And(
                 AvailabilitySearchRules.OwnerFilter(userId),
                 Builders<AppUser>.Filter.Not(existingApplicationFilter));
+            sw.Restart();
             var updateResult = await _userCollection.UpdateOneAsync(
                 createFilter,
                 Builders<AppUser>.Update.Push(x => x.OtherApplications, app));
+            _log.LogInformation("AvailabilitySearchCost database save took {ElapsedMs}ms", sw.ElapsedMilliseconds);
 
             if (updateResult.ModifiedCount == 0)
             {
@@ -5178,7 +5387,7 @@ public class FilesServices
                 AppId = app.id
             };
 
-            _log.LogInformation("Returning AvailabilitySearchDto - AppId={AppId}, RRR={PaymentId}, Cost={Cost}", app.id, paymentId, data.Item1);
+            _log.LogInformation("Returning AvailabilitySearchDto - AppId={AppId}, RRR={PaymentId}, Cost={Cost}, TotalMs={TotalMs}", app.id, paymentId, data.Item1, total.ElapsedMilliseconds);
             return searchCost;
         }
         catch (Exception ex)
@@ -5186,9 +5395,13 @@ public class FilesServices
             _log.LogError(ex, "Exception in AvailabilitySearchCost - userId={UserId}, email={Email}", userId, email);
             throw;
         }
+        finally
+        {
+            gate.Release();
+        }
     }
 
-    private static readonly TimeSpan RemitaVerificationTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RemitaVerificationTimeout = TimeSpan.FromSeconds(70);
 
     // Admin batch job. Every status change goes through ConfirmAvailabilitySearchPayment, so verification,
     // atomicity, idempotency and the simulation guard are identical to the single-record flow.
@@ -5351,8 +5564,20 @@ public class FilesServices
 
     			_log.LogWarning("Payment unsuccessful - paymentId={PaymentId}, status={PaymentStatus}", app.PaymentId, payment.status);
     			return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotPaid,
-    				$"Unsuccessful payment - status: {payment.status}", app);
-    		}
+                    $"Unsuccessful payment - status: {payment.status}", app);
+            }
+
+            if (!simulated)
+            {
+                var expectedAmount = Convert.ToDecimal(_remitaPaymentUtils.GetCost(PaymentTypes.AvailabilitySearch, null, "", null, null, null).Item1);
+                decimal? paidAmount = payment.amount == null ? null : Convert.ToDecimal(payment.amount);
+                if (paidAmount != expectedAmount)
+                {
+                    _log.LogWarning("Remita amount did not match expected availability search cost - userId={UserId}, paymentId={PaymentId}", userId, app.PaymentId);
+                    return new AvailabilitySearchPaymentResult(AvailabilitySearchPaymentOutcome.NotPaid,
+                        "Unsuccessful payment - paid amount does not match the expected amount", app);
+                }
+            }
 
     		var history = new ApplicationHistory
     		{
@@ -7715,7 +7940,8 @@ public class FilesServices
                 FirstPriorityInfo = f.FirstPriorityInfo,
                 WithdrawalDate = f.WithdrawalDate,
                 WithdrawalRequestDate = f.WithdrawalRequestDate,
-                IsRenewalEligible = f.IsRenewalEligible
+                IsRenewalEligible = f.IsRenewalEligible,
+                OwnershipHistory = new List<ApplicationInfo>()
             });
 
             result = await _fillingCollection
@@ -7726,10 +7952,27 @@ public class FilesServices
             foreach (var dto in result)
             {
                 var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
+
+                // Populate logo URL
                 var repAttachment = file?.Attachments
                     .FirstOrDefault(a => a.name == "representation" && a.url != null && a.url.Count > 0);
 
                 dto.LogoUrl = repAttachment?.url.FirstOrDefault();
+
+                // Populate ownership history with POA URLs
+                if (file?.ApplicationHistory != null && file.ApplicationHistory.Count > 0)
+                {
+                    // Normalize ownership history to ensure POA URLs are properly associated
+                    // This includes querying the database for old POAs from historical Change of Agent operations
+                    await NormalizeOwnershipHistoryAsync(file, dto.FileId);
+
+                    // Filter to only ownership entries and add to DTO
+                    var ownershipEntries = file.ApplicationHistory
+                        .Where(h => h != null && h.ApplicationType == FormApplicationTypes.Ownership)
+                        .ToList();
+
+                    dto.OwnershipHistory = ownershipEntries;
+                }
             }
         }
         catch (Exception ex)
@@ -10813,6 +11056,12 @@ public class FilesServices
         }
     }
 
+
+    public async Task<FileUpdateDto?> GetAvailabilitySearchByReference(string referenceNumber)
+    {
+        var match = await AvailabilitySearchRules.FindByReferenceAsync(_userCollection, referenceNumber);
+        return match == null ? null : AvailabilitySearchRules.ToFileUpdateDto(match.Value.Application);
+    }
 
     public async Task<FileUpdateDto?> GetAllFileDetails(string fileNumber)
     {

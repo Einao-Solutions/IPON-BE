@@ -1453,6 +1453,10 @@ public record PaymentInfo
 
     //Availability Search
     public string? AvailabilitySearchCost { get; set; }
+    public int RemitaTimeoutSeconds { get; set; } = 60;
+    public string RemitaPaymentInitUrl { get; set; } = "https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/merchant/api/paymentinit";
+    public string? RemitaMerchantId { get; set; }
+    public string? RemitaApiKey { get; set; }
     public string? AvailabilitySearchServiceFee { get; set; }
     public string? AvailabilitySearchServiceID { get; set; }
 
