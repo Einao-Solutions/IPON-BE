@@ -401,6 +401,13 @@ public class FilesServices
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
                     paymentDate, userName, userId, "Payment Successful");
                 break;
+
+            case FormApplicationTypes.Merger:
+                _log.LogInformation("Processing merger payment for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
         }
         await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
 
