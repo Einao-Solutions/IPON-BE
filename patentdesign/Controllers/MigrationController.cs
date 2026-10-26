@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using patentdesign.Dtos.Response;
@@ -6,6 +6,7 @@ using patentdesign.Services;
 
 namespace patentdesign.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/migration")]
 public class MigrationController(MigrationService migrationService) : ControllerBase

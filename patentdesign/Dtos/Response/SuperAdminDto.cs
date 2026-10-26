@@ -91,7 +91,9 @@ public class ApplicationHistoryDto
 
 public class UpdateApplicationHistoryDto
 {
-    public string FileNumber { get; set; }
+    public string? FileNumber { get; set; }
+    /// <summary>Availability Search reference (AVS-...). Used when FileNumber is empty.</summary>
+    public string? ReferenceNumber { get; set; }
     public string ApplicationId { get; set; }
     public DateTime? ApplicationDate { get; set; }
     public FormApplicationTypes? ApplicationType { get; set; }

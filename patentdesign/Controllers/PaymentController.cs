@@ -1,10 +1,11 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using patentdesign.Models;
 using patentdesign.Services;
 
 namespace patentdesign.Controllers;
 
-
+[Authorize]
 [ApiController]
 [Route("api/payments")]
 public class PaymentController(PaymentService paymentService) : ControllerBase

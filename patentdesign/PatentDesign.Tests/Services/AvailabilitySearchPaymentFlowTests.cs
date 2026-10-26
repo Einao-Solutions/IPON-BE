@@ -106,17 +106,17 @@ public class FakeRemita() : PaymentUtils(Options.Create(new PaymentInfo
     public ConcurrentDictionary<string, string> Statuses { get; } = new();
     public int VerifyCalls;
     public bool Unreachable;
+    public int Amount = 1000;
 
     public override Task<string?> GenerateRemitaPaymentId(string total, string serviceFee, string serviceId, string description,
-        string applicantName, string applicantEmail, string applicantNumber)
+        string applicantName, string applicantEmail, string applicantNumber, CancellationToken cancellationToken = default)
         => Task.FromResult<string?>("RRR" + Interlocked.Increment(ref _counter));
-
     public override async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
     {
         Interlocked.Increment(ref VerifyCalls);
         await Task.Delay(50);
         if (Unreachable) return null;
-        return new RemitaResponseClass { rrr = rrr, status = Statuses.GetValueOrDefault(rrr, "021"), amount = 1000 };
+        amount = Amount };
     }
 }
 

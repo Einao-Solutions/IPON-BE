@@ -1,3 +1,4 @@
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
 using patentdesign.Enums;
@@ -6,7 +7,7 @@ using patentdesign.Services;
 
 namespace patentdesign.Controllers;
 
-
+[Authorize]
 [ApiController] [Route("api/tickets")]
 public class TicketController(TicketServices ticketService) :ControllerBase
 {

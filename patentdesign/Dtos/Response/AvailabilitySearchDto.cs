@@ -32,7 +32,11 @@ namespace patentdesign.Dtos.Response
         public List<ApplicantInfo>? Applicants { get; set; }
         public bool? IsRenewalEligible { get; set; }
         public string? AppId { get; set; }
-
+        /// <summary>
+        /// All historical ownership (Change of Agent, applicationType 6) entries with their associated POA URLs.
+        /// Each entry's newValue includes poa.url for accessing the persisted document.
+        /// </summary>
+        public List<ApplicationInfo>? OwnershipHistory { get; set; } = new();
     }
 
     public class AvailabilitySearchPaymentStatusDto

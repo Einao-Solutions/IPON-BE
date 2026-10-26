@@ -10,6 +10,7 @@ using static QuestPDF.Helpers.Colors;
 namespace patentdesign.Controllers
 {
     [Route("api/notifications")]
+    [Authorize]
     [ApiController]
     public class NotificationController(NotificationServices notificationServices) : ControllerBase
     {

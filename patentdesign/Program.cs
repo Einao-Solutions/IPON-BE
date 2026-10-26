@@ -211,6 +211,7 @@ var mongoDatabase = mongoClient.GetDatabase(mongoDatabaseName);
 EmailServices.ValidateConfiguration(builder.Configuration);
 builder.Services.AddOptions();
 builder.Services.AddHttpClient<ResendClient>();
+builder.Services.AddHttpClient(PaymentUtils.RemitaClientName, c => c.Timeout = TimeSpan.FromSeconds(130));
 var resendApiKey = builder.Configuration["RESEND_APIKEY"]!.Trim();
 
 builder.Services.Configure<ResendClientOptions>( o =>

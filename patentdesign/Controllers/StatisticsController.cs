@@ -1,11 +1,11 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
 using patentdesign.Services;
 
 namespace patentdesign.Controllers;
 
-//[Authorize]
+[Authorize]
 [ApiController]
 [Route("api")]
 public class StatisticsController(StatisticsService statisticsService) : ControllerBase

@@ -84,10 +84,10 @@ public class PaymentService
          // var status = await  ValidatePayment(data.rrr);
          // if (status.status == "00")
          // {
-             data.date = DateTime.Now;
+             data.date = DateTime.UtcNow;
              var receiptModel = new Receipt()
              {
-                 Date = DateTime.Now.ToString("f"),
+                 Date = patentdesign.Utils.AppTime.LagosNow.ToString("f"),
                  rrr = data.rrr,
                  Amount = data.amount,
                  payType = PaymentTypes.Other,

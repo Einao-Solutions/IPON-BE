@@ -1,4 +1,4 @@
-using System.Security.Authentication;
+﻿using System.Security.Authentication;
 using CloudinaryDotNet.Actions;
 using Microsoft.AspNetCore.Server.HttpSys;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
@@ -194,7 +194,7 @@ public class MigrationService
                     CurrentStatus = status,
                     PaymentId = app.TransactionID,
                     CertificatePaymentId = app.CertificatePayReference,
-                    ApplicationDate = DateTime.Parse(app.DateCreated),
+                    ApplicationDate = patentdesign.Utils.AppTime.ParseToUtc(app.DateCreated),
                 };
                 apps.Add(newApp);
                 var file = new MarkInfoDto
@@ -362,9 +362,9 @@ public class MigrationService
             var history = new List<ApplicationInfo>();
             DateTime parsedPaymentDate = DateTime.MinValue;
             var hasParsedPaymentDate = !string.IsNullOrWhiteSpace(paid?.paymentDate)
-                && DateTime.TryParse(paid!.paymentDate, out parsedPaymentDate);
+                && patentdesign.Utils.AppTime.TryParseToUtc(paid!.paymentDate, out parsedPaymentDate);
 
-            var fallbackDate = hasParsedPaymentDate ? parsedPaymentDate : DateTime.Now;
+            var fallbackDate = hasParsedPaymentDate ? parsedPaymentDate : DateTime.UtcNow;
             var applicationDate = xpay?.xreg_date ?? fallbackDate;
 
             var newApp = new ApplicationInfo
@@ -440,14 +440,14 @@ public class MigrationService
                     FileStatus = mark.FileStatus,
                     FilingDate = string.IsNullOrEmpty(mark.FilingDate) 
                         ? throw new Exception("FilingDate is required") 
-                        : DateTime.Parse(mark.FilingDate),
+                        : patentdesign.Utils.AppTime.ParseToUtc(mark.FilingDate),
                     TrademarkType = mark.MarkType,
                     TitleOfTradeMark = mark.Title,
                     Type = FileTypes.TradeMark,
                     TrademarkClass = int.TryParse(mark.Class, out var cls) ? cls : throw new Exception("Invalid class"),
                     TrademarkClassDescription = mark.Description,
                     TrademarkLogo = mark.Logo,
-                    DateCreated = DateTime.Now,
+                    DateCreated = DateTime.UtcNow,
                     ApplicationHistory = mark.ApplicationHistory,
                     applicants = mark.Applicants,
                     Comment = "claim request",
@@ -538,17 +538,17 @@ public class MigrationService
             {
                 Id = claim.Id,
                 FileId = claim.FileId ?? "",
-                LastRequestDate = claim.LastRequestDate ?? DateTime.Now,
+                LastRequestDate = claim.LastRequestDate ?? DateTime.UtcNow,
                 CreatorAccount = claim.CreatorAccount ?? "",
                 FileStatus = claim.FileStatus ?? ApplicationStatuses.None,
-                DateCreated = claim.DateCreated ?? DateTime.Now,
+                DateCreated = claim.DateCreated ?? DateTime.UtcNow,
                 Type = claim.Type ?? FileTypes.TradeMark,
                 FilingCountry = claim.FilingCountry ?? string.Empty,
                 FileOrigin = claim.FileOrigin,
                 TitleOfInvention = claim.TitleOfInvention,
                 PatentAbstract = claim.PatentAbstract ?? "",
                 Correspondence = claim.Correspondence,
-                LastRequest = claim.LastRequest ?? DateTime.Now,
+                LastRequest = claim.LastRequest ?? DateTime.UtcNow,
                 applicants = claim.applicants ?? new List<ApplicantInfo>(),
                 PatentApplicationType = claim.PatentApplicationType,
                 Revisions = claim.Revisions ?? new List<Revision>(),

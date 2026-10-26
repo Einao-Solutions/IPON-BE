@@ -279,7 +279,7 @@ public class LettersServices
                     {
                         rrr = appInfo3.PaymentId ?? "-",
                         amount = 0,
-                        paymentDate = DateTime.Now.ToString("yyyy-MM-dd"),
+                        paymentDate = patentdesign.Utils.AppTime.LagosNow.ToString("yyyy-MM-dd"),
                         status = "00"
                     };
                 }
@@ -357,7 +357,7 @@ public class LettersServices
                 DateTime.TryParse(ogpayment?.paymentDate, out paydate);
                 if (paydate == default)
                 {
-                    paydate = DateTime.Now;
+                    paydate = patentdesign.Utils.AppTime.LagosNow;
                 }
                 Console.WriteLine(paydate);
                 return await RenewalAcknowledgment(renewalFileAck, applicationId, paydate);
@@ -1912,7 +1912,7 @@ public class LettersServices
     //        {
     //            rrr = rrr,
     //            Amount = dets.amount.ToString(),
-    //            Date = DateTime.Now.ToString("f"),
+    //            Date = patentdesign.Utils.AppTime.LagosNow.ToString("f"),
     //            PaymentFor = "Application for issuance of  trademark certificate",
     //            payType = PaymentTypes.Other,
     //            Title = file.TitleOfTradeMark,
@@ -2180,7 +2180,7 @@ public class LettersServices
             FileId = fileData.FileId,
             Date = paymentResponse?.paymentDate ?? "-"
         };
-        var date = app.StatusHistory.FirstOrDefault(h => h.afterStatus == ApplicationStatuses.AutoApproved)?.Date ?? DateTime.Now;
+        var date = app.StatusHistory.FirstOrDefault(h => h.afterStatus == ApplicationStatuses.AutoApproved)?.Date ?? DateTime.UtcNow;
         var historyEntry = fileData.ApplicationHistory.FirstOrDefault(a => a.id == applicationId);
         var signId = historyEntry?.SignatureId ?? historyEntry?.SignatoryName;
 
@@ -2554,7 +2554,7 @@ public class LettersServices
             applicantName = assignmentApp.name,
             fileNumber = assignmentApp.fileID,
             assignmentType = assignmentApp.history.Assignment,
-            paymentDate = DateTime.Parse(response.paymentDate),
+            paymentDate = patentdesign.Utils.AppTime.ParseToUtc(response.paymentDate),
             CorrespondenceType = assignmentApp.corr,
             examinerName = assignmentApp.history.StatusHistory.FirstOrDefault(x=>x.afterStatus==ApplicationStatuses.Approved).User,
             examinerSignature = signature
@@ -2586,7 +2586,7 @@ public class LettersServices
             applicantName = assignmentApp.name,
             fileNumber = assignmentApp.fileID,
             assignmentType = assignmentApp.history.Assignment,
-            paymentDate = DateTime.Parse(response.paymentDate),
+            paymentDate = patentdesign.Utils.AppTime.ParseToUtc(response.paymentDate),
             CorrespondenceType = assignmentApp.corr,
             examinerName = assignmentApp.history.StatusHistory
                 .FirstOrDefault(x => x.afterStatus == ApplicationStatuses.Approved).User,
@@ -2645,7 +2645,7 @@ public class LettersServices
             paymentId = response?.rrr??"",
             name = opposition.name??"",
             description = $"Counter statement on opposition regarding {opposition.title}",
-            date = response?.paymentDate!=null?DateTime.Parse(response.paymentDate): DateTime.Now,
+            date = response?.paymentDate!=null?patentdesign.Utils.AppTime.ParseToUtc(response.paymentDate): DateTime.UtcNow,
         }, "uri").GeneratePdf();
         return ReturnDocument(bytes);
     }
@@ -2728,7 +2728,7 @@ public class LettersServices
             paymentId = response?.rrr??"",
             name = opposition?.name??"",
             description = $"Resolution statement regarding {opposition?.title??""}",
-            date = response?.paymentDate!=null?DateTime.Parse(response.paymentDate): DateTime.Now,
+            date = response?.paymentDate!=null?patentdesign.Utils.AppTime.ParseToUtc(response.paymentDate): DateTime.UtcNow,
         }, "uri").GeneratePdf();
         return ReturnDocument(bytes);
     }
@@ -2745,7 +2745,7 @@ public class LettersServices
             paymentId = response?.rrr ?? "",
             name = opposition.name,
             description = $"Resolution statement regarding {opposition.title}",
-            date = response?.paymentDate != null ? DateTime.Parse(response.paymentDate) : DateTime.Now,
+            date = response?.paymentDate != null ? patentdesign.Utils.AppTime.ParseToUtc(response.paymentDate) : DateTime.UtcNow,
         }, "uri").GeneratePdf();
         return ReturnDocument(bytes);
     }
