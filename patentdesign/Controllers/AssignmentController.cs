@@ -1,3 +1,4 @@
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Enums;
 using patentdesign.Models;
@@ -5,7 +6,7 @@ using patentdesign.Services;
 
 namespace patentdesign.Controllers;
 
-
+[Authorize]
 [ApiController]
 [Route("api/assignment")]
 public class AssignmentController(AssignmentService assignmentService) : ControllerBase

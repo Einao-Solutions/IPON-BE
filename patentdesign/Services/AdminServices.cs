@@ -175,10 +175,52 @@ namespace patentdesign.Services
             }
         }
 
+        private async Task<ApplicationInfo?> UpdateAvailabilitySearchHistory(UpdateApplicationHistoryDto dto)
+        {
+            var reference = AvailabilitySearchRules.NormalizeReference(dto.ReferenceNumber);
+            if (reference == null)
+                throw new ArgumentException("A valid FileNumber or Availability Search ReferenceNumber (AVS-...) is required");
+
+            var match = await AvailabilitySearchRules.FindByReferenceAsync(_userCollection, reference);
+            if (match == null || match.Value.Application.id != dto.ApplicationId)
+                throw new KeyNotFoundException("Availability Search record not found for that reference and application id");
+
+            var (owner, app) = match.Value;
+            var updates = new List<UpdateDefinition<AppUser>>();
+            if (dto.ApplicationDate.HasValue)
+                updates.Add(Builders<AppUser>.Update.Set("OtherApplications.$.ApplicationDate", dto.ApplicationDate.Value));
+            if (dto.CurrentStatus.HasValue)
+                updates.Add(Builders<AppUser>.Update.Set("OtherApplications.$.CurrentStatus", dto.CurrentStatus.Value));
+            if (!string.IsNullOrWhiteSpace(dto.PaymentId))
+                updates.Add(Builders<AppUser>.Update.Set("OtherApplications.$.PaymentId", dto.PaymentId));
+            if (!string.IsNullOrWhiteSpace(dto.CertificatePaymentId))
+                updates.Add(Builders<AppUser>.Update.Set("OtherApplications.$.CertificatePaymentId", dto.CertificatePaymentId));
+            if (!updates.Any()) return null;
+
+            var filter = Builders<AppUser>.Filter.And(
+                AvailabilitySearchRules.OwnerFilter(owner.Id),
+                Builders<AppUser>.Filter.ElemMatch(u => u.OtherApplications,
+                    a => a.id == dto.ApplicationId && a.ApplicationType == FormApplicationTypes.AvailabilitySearch));
+
+            var result = await _userCollection.UpdateOneAsync(filter, Builders<AppUser>.Update.Combine(updates));
+            if (result.MatchedCount == 0)
+                throw new KeyNotFoundException("Availability Search record not found");
+
+            AvailabilitySearchRules.ApplyUpdate(app, dto.ApplicationDate, dto.CurrentStatus, dto.PaymentId, dto.CertificatePaymentId);
+            _log.LogInformation("Availability Search {Reference} / {ApplicationId} updated by SuperAdmin", reference, dto.ApplicationId);
+            return app;
+        }
+
         public async Task<ApplicationInfo?> UpdateApplicationHistory(UpdateApplicationHistoryDto dto)
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(dto.ApplicationId))
+                    throw new ArgumentException("ApplicationId is required");
+
+                if (string.IsNullOrWhiteSpace(dto.FileNumber))
+                    return await UpdateAvailabilitySearchHistory(dto);
+
                 // 1. Fetch file first
                 var file = await _fillingCollection.Find(f => f.FileId == dto.FileNumber)
                     .FirstOrDefaultAsync();

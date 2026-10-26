@@ -10,9 +10,11 @@ using patentdesign.Services;
 namespace patentdesign.Controllers
 {
     [Route("api/auth")]
+    [Authorize]
     [ApiController]
     public class AuthController(AuthServices authServices) : ControllerBase
     {
+        [AllowAnonymous]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto req)
         {
@@ -20,6 +22,7 @@ namespace patentdesign.Controllers
             if (!newUser) return BadRequest("Failed to Register");
             return Ok(new { message = "User created successfully" });
         }
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto req)
         {
@@ -27,6 +30,7 @@ namespace patentdesign.Controllers
             if (user == null) return Unauthorized("Invalid email or password");
             return Ok(user);
         }
+        [AllowAnonymous]
         [HttpPost("refresh")]
         public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequestDto req)
         {
@@ -53,6 +57,7 @@ namespace patentdesign.Controllers
             }
             return Ok(new { message = "Transfer successful" });
         }
+        [AllowAnonymous]
         [HttpPost("ResetPasswordRequest")]
         public async Task<IActionResult> ResetPasswordRequest([FromQuery]string email)
         {
@@ -63,6 +68,7 @@ namespace patentdesign.Controllers
             }
             return Ok(new { message = "Password reset requested" });
         }
+        [AllowAnonymous]
         [HttpPost("ResetPassword")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
         {
@@ -74,6 +80,7 @@ namespace patentdesign.Controllers
             return Ok(new { message = "Password reset successful" });
         }
 
+        [AllowAnonymous]
         [HttpPost("VerifyEmailRequest")]
         public async Task<IActionResult> VerifyEmailRequest([FromQuery] string email)
         {
@@ -86,6 +93,7 @@ namespace patentdesign.Controllers
             return Ok(new { message = "Verification email sent" });
         }
 
+        [AllowAnonymous]
         [HttpPost("ResendVerificationEmail")]
         public async Task<IActionResult> ResendVerificationEmail([FromBody] string email)
         {
@@ -98,6 +106,7 @@ namespace patentdesign.Controllers
             return Ok(new { message = "Verification email resent" });
         }
 
+        [AllowAnonymous]
         [HttpPost("VerifyEmail")]
         public async Task<IActionResult> VerifyEmail([FromQuery] string email, [FromQuery] string token)
         {

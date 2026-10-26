@@ -15,7 +15,7 @@ public class TicketServices
 {
     private PaymentUtils _remitaPaymentUtils;
     private MongoClient _mongoClient;
-    private static IMongoCollection<TicketInfo> _ticketsCollection;
+    private readonly IMongoCollection<TicketInfo> _ticketsCollection;
     private readonly IMongoCollection<Filling>? _fillingCollection;
     private readonly ILogger<TicketServices> _logger;
 
@@ -123,6 +123,18 @@ public class TicketServices
     {
         _logger.LogInformation("Creating ticket for CreatorId: {CreatorId}, FileNumber: {FileNumber}", ticket.creatorId, ticket.FileNumber);
 
+        if (!Enum.IsDefined(ticket.Status) || ticket.Status is TicketState.Closed or TicketState.Resolved)
+        {
+            throw new ArgumentException("New tickets must have an active status.");
+        }
+
+        ticket.ResolvedAt = null;
+        ticket.ClosedAt = null;
+        ticket.resolution = null;
+        ticket.IsEscalatedToDev = false;
+        ticket.EscalatedToDevAt = null;
+        ticket.EscalatedToDevById = null;
+        ticket.EscalatedToDevByName = null;
         NormalizeTicketAttachments(ticket);
 
         var count = await _ticketsCollection.EstimatedDocumentCountAsync();
@@ -157,7 +169,7 @@ public class TicketServices
 
     public async Task<bool> CloseTicketsAsync(ResolveTicketType res)
     {
-        _logger.LogInformation("Closing tickets. Count: {Count}", res.ticketId?.Count ?? 0);
+        _logger.LogInformation("Resolving tickets. Count: {Count}", res.ticketId?.Count ?? 0);
 
         if (res.ticketId == null || res.ticketId.Count == 0)
         {
@@ -165,11 +177,17 @@ public class TicketServices
             return true;
         }
 
-        var filter = Builders<TicketInfo>.Filter.In(f => f.id, res.ticketId);
+        ArgumentNullException.ThrowIfNull(res.resolution);
+        var now = DateTime.UtcNow;
+        var filter = Builders<TicketInfo>.Filter.In(f => f.id, res.ticketId)
+            & Builders<TicketInfo>.Filter.Nin(f => f.Status, new[] { TicketState.Resolved, TicketState.Closed });
+        var resolution = res.resolution with { Date = now };
         List<UpdateDefinition<TicketInfo>> updates =
         [
-            Builders<TicketInfo>.Update.Set(f => f.resolution, res.resolution),
-            Builders<TicketInfo>.Update.Set(f => f.Status, TicketState.Closed)
+            Builders<TicketInfo>.Update.Set(f => f.resolution, resolution),
+            Builders<TicketInfo>.Update.Set(f => f.Status, TicketState.Resolved),
+            Builders<TicketInfo>.Update.Set(f => f.ResolvedAt, now),
+            Builders<TicketInfo>.Update.Set(f => f.ClosedAt, null)
         ];
         var result = await _ticketsCollection.UpdateManyAsync(
             filter,
@@ -182,6 +200,20 @@ public class TicketServices
 
         return result.IsAcknowledged;
     }
+
+    public async Task<long> CloseResolvedTicketsAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var filter = Builders<TicketInfo>.Filter.Eq(x => x.Status, TicketState.Resolved)
+            & Builders<TicketInfo>.Filter.Ne(x => x.ResolvedAt, null)
+            & Builders<TicketInfo>.Filter.Lte(x => x.ResolvedAt, now.AddHours(-24));
+        var update = Builders<TicketInfo>.Update
+            .Set(x => x.Status, TicketState.Closed)
+            .Set(x => x.ClosedAt, now);
+
+        var result = await _ticketsCollection.UpdateManyAsync(filter, update, cancellationToken: cancellationToken);
+        return result.ModifiedCount;
+    }
     
     public async Task DeleteTicketAsync()
     {
@@ -190,24 +222,64 @@ public class TicketServices
     #endregion
 
     #region Ticket communication
-    public async Task<TicketInfo> AddMessageAsync(NewCorrespondenceType correspondence)
+    public async Task<TicketInfo?> AddMessageAsync(NewCorrespondenceType correspondence)
     {
         _logger.LogInformation("Adding message to ticket {TicketId} with new status {NewStatus}", correspondence.ticketId, correspondence.newStatus);
 
-        correspondence.correspondence.DateAdded = DateTime.UtcNow;
+        if (!Enum.IsDefined(correspondence.newStatus))
+        {
+            throw new ArgumentException("Invalid ticket status.");
+        }
+
+        ArgumentNullException.ThrowIfNull(correspondence.correspondence);
         correspondence.correspondence.Attachment = NormalizeAttachmentLink(correspondence.correspondence.Attachment);
 
-        var filter = Builders<TicketInfo>.Filter.Eq(f => f.id, correspondence.ticketId);
-        List<UpdateDefinition<TicketInfo>> updates = [
-            Builders<TicketInfo>.Update.Push(f => f.Correspondences, correspondence.correspondence),
-        Builders<TicketInfo>.Update.Set(f => f.Status, correspondence.newStatus),
-    ];
-        var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
-        var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, Builders<TicketInfo>.Update.Combine(updates), options);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var ticket = await _ticketsCollection.Find(x => x.id == correspondence.ticketId).FirstOrDefaultAsync();
+            if (ticket == null) return null;
 
-        _logger.LogInformation("Add message completed for ticket {TicketId}. Found: {Found}", correspondence.ticketId, result != null);
+            var now = DateTime.UtcNow;
+            if (ticket.Status == TicketState.Closed ||
+                (ticket.Status == TicketState.Resolved &&
+                 (!ticket.ResolvedAt.HasValue || ticket.ResolvedAt.Value <= now.AddHours(-24))))
+            {
+                throw new InvalidOperationException("This ticket is closed or its reply window has expired.");
+            }
 
-        return result;
+            if (ticket.Status != TicketState.Resolved &&
+                correspondence.newStatus is TicketState.Closed or TicketState.Resolved)
+            {
+                throw new ArgumentException("Messages must use an active status. Use CloseTicket to resolve a ticket.");
+            }
+
+            var reopen = ticket.Status == TicketState.Resolved &&
+                !string.IsNullOrWhiteSpace(ticket.creatorId) &&
+                ticket.creatorId == correspondence.correspondence.SenderId;
+            var status = ticket.Status == TicketState.Resolved
+                ? (reopen ? TicketState.InProgress : TicketState.Resolved)
+                : correspondence.newStatus;
+
+            correspondence.correspondence.DateAdded = now;
+            var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, correspondence.ticketId)
+                & Builders<TicketInfo>.Filter.Eq(x => x.Status, ticket.Status)
+                & Builders<TicketInfo>.Filter.Eq(x => x.ResolvedAt, ticket.ResolvedAt);
+            var update = Builders<TicketInfo>.Update
+                .Push(x => x.Correspondences, correspondence.correspondence)
+                .Set(x => x.Status, status);
+            if (reopen)
+            {
+                update = update.Set(x => x.ResolvedAt, null)
+                    .Set(x => x.ClosedAt, null)
+                    .Set(x => x.resolution, null);
+            }
+
+            var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
+            var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, update, options);
+            if (result != null) return result;
+        }
+
+        throw new InvalidOperationException("The ticket changed while adding your message. Please retry.");
     }
     #endregion
 
@@ -246,6 +318,11 @@ public class TicketServices
             ? filter.Empty
             : filter.Eq(x => x.RegistryCategory, info.registryCategory);
         var escalatedFilter = info.isEscalated == null ? filter.Empty : filter.Eq(x => x.IsEscalated, info.isEscalated.Value);
+        var devEscalatedFilter = info.isEscalatedToDev == null
+            ? filter.Empty
+            : info.isEscalatedToDev.Value
+                ? filter.Eq(x => x.IsEscalatedToDev, true)
+                : filter.Ne(x => x.IsEscalatedToDev, true);
         var registryStaffFilter = info.raisedByRegistryStaff == null ? filter.Empty : filter.Eq(x => x.RaisedByRegistryStaff, info.raisedByRegistryStaff.Value);
         var ticketNumberFilter = info.ticketNumber == null
             ? filter.Empty
@@ -260,7 +337,7 @@ public class TicketServices
         var combined = filter.And(
             creatorFilter, statusFilter, titleFilter,
             categoryFilter, registryCategoryFilter,
-            escalatedFilter, registryStaffFilter,
+            escalatedFilter, devEscalatedFilter, registryStaffFilter,
             ticketNumberFilter, fileNumberFilter, appTypeFilter,
             startDateFilter, endDateFilter
         );
@@ -285,7 +362,11 @@ public class TicketServices
             RaisedByRegistryStaff = x.RaisedByRegistryStaff,
             IsEscalated = x.IsEscalated,
             EscalatedFromCategory = x.EscalatedFromCategory,
-            Resolution = x.resolution
+            Resolution = x.resolution,
+            IsEscalatedToDev = x.IsEscalatedToDev,
+            EscalatedToDevAt = x.EscalatedToDevAt,
+            ResolvedAt = x.ResolvedAt,
+            ClosedAt = x.ClosedAt
         });
 
         var tickets = await _ticketsCollection
@@ -363,18 +444,59 @@ public class TicketServices
         var awaitingStaff = statusCounts.FirstOrDefault(x => x.Status == TicketState.AwaitingStaff)?.Count ?? 0;
         var awaitingUser = statusCounts.FirstOrDefault(x => x.Status == TicketState.AwaitingUser)?.Count ?? 0;
         var closed = statusCounts.FirstOrDefault(x => x.Status == TicketState.Closed)?.Count ?? 0;
+        var inProgress = statusCounts.FirstOrDefault(x => x.Status == TicketState.InProgress)?.Count ?? 0;
+        var resolved = statusCounts.FirstOrDefault(x => x.Status == TicketState.Resolved)?.Count ?? 0;
 
         return new TicketStatsReturnType
         {
             total = total,
             staff = awaitingStaff,
             user = awaitingUser,
-            closed = closed
+            closed = closed,
+            inProgress = inProgress,
+            resolved = resolved
         };
     }
     #endregion
 
     #region Ticket escalation
+    public async Task<TicketInfo?> EscalateTicketToDevAsync(EscalateTicketToDevRequest request)
+    {
+        var ticket = await _ticketsCollection.Find(x => x.id == request.TicketId).FirstOrDefaultAsync();
+        if (ticket == null) return null;
+        if (ticket.Category != TicketCategory.TechnicalSupport)
+        {
+            throw new ArgumentException("Only technical support tickets can be escalated to developers.");
+        }
+        if (ticket.Status is TicketState.Closed or TicketState.Resolved)
+        {
+            throw new InvalidOperationException("Only active tickets can be escalated to developers.");
+        }
+        if (ticket.IsEscalatedToDev) return ticket;
+
+        var now = DateTime.UtcNow;
+        var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, request.TicketId)
+            & Builders<TicketInfo>.Filter.Eq(x => x.Category, TicketCategory.TechnicalSupport)
+            & Builders<TicketInfo>.Filter.Nin(x => x.Status, new[] { TicketState.Resolved, TicketState.Closed })
+            & Builders<TicketInfo>.Filter.Ne(x => x.IsEscalatedToDev, true);
+        var update = Builders<TicketInfo>.Update
+            .Set(x => x.IsEscalatedToDev, true)
+            .Set(x => x.Status, TicketState.InProgress)
+            .Set(x => x.EscalatedToDevAt, now)
+            .Set(x => x.EscalatedToDevById, request.EscalatedById)
+            .Set(x => x.EscalatedToDevByName, request.EscalatedByName)
+            .Push(x => x.Correspondences, new TicketCorrespondence
+            {
+                SenderId = "system",
+                SenderName = "System",
+                Message = string.IsNullOrWhiteSpace(request.AutoMessage) ? "Escalated to developers." : request.AutoMessage,
+                DateAdded = now
+            });
+        var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, update,
+            new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After });
+        return result ?? throw new InvalidOperationException("The ticket changed during escalation. Please retry.");
+    }
+
     public async Task<TicketInfo> EscalateTicketAsync(EscalateTicketRequest request)
     {
         _logger.LogInformation("Escalating ticket {TicketId} to category {EscalateToCategory} by {EscalatedById}",
@@ -494,7 +616,11 @@ public class TicketServices
             RaisedByRegistryStaff = x.RaisedByRegistryStaff,
             IsEscalated = x.IsEscalated,
             EscalatedFromCategory = x.EscalatedFromCategory,
-            Resolution = x.resolution
+            Resolution = x.resolution,
+            IsEscalatedToDev = x.IsEscalatedToDev,
+            EscalatedToDevAt = x.EscalatedToDevAt,
+            ResolvedAt = x.ResolvedAt,
+            ClosedAt = x.ClosedAt
         });
 
         var results = await _ticketsCollection

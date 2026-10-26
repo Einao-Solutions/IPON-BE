@@ -211,6 +211,7 @@ var mongoDatabase = mongoClient.GetDatabase(mongoDatabaseName);
 EmailServices.ValidateConfiguration(builder.Configuration);
 builder.Services.AddOptions();
 builder.Services.AddHttpClient<ResendClient>();
+builder.Services.AddHttpClient(PaymentUtils.RemitaClientName, c => c.Timeout = TimeSpan.FromSeconds(130));
 var resendApiKey = builder.Configuration["RESEND_APIKEY"]!.Trim();
 
 builder.Services.Configure<ResendClientOptions>( o =>
@@ -289,6 +290,7 @@ builder.Services.AddScoped<NotificationServices>();
 //builder.Services.AddHostedService<PublishTrademarkJob>();
 builder.Services.AddHostedService<NotificationJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
+builder.Services.AddHostedService<TicketAutoCloseService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();

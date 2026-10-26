@@ -390,7 +390,7 @@ MSBuild_Logs/
 # PowerShell script files
 *.ps1
 *.ps2
-*.ps1xml
+*.ps1xmlfd
 *.psc1
 *.psc2
 

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.Contracts;
 using System.Net.Mail;
@@ -14,6 +14,7 @@ namespace patentdesign.Models;
 public class AppUser
 {
     [BsonId]
+    [BsonSerializer(typeof(patentdesign.Utils.AppUserIdSerializer))]
     public string Id { get; set; }
     public string? CreatorId { get; set; }
     public string FirstName { get; set; } = "";
@@ -28,7 +29,7 @@ public class AppUser
     public bool isVerified { get; set; } = false;
     public string? Signature { get; set; }
     public AccountType? AccountType { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
     public List<string>? VerificationDocs { get; set; }
@@ -227,7 +228,7 @@ public record OfflineRenewalRequest
     public List<string> RenewalCertificateAttachments { get; set; } = [];
     public OfflineRenewalRequestStatus Status { get; set; } = OfflineRenewalRequestStatus.AwaitingRenewalConfirmation;
     public string? DecisionReason { get; set; }
-    public DateTime SubmittedAt { get; set; } = DateTime.Now;
+    public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? DecidedAt { get; set; }
     public string? DecidedByUserId { get; set; }
     public string? DecidedByName { get; set; }
@@ -244,7 +245,7 @@ public record Filling
     public DateTime LastRequestDate { get; set; }
     public string CreatorAccount { get; set; } = "";
     public ApplicationStatuses FileStatus { get; set; }
-    public DateTime DateCreated { get; set; } = DateTime.Now;
+    public DateTime DateCreated { get; set; } = DateTime.UtcNow;
     public FileTypes Type { get; set; } = FileTypes.Design;
     public string? FilingCountry { get; set; } = string.Empty;
     public string? FileOrigin { get; set; }
@@ -306,7 +307,7 @@ public record FileTicketRef
 {
     public string TicketId { get; set; }
     public string TicketNumber { get; set; }
-    public DateTime Created { get; set; } = DateTime.Now;
+    public DateTime Created { get; set; } = DateTime.UtcNow;
 }
 
 public record ClericalUpdate
@@ -457,6 +458,7 @@ public record PostRegistrationApp
     public string? OldEmail { get; set; } = String.Empty;
     public int? Class { get; set; }
     public int? OldClass { get; set; }
+    public string? NewAdditionalDescription { get; set; }
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
     public string? OldAddress { get; set; } = String.Empty;
@@ -611,7 +613,7 @@ public record ApplicationInfo
     public string? CertificatePaymentId { get; set; }
 
     [JsonPropertyName("applicationDate")]
-    public DateTime ApplicationDate { get; set; }=DateTime.Now;
+    public DateTime ApplicationDate { get; set; }=DateTime.UtcNow;
     public string? LicenseType { get; set; }
     [JsonPropertyName("oldValue")]
     public object? OldValue { get; set; }
@@ -634,6 +636,8 @@ public record ApplicationInfo
     public string? SignatureId { get; set; }
     public string? FileNumber { get; set; }
     public string? Title { get; set; }
+    [JsonPropertyName("referenceNumber")]
+    public string? ReferenceNumber { get; set; }
 }
 
 
@@ -1015,7 +1019,7 @@ public record Revision
     public string Property {get;set;}
     public string  AmountPaid {get;set;}
     public string  TransactionId {get;set;}
-    public DateTime DateTime { get; set; } = DateTime.Now;
+    public DateTime DateTime { get; set; } = DateTime.UtcNow;
     public string? userName { get; set; }
     public string? userId { get; set; }
     public ApplicationStatuses? currentStatus { get; set; }
@@ -1027,7 +1031,7 @@ public record RevisionChanges
     public string id { get; set; } = Guid.NewGuid().ToString();
     // public RevisionStatus Status { get; set; } = RevisionStatus.awaiting_payment;
     public string Message { get; set; } = "Waiting for payment";
-    public DateTime Date { get; set; }= DateTime.Now;
+    public DateTime Date { get; set; }= DateTime.UtcNow;
 }
 
 public record PriorityInfo
@@ -1148,7 +1152,7 @@ CounterStatement, StatutoryDeclaration, TrademarkAmendment, OppositionWithdrawal
 public record NotificationTypeModel
 {
     public string ApplicantName { get; set; }
-    public DateTime date { get; set; } = DateTime.Now;
+    public DateTime date { get; set; } = DateTime.UtcNow;
     public string userId { get; set; }
     public string id { get; set; } = Guid.NewGuid().ToString();
     public string message { get; set; }
@@ -1161,7 +1165,7 @@ public record NotificationTypeModel
 public record StaffNotificationTypeModel
 {
     public string ApplicantName { get; set; }
-    public DateTime date { get; set; } = DateTime.Now;
+    public DateTime date { get; set; } = DateTime.UtcNow;
     public UserTypes UserType { get; set; }
     public string id { get; set; } = Guid.NewGuid().ToString();
     public string message { get; set; }
@@ -1174,7 +1178,7 @@ public record StaffNotificationTypeModel
 
 public enum TicketState
 {
-    AwaitingUser, AwaitingStaff, Closed
+    AwaitingUser = 0, AwaitingStaff = 1, Closed = 2, InProgress = 3, Resolved = 4
 }
 
 public record TicketCreator
@@ -1193,6 +1197,10 @@ public record TicketSummary
     public TicketType? TicketType { get; set; }
     public bool IsEscalated { get; set; } = false;
     public TicketCategory? EscalatedFromCategory { get; set; }
+    public bool IsEscalatedToDev { get; set; }
+    public DateTime? EscalatedToDevAt { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public DateTime? ClosedAt { get; set; }
     public TicketCreator Creator { get; set; }
     public DateTime DateCreated { get; set; }
     public DateTime LastInteraction { get; set; }
@@ -1221,11 +1229,17 @@ public record TicketInfo
     public DateTime? EscalatedAt { get; set; }
     public string? EscalatedById { get; set; }
     public string? EscalatedByName { get; set; }
+    public bool IsEscalatedToDev { get; set; }
+    public DateTime? EscalatedToDevAt { get; set; }
+    public string? EscalatedToDevById { get; set; }
+    public string? EscalatedToDevByName { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    public DateTime? ClosedAt { get; set; }
     public bool RaisedByRegistryStaff { get; set; } = false;
     public List<TicketCorrespondence>? Correspondences { get; set; }
     public TicketState Status { get; set; }
     public ResolveInfo? resolution { get; set; }
-    public DateTime Created { get; set; } = DateTime.Now;
+    public DateTime Created { get; set; } = DateTime.UtcNow;
     public List<AffectedFile>? AffectedFiles { get; set; }
     public TicketCategory? RegistryCategory { get; set; }
     public string? AccountEmail { get; set; }
@@ -1239,7 +1253,7 @@ public record AffectedFile
 
 public record ResolveInfo
 {
-    public DateTime Date { get; set; } = DateTime.Now;
+    public DateTime Date { get; set; } = DateTime.UtcNow;
     public string? StaffId { get; set; }
     public string? StaffName { get; set; }
 }
@@ -1251,7 +1265,7 @@ public  record TicketCorrespondence
     public string? Attachment { get; set; }
     public string SenderId { get; set; }
     public string SenderName { get; set; }
-    public DateTime DateAdded { get; set; }=  DateTime.Now;
+    public DateTime DateAdded { get; set; }=  DateTime.UtcNow;
 }
 
 
@@ -1440,6 +1454,10 @@ public record PaymentInfo
 
     //Availability Search
     public string? AvailabilitySearchCost { get; set; }
+    public int RemitaTimeoutSeconds { get; set; } = 60;
+    public string RemitaPaymentInitUrl { get; set; } = "https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/merchant/api/paymentinit";
+    public string? RemitaMerchantId { get; set; }
+    public string? RemitaApiKey { get; set; }
     public string? AvailabilitySearchServiceFee { get; set; }
     public string? AvailabilitySearchServiceID { get; set; }
 
@@ -1667,7 +1685,7 @@ public record ClaimRequests
     public DateTime? LastRequestDate { get; set; }
     public string? CreatorAccount { get; set; } = "";
     public ApplicationStatuses? FileStatus { get; set; }
-    public DateTime? DateCreated { get; set; } = DateTime.Now;
+    public DateTime? DateCreated { get; set; } = DateTime.UtcNow;
     public FileTypes? Type { get; set; } = FileTypes.Design;
     public string? FilingCountry { get; set; } = string.Empty;
     public string? FileOrigin { get; set; }
@@ -1922,7 +1940,7 @@ public record CounterStatement
     public string? PaymentId { get; set; }
     public bool? Paid { get; set; } = false;
     public string? UserId { get; set; }
-    public DateTime SubmittedDate { get; set; } = DateTime.Now;
+    public DateTime SubmittedDate { get; set; } = DateTime.UtcNow;
 }
 
 public record StatutoryDeclaration
@@ -1937,7 +1955,7 @@ public record StatutoryDeclaration
     public string? UserId { get; set; }
     public string? Role { get; set; }
     public ApplicationStatuses? ApplicationStatus { get; set; } = ApplicationStatuses.AwaitingPayment;
-    public DateTime SubmittedDate { get; set; } = DateTime.Now;
+    public DateTime SubmittedDate { get; set; } = DateTime.UtcNow;
 }
 
 public class StatusChangeLog
@@ -1949,7 +1967,7 @@ public class StatusChangeLog
     public string Reason { get; set; }
     public string ChangedBy { get; set; }
     public string ChangedById { get; set; }
-    public DateTime DateChanged { get; set; } = DateTime.Now;
+    public DateTime DateChanged { get; set; } = DateTime.UtcNow;
     public bool IsSuccessful { get; set; } = false;
 }
 
@@ -1985,7 +2003,7 @@ public record SignatureInfo
     public string Name { get; set; }
     public byte[] SignatureData { get; set; }
     public string? Designation { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public List<FormApplicationTypes> ApplicationTypes { get; set; } = new ();
     public bool IsActive { get; set; } = true;
 }

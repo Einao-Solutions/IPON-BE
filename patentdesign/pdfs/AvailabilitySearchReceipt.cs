@@ -2,18 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using patentdesign.Dtos.Response;
-using patentdesign.Enums;
-using patentdesign.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 
 namespace patentdesign.pdfs
 {
-    public class AvailabilitySearchReceipt(RemitaResponseClass remitaResponse, string rrr, string? searchTitle = null, List<AvailabilitySearchDto>? matches = null, DateTime? searchDate = null) : IDocument
+    public class AvailabilitySearchReceipt(string? searchTitle = null, List<AvailabilitySearchDto>? matches = null, DateTime? searchDate = null) : IDocument
     {
-        private RemitaResponseClass remitaResponse { get; set; } = remitaResponse;
-        private string rrr { get; set; } = rrr;
         private string? searchTitle { get; set; } = searchTitle;
         private List<AvailabilitySearchDto> matches { get; set; } = matches ?? new List<AvailabilitySearchDto>();
         private DateTime? searchDate { get; set; } = searchDate;

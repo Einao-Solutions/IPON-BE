@@ -32,12 +32,52 @@ namespace patentdesign.Dtos.Response
         public List<ApplicantInfo>? Applicants { get; set; }
         public bool? IsRenewalEligible { get; set; }
         public string? AppId { get; set; }
-
+        /// <summary>
+        /// All historical ownership (Change of Agent, applicationType 6) entries with their associated POA URLs.
+        /// Each entry's newValue includes poa.url for accessing the persisted document.
+        /// </summary>
+        public List<ApplicationInfo>? OwnershipHistory { get; set; } = new();
     }
 
     public class AvailabilitySearchPaymentStatusDto
     {
-        public string AppId { get; set; }
-        public string UserId { get; set; }
+        public string? AppId { get; set; }
+        public string? UserId { get; set; }
     }
+
+    public enum AvailabilitySearchPaymentOutcome
+    {
+        Confirmed,
+        AlreadyProcessed,
+        NotFound,
+        NotPaid,
+        Unverifiable,
+        Failed
+    }
+
+    public class AvailabilitySearchReconcileItem
+    {
+        public string? UserId { get; set; }
+        public string? ApplicationId { get; set; }
+        public string? PaymentId { get; set; }
+        public string Outcome { get; set; } = string.Empty;
+        public string? Message { get; set; }
+    }
+
+    public class AvailabilitySearchReconcileReport
+    {
+        public bool DryRun { get; set; }
+        public int Scanned { get; set; }
+        public int Confirmed { get; set; }
+        public int AlreadyProcessed { get; set; }
+        public int StillUnpaid { get; set; }
+        public int NotFound { get; set; }
+        public int Errors { get; set; }
+        public List<AvailabilitySearchReconcileItem> Items { get; set; } = new();
+    }
+
+    public record AvailabilitySearchPaymentResult(
+        AvailabilitySearchPaymentOutcome Outcome,
+        string Message,
+        ApplicationInfo? Application = null);
 }

@@ -89,7 +89,7 @@ namespace Tfunctions.pdfs
                     column.Item().Height(5);
                     column.Item().Text($"This application has hereby been REJECTED, with reason: {reason}. Received on: {assDets.paymentDate.ToString("D")} for application dated: {assDets.paymentDate.ToString("D")}").Style(TextStyle.Default.Bold());
                     column.Item().Height(10);
-                    column.Item().Text($"Witness my hand this: {DateTime.Now.ToString("D")}").Style(TextStyle.Default.Bold());
+                    column.Item().Text($"Witness my hand this: {patentdesign.Utils.AppTime.LagosNow.ToString("D")}").Style(TextStyle.Default.Bold());
                     column.Item().Height(5);
                     var imgSig = Image.FromBinaryData(assDets.examinerSignature);
                     column.Item().Height(40).AlignCenter().Image(imgSig).FitArea();

@@ -33,7 +33,7 @@ namespace patentdesign.Services
             _emailServices = emailServices;
         }
 
-        public Task CreateNotificationAsync(CreateNotificationDto dto)
+        public virtual Task CreateNotificationAsync(CreateNotificationDto dto)
         {
             return CreateNotificationAsync(dto, null, null, null);
         }

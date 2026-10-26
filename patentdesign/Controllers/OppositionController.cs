@@ -1,3 +1,4 @@
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Request;
@@ -7,6 +8,7 @@ using ZstdSharp.Unsafe;
 
 namespace patentdesign.Controllers;
 
+[Authorize]
 [ApiController] [Route("api/opposition")]
 public class OppositionController(OppositionService oppositionService) :ControllerBase
 {

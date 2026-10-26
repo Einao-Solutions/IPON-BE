@@ -1,4 +1,4 @@
-using System.Security.Authentication;
+﻿using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -135,7 +135,7 @@ public class AssignmentService
                 new ApplicationHistory()
                 {
                     beforeStatus = ApplicationStatuses.None,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     Message = "Saved successfully, awaiting payment",
                     UserId = userId,
                     User = userName,
@@ -164,7 +164,7 @@ public class AssignmentService
                 Message = data.reason,
                 UserId = data.userId,
                 User = data.userName,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 afterStatus = data.newStatus,
                 beforeStatus = data.currentStatus
             };
@@ -200,7 +200,7 @@ public class AssignmentService
                 apps.Type,
                 status.Item3);
             savePerformance(PerformanceType.Application, FormApplicationTypes.Assignment, null, null, 
-                DateTime.Now, data.userName, data.fileId, updatedAck.Type, updatedAck.PatentType, updatedAck.DesignType, updatedAck.TrademarkType);
+                DateTime.UtcNow, data.userName, data.fileId, updatedAck.Type, updatedAck.PatentType, updatedAck.DesignType, updatedAck.TrademarkType);
             return true;
         }
 
@@ -213,7 +213,7 @@ public class AssignmentService
             Message = data.reason,
             UserId = data.userId,
             User = data.userName,
-            Date = DateTime.Now,
+            Date = DateTime.UtcNow,
             afterStatus = data.newStatus,
             beforeStatus = data.currentStatus
         };
@@ -325,7 +325,7 @@ public class AssignmentService
                 ReturnDocument = ReturnDocument.After
             });
         savePerformance(PerformanceType.Staff, FormApplicationTypes.Assignment, data.currentStatus, data.newStatus, 
-            DateTime.Now, data.userName, data.fileId, updatedAck.Type, updatedAck.PatentType, updatedAck.DesignType, updatedAck.TrademarkType);
+            DateTime.UtcNow, data.userName, data.fileId, updatedAck.Type, updatedAck.PatentType, updatedAck.DesignType, updatedAck.TrademarkType);
 
         return updatedAck;
     }

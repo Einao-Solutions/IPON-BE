@@ -10,8 +10,12 @@ using patentdesign.Models;
 
 namespace patentdesign.Utils;
 
-public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<PaymentUtils> log)
+public class RemitaUnavailableException(string message, Exception? inner = null) : Exception(message, inner);
+
+public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<PaymentUtils> log, IHttpClientFactory? httpClientFactory = null)
 {
+    public const string RemitaClientName = "Remita";
+    private static readonly HttpClient FallbackClient = new();
     private PaymentInfo _paymentInfo = remitaPaymentDetails.Value;
     private readonly ILogger<PaymentUtils> _log = log;
 
@@ -375,6 +379,30 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                 break;
         }
 
+        // Validate that we have values
+        if (string.IsNullOrWhiteSpace(amount) || string.IsNullOrWhiteSpace(serviceId))
+        {
+            var missingFields = new List<string>();
+            if (string.IsNullOrWhiteSpace(amount)) 
+                missingFields.Add($"Amount for {type}");
+            if (string.IsNullOrWhiteSpace(serviceId)) 
+                missingFields.Add($"ServiceId for {type}");
+
+            var missingFieldsStr = string.Join(", ", missingFields);
+            _log.LogError("Payment configuration missing for PaymentType={PaymentType}, FileType={FileType}. Missing fields: {MissingFields}. Amount={Amount}, ServiceId={ServiceId}", 
+                type, fileType, missingFieldsStr, amount ?? "NULL", serviceId ?? "NULL");
+            throw new InvalidOperationException($"Payment configuration incomplete. Missing: {missingFieldsStr}. Please contact support.");
+        }
+
+        if (string.IsNullOrWhiteSpace(serviceFee))
+        {
+            _log.LogWarning("Payment service fee missing for PaymentType={PaymentType}, FileType={FileType}. Setting to 0.", type, fileType);
+            serviceFee = "0";
+        }
+
+        _log.LogDebug("GetCost returning: Amount={Amount}, ServiceId={ServiceId}, ServiceFee={ServiceFee} for type={PaymentType}", 
+            amount, serviceId, serviceFee ?? "NULL", type);
+
         return (amount, serviceId, serviceFee);
     }
 
@@ -385,8 +413,8 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         return (rrr, details.Item1);
     }
     
-    public async Task<string?> GenerateRemitaPaymentId(string total, string serviceFee,string serviceId, string description, 
-        string applicantName, string applicantEmail, string applicantNumber) {
+    public virtual async Task<string?> GenerateRemitaPaymentId(string total, string serviceFee,string serviceId, string description, 
+        string applicantName, string applicantEmail, string applicantNumber, CancellationToken cancellationToken = default) {
         if (string.IsNullOrWhiteSpace(total) || string.IsNullOrWhiteSpace(serviceFee))
         {
             throw new ArgumentException("Total or Service Fee cannot be null or empty.");
@@ -396,11 +424,11 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         {
             throw new ArgumentException("Total or Service Fee must be valid integers.");
         }
-        var _client = new HttpClient();
-             var orderId =$"IPONMWD{DateTime.Now.Ticks}";
+        var _client = httpClientFactory?.CreateClient(RemitaClientName) ?? FallbackClient;
+             var orderId =$"IPONMWD{DateTime.UtcNow.Ticks}";
              // var serviceId = "4019135160";
-             var merchantId = "6230040240";
-             var apiKey = "192753";
+             var merchantId = string.IsNullOrWhiteSpace(_paymentInfo.RemitaMerchantId) ? "6230040240" : _paymentInfo.RemitaMerchantId;
+             var apiKey = string.IsNullOrWhiteSpace(_paymentInfo.RemitaApiKey) ? "192753" : _paymentInfo.RemitaApiKey;
         using StringContent jsonContent = new(
                  JsonSerializer.Serialize(new
                  {
@@ -433,34 +461,54 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                  }),
                  Encoding.UTF8,
                  "application/json");
-             _client = new HttpClient();
              var test=merchantId + serviceId +orderId+ total + apiKey;
              var apiHash = SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(test));
              var convertedHash=Convert.ToHexString(apiHash).ToLower();
-             Console.WriteLine(convertedHash);
              var request = new HttpRequestMessage(HttpMethod.Post,
-                 "https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/merchant/api/paymentinit");
+                 _paymentInfo.RemitaPaymentInitUrl);
              request.Headers.TryAddWithoutValidation("Authorization",$"remitaConsumerKey={merchantId},remitaConsumerToken={convertedHash}");
              request.Content = jsonContent;
-             var response = await _client.SendAsync(request);
-             var dataMod = await response.Content.ReadAsStringAsync();
-             Console.WriteLine($"[Remita RAW] status={response.StatusCode} body={dataMod}");
+             var timeout = TimeSpan.FromSeconds(Math.Clamp(_paymentInfo.RemitaTimeoutSeconds, 1, 120));
+             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+             cts.CancelAfter(timeout);
+             var sw = System.Diagnostics.Stopwatch.StartNew();
+             string dataMod;
+             System.Net.HttpStatusCode status;
              try
              {
-                 int startIndex = dataMod.IndexOf("{");
-                 int stopIndex = dataMod.LastIndexOf("}") + 1;
-                 var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(
-                     dataMod.Substring(startIndex: startIndex, length: stopIndex - startIndex));
-                 Console.WriteLine($"[Remita DICT] {JsonSerializer.Serialize(dict)}");
-                 string rrr = dict["RRR"].ToString();
-                 return rrr;
+                 using var response = await _client.SendAsync(request, cts.Token);
+                 status = response.StatusCode;
+                 dataMod = await response.Content.ReadAsStringAsync(cts.Token);
              }
-             catch (Exception e)
+             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
              {
-                 Console.WriteLine($"[Remita PARSE ERROR] {e.Message} | raw={dataMod}");
+                 _log.LogError("Remita paymentinit timed out after {ElapsedMs}ms (limit {Timeout}s)", sw.ElapsedMilliseconds, timeout.TotalSeconds);
+                 throw new RemitaUnavailableException("Remita did not respond in time. Please try again.");
+             }
+             catch (HttpRequestException e)
+             {
+                 _log.LogError(e, "Remita paymentinit request failed after {ElapsedMs}ms", sw.ElapsedMilliseconds);
+                 throw new RemitaUnavailableException("Remita is unreachable. Please try again.", e);
+             }
+             _log.LogInformation("Remita paymentinit completed in {ElapsedMs}ms with status {Status}", sw.ElapsedMilliseconds, (int)status);
+             if ((int)status < 200 || (int)status >= 300)
+             {
+                 _log.LogError("Remita paymentinit returned non-success status {Status}", (int)status);
                  return null;
              }
+             try
              {
+                 int startIndex = dataMod.IndexOf('{');
+                 int stopIndex = dataMod.LastIndexOf('}') + 1;
+                 if (startIndex < 0 || stopIndex <= startIndex) return null;
+                 using var doc = JsonDocument.Parse(dataMod.Substring(startIndex, stopIndex - startIndex));
+                 if (!doc.RootElement.TryGetProperty("RRR", out var rrrEl)) return null;
+                 var rrr = rrrEl.ToString();
+                 return string.IsNullOrWhiteSpace(rrr) || !rrr.All(char.IsDigit) ? null : rrr;
+             }
+             catch (JsonException e)
+             {
+                 _log.LogError(e, "Remita paymentinit response could not be parsed");
                  return null;
              }
     }
@@ -478,7 +526,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             throw new ArgumentException("Total or Service Fee must be valid integers.");
         }
         var _client = new HttpClient();
-        var orderId = $"IPONMWD{DateTime.Now.Ticks}";
+        var orderId = $"IPONMWD{DateTime.UtcNow.Ticks}";
         // var serviceId = "4019135160";
         var merchantId = "6230040240";
         var apiKey = "192753";
@@ -523,7 +571,8 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         var convertedHash = Convert.ToHexString(apiHash).ToLower();
         Console.WriteLine(convertedHash);
         var request = new HttpRequestMessage(HttpMethod.Post,
-            "https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/merchant/api/paymentinit");
+            _paymentInfo.RemitaPaymentInitUrl);
+
         request.Headers.TryAddWithoutValidation("Authorization", $"remitaConsumerKey={merchantId},remitaConsumerToken={convertedHash}");
         request.Content = jsonContent;
         var response = await _client.SendAsync(request);
@@ -566,7 +615,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             country = country,
             techFee = remitaResonse.lineItems[1].beneficiaryAmount,
             ministryFee = remitaResonse.lineItems[0].beneficiaryAmount,
-            date = DateTime.Parse(remitaResonse.paymentDate??DateTime.MinValue.ToString()),
+            date = patentdesign.Utils.AppTime.ParseToUtc(remitaResonse.paymentDate??DateTime.MinValue.ToString()),
             applicationID = applicationID,
             fileId =  fileId,
             DesignType =  DesignType,
@@ -578,7 +627,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         };
     }
 
-    public async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
+    public virtual async Task<RemitaResponseClass?> GetDetailsByRRR(string rrr)
     {
         if (string.IsNullOrWhiteSpace(rrr))
         {
@@ -586,8 +635,8 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
             return null;
         }
 
-        const string merchantId = "6230040240";
-        const string apiKey = "192753";
+        var merchantId = string.IsNullOrWhiteSpace(_paymentInfo.RemitaMerchantId) ? "6230040240" : _paymentInfo.RemitaMerchantId;
+        var apiKey = string.IsNullOrWhiteSpace(_paymentInfo.RemitaApiKey) ? "192753" : _paymentInfo.RemitaApiKey;
         var test = rrr + apiKey + merchantId;
         var apiHash = SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(test));
         var hash = Convert.ToHexString(apiHash).ToLower();
@@ -598,18 +647,19 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
 
         try
         {
-            using var client = new HttpClient();
+            var client = httpClientFactory?.CreateClient(RemitaClientName) ?? FallbackClient;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Clamp(_paymentInfo.RemitaTimeoutSeconds, 1, 120)));
             using var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
             request.Headers.TryAddWithoutValidation("Authorization",
                 $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");
 
-            using var response = await client.SendAsync(request);
-            var dataMod = await response.Content.ReadAsStringAsync();
+            using var response = await client.SendAsync(request, cts.Token);
+            var dataMod = await response.Content.ReadAsStringAsync(cts.Token);
 
             if (!response.IsSuccessStatusCode)
             {
-                _log.LogWarning("Remita RRR status request failed for rrr {Rrr}. StatusCode: {StatusCode}. Response: {Response}",
-                    rrr, (int)response.StatusCode, dataMod);
+                _log.LogWarning("Remita RRR status request failed for rrr {Rrr}. StatusCode: {StatusCode}",
+                    rrr, (int)response.StatusCode);
                 return null;
             }
 

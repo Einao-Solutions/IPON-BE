@@ -67,7 +67,7 @@ namespace patentdesign.Services
 
             try
             {
-                var pubDate = pub.PublicationDate ?? DateTime.Now;
+                var pubDate = pub.PublicationDate ?? DateTime.UtcNow;
                 var quarter = (pubDate.Month + 2) / 3;
                 var batchNumber = $"{pubDate.Year}Q{quarter}";
 
@@ -75,7 +75,7 @@ namespace patentdesign.Services
                 {
                     Id = Guid.NewGuid().ToString(),
                     FileNumber = pub.FileNumber,
-                    PublicationDate = pub.PublicationDate ?? DateTime.Now,
+                    PublicationDate = pub.PublicationDate ?? DateTime.UtcNow,
                     Comment = pub.Comment,
                     StaffId = pub.StaffId,
                     StaffName = pub.StaffName,
@@ -110,7 +110,7 @@ namespace patentdesign.Services
         {
             _log.LogInformation("Publishing trademarks with publication date at least 60 days ago");
 
-            var cutoffDate = DateTime.Now.AddDays(-60);
+            var cutoffDate = DateTime.UtcNow.AddDays(-60);
 
             var filter = Builders<PublicationInfo>.Filter.Lte(p => p.PublicationDate, cutoffDate)
                          & Builders<PublicationInfo>.Filter.Eq(p => p.IsBatchPublished, false);
@@ -127,7 +127,7 @@ namespace patentdesign.Services
             // Update all matching publications to IsPublished = true
             var pubUpdate = Builders<PublicationInfo>.Update.Combine(
                 Builders<PublicationInfo>.Update.Set(p => p.IsBatchPublished, true),
-                Builders<PublicationInfo>.Update.Set(p=>p.BatchPublishDate, DateTime.Now));
+                Builders<PublicationInfo>.Update.Set(p=>p.BatchPublishDate, DateTime.UtcNow));
 
             await _pubCollection.UpdateManyAsync(filter, pubUpdate);
 
@@ -233,7 +233,7 @@ namespace patentdesign.Services
              await Task.WhenAll(tasks);
 
             _log.LogInformation("Generating PDF");
-            var publicationDate = date ?? publicationsData.FirstOrDefault()?.BatchPublishDate ?? DateTime.Now;
+            var publicationDate = date ?? publicationsData.FirstOrDefault()?.BatchPublishDate ?? DateTime.UtcNow;
             
             // Move CPU-bound PDF rendering off the request thread
             var pdfData = await Task.Run(() =>
@@ -313,7 +313,7 @@ namespace patentdesign.Services
                     Message = dto.Comment,
                     beforeStatus = app.CurrentStatus,
                     afterStatus = nextStatus,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                 };
 
                 app.StatusHistory ??= [];
@@ -328,7 +328,7 @@ namespace patentdesign.Services
                     ApplicationId = app.id,
                     ApplicationType = app.ApplicationType,
                     AppUserId = staff.Id,
-                    Date = DateTime.Now,
+                    Date = DateTime.UtcNow,
                     OfficeUnit = Enums.Roles.TrademarkPublication,
                     Reason = dto.Comment
                 };
@@ -435,7 +435,7 @@ namespace patentdesign.Services
                 AppUserId = staff.Id,
                 FileType = FileTypes.TradeMark,
                 OfficeUnit = Enums.Roles.TrademarkPublication,
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 Reason = $"Batching trademark publications {batchVolume}",
                 BeforeStatus = ApplicationStatuses.Publication,
                 AfterStatus = ApplicationStatuses.Published
@@ -490,7 +490,7 @@ namespace patentdesign.Services
                 throw new InvalidOperationException("User Phone number not found");
             }
             var journal = await _journals.Find(j => j.Batch == batch).FirstOrDefaultAsync();
-            if (DateTime.Now < journal.JournalReleaseDate ) throw new KeyNotFoundException("Journal is not yet available");
+            if (DateTime.UtcNow < journal.JournalReleaseDate ) throw new KeyNotFoundException("Journal is not yet available");
             var cost = _paymentUtils.GetCost(PaymentTypes.TrademarkJournal, FileTypes.TradeMark, user.Nationality, null, null, null);
             var paymentId = await _paymentUtils.GenerateRemitaPaymentId(
                 cost.Item1, cost.Item3, cost.Item2, "Trademark Journal Request",
@@ -559,7 +559,7 @@ namespace patentdesign.Services
             app.CurrentStatus = ApplicationStatuses.JournalRequested;
             var history = new ApplicationHistory
             {
-                Date = DateTime.Now,
+                Date = DateTime.UtcNow,
                 beforeStatus = ApplicationStatuses.AwaitingPayment,
                 afterStatus = ApplicationStatuses.JournalRequested,
                 Message = "Payment successful, awaiting approval",
