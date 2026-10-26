@@ -7320,6 +7320,7 @@ public class FilesServices
                 FileNumber = dto.FileId,
                 OldClass = file.TrademarkClass,
                 Class = dto.NewClass,
+                NewAdditionalDescription = dto.NewAdditionalDescription ?? "",
                 RecordalType = "Reclassification",
                 DateTreated = ""
             };
@@ -7726,7 +7727,8 @@ public class FilesServices
                 ApplicantPhone = applicant.Phone,
                 ApplicantNationality = applicant.country,
                 TrademarkClass = fileInfo.TrademarkClass,
-                DataChangeType = changeType
+                DataChangeType = changeType,
+                AdditionalDescription = classChange ? (fileInfo.AdditionalDescription ?? fileInfo.TrademarkSpecification ?? "") : null
             };
             _log.LogInformation($"New Change data recordal application for {fileId}, with {paymentId}");
             return changeCost;
@@ -7896,6 +7898,7 @@ public class FilesServices
             documentUrl = recordal?.documentUrl,
             OldClass = recordal.OldClass,
             NewClass = recordal?.Class,
+            NewAdditionalDescription = recordal?.NewAdditionalDescription,
         };
 
         return changeDetails;
