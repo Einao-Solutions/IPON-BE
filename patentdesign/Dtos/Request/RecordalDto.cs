@@ -28,6 +28,7 @@ namespace patentdesign.Dtos.Request
         public List<ApplicantInfo> DesignCreators { get; set; } = new();
         public string? StatementOfNovelty { get; set; }
         public string? DataChangeType { get; set; }
+        public string? AdditionalDescription { get; set; }
         public string? rrr { get; set; }
         public string? Amount { get; set; }
         public string? ServiceFee { get; set; }
@@ -148,6 +149,7 @@ namespace patentdesign.Dtos.Request
         public string? OldClassDescription { get; set; }
         public int? NewClass { get; set; }
         public string? NewClassDescription { get; set; }
+        public string? NewAdditionalDescription { get; set; }
         public IFormFile? document { get; set; }
         public AttachmentInfo? documentInfo { get; set; }
         public string? documentUrl { get; set; }
@@ -159,7 +161,7 @@ namespace patentdesign.Dtos.Request
         public string appId { get; set; }
         public string reason { get; set; }
         public string userId { get; set; }
-    }                       
+    }
     public class RenewalDto
     {
         public string? Cost { get; set; }
