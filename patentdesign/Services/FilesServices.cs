@@ -205,6 +205,19 @@ public class FilesServices
         {
             _log.LogWarning(ex, "Failed to ensure files index on RtmNumber");
         }
+
+        try
+        {
+            // the per-user dashboard stats aggregate and the user's file grid both start with a
+            // CreatorAccount match; without an index each request scans every file.
+            var creatorKeys = Builders<Filling>.IndexKeys.Ascending(x => x.CreatorAccount);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(creatorKeys, new CreateIndexOptions { Name = "CreatorAccount_1", Background = true }));
+            _log.LogInformation("Ensured files index on CreatorAccount");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)

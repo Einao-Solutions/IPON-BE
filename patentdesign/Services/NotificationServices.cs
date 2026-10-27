@@ -31,6 +31,52 @@ namespace patentdesign.Services
             _logger = logger;
             _users = db.GetCollection<AppUser>("appUsers");
             _emailServices = emailServices;
+
+            EnsureNotificationIndexes();
+        }
+
+        private static int _indexesEnsured;
+
+        // RetryPendingEmailsAsync filters and sorts on EmailNextAttemptAt. The field is unset once an
+        // email is sent, so a sparse index only holds pending/retrying emails and stays small.
+        private void EnsureNotificationIndexes()
+        {
+            if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                var keys = Builders<Notification>.IndexKeys.Ascending(x => x.EmailNextAttemptAt);
+                _notifications.Indexes.CreateOne(new CreateIndexModel<Notification>(keys,
+                    new CreateIndexOptions { Name = "EmailNextAttemptAt_1", Background = true, Sparse = true }));
+                _logger.LogInformation("Ensured notifications index on EmailNextAttemptAt");
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Exchange(ref _indexesEnsured, 0);
+                _logger.LogWarning(ex, "Failed to ensure notifications index on EmailNextAttemptAt");
+            }
+
+            // the unread count/list/mark-all queries match (RecipientId OR Audience) AND IsRead.
+            // An $or only uses indexes when every branch is indexed, so both branches need one.
+            EnsureIndex(Builders<Notification>.IndexKeys.Ascending(x => x.RecipientId).Ascending(x => x.IsRead), "RecipientId_1_IsRead_1");
+            EnsureIndex(Builders<Notification>.IndexKeys.Ascending(x => x.Audience).Ascending(x => x.IsRead), "Audience_1_IsRead_1");
+        }
+
+        private void EnsureIndex(IndexKeysDefinition<Notification> keys, string name)
+        {
+            try
+            {
+                _notifications.Indexes.CreateOne(new CreateIndexModel<Notification>(keys,
+                    new CreateIndexOptions { Name = name, Background = true }));
+                _logger.LogInformation("Ensured notifications index {IndexName}", name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to ensure notifications index {IndexName}", name);
+            }
         }
 
         public virtual Task CreateNotificationAsync(CreateNotificationDto dto)
