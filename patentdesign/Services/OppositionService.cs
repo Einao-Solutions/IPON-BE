@@ -66,6 +66,33 @@ public class OppositionService
         _publicationCollection = db.GetCollection<PublicationInfo>("trademarkJournal");
         _userCollection = db.GetCollection<AppUser>("appUsers");
         _paymentServices = paymentServices;
+
+        EnsureOppositionIndexes();
+    }
+
+    private static int _indexesEnsured;
+
+    // GetOppositionCount and LoadSummary both filter on Paid (optionally with Status);
+    // without an index every request scans the whole opposition collection.
+    private void EnsureOppositionIndexes()
+    {
+        if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var keys = Builders<Opposition>.IndexKeys.Ascending(x => x.Paid).Ascending(x => x.Status);
+            _oppositionCollection.Indexes.CreateOne(new CreateIndexModel<Opposition>(keys,
+                new CreateIndexOptions { Name = "Paid_1_Status_1", Background = true }));
+            _log.LogInformation("Ensured opposition index on Paid and Status");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _indexesEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure opposition index on Paid and Status");
+        }
     }
     public async Task<OppositionSearchDto> OppositionSearch(string fileNumber)
     {
