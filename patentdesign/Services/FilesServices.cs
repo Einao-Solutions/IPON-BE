@@ -493,6 +493,18 @@ public class FilesServices
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
                     paymentDate, userName, userId, "Payment Successful");
                 break;
+
+            case FormApplicationTypes.RegisteredUser:
+                _log.LogInformation("Processing registered user payment for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+
+            default:
+                _log.LogWarning("No payment processing defined for application type {AppType} (FileId {FileId}, AppId {AppId}); status left unchanged",
+                    application.ApplicationType, file.FileId, application.id);
+                break;
         }
         await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
 
