@@ -2491,7 +2491,49 @@ public class FilesServices
     }
 
     
+    // the global (all files) stats scan and unwind the whole files collection; dashboards poll it,
+    // so share one recent result instead of re-running the aggregate on every request.
+    private static readonly TimeSpan GlobalFileStatsTtl = TimeSpan.FromMinutes(2);
+    private static readonly SemaphoreSlim _globalFileStatsLock = new(1, 1);
+    private static List<FileStatsRes>? _globalFileStatsCache;
+    private static DateTime _globalFileStatsCachedAt;
+
     public async Task<List<FileStatsRes>?> FileStats(string? userId)
+    {
+        if (userId != "null")
+        {
+            return await ComputeFileStats(userId);
+        }
+
+        if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)
+        {
+            return _globalFileStatsCache;
+        }
+
+        await _globalFileStatsLock.WaitAsync();
+        try
+        {
+            if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)
+            {
+                return _globalFileStatsCache;
+            }
+
+            var stats = await ComputeFileStats(userId);
+            if (stats != null)
+            {
+                _globalFileStatsCache = stats;
+                _globalFileStatsCachedAt = DateTime.UtcNow;
+                _log.LogInformation("Global file stats recomputed and cached for {Ttl}", GlobalFileStatsTtl);
+            }
+            return stats;
+        }
+        finally
+        {
+            _globalFileStatsLock.Release();
+        }
+    }
+
+    private async Task<List<FileStatsRes>?> ComputeFileStats(string? userId)
     {
         try
         {
