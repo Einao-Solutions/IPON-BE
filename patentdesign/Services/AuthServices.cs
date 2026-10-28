@@ -40,6 +40,33 @@ namespace patentdesign.Services
             _users = db.GetCollection<AppUser>("appUsers");
             _fillingCollection = db.GetCollection<Filling>(s.FilesCollectionName);
             _emailServices = emailServices;
+            EnsureEmailIndex();
+        }
+
+        // case-insensitive email match that can use the Email_ci index (a ^...$ "i" regex cannot).
+        internal static readonly Collation EmailCollation =
+            new Collation("en", strength: new Optional<CollationStrength?>(CollationStrength.Secondary));
+        private static int _emailIndexEnsured;
+
+        private void EnsureEmailIndex()
+        {
+            if (Interlocked.Exchange(ref _emailIndexEnsured, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                var keys = Builders<AppUser>.IndexKeys.Ascending(u => u.Email);
+                _users.Indexes.CreateOne(new CreateIndexModel<AppUser>(keys,
+                    new CreateIndexOptions { Name = "Email_ci", Background = true, Collation = EmailCollation }));
+                _log.LogInformation("Ensured appUsers case-insensitive index on Email");
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Exchange(ref _emailIndexEnsured, 0);
+                _log.LogWarning(ex, "Failed to ensure appUsers case-insensitive index on Email");
+            }
         }
 
         public async Task<bool> CreateUser(RegisterDto req)
@@ -333,9 +360,8 @@ namespace patentdesign.Services
                 }
 
                 _log.LogInformation("Login attempt for {Email}", email);
-                var escapedEmail = Regex.Escape(email);
-                var emailFilter = Builders<AppUser>.Filter.Regex(u => u.Email, new BsonRegularExpression($"^{escapedEmail}$", "i"));
-                var user = await _users.Find(emailFilter).FirstOrDefaultAsync();
+                var emailFilter = Builders<AppUser>.Filter.Eq(u => u.Email, email);
+                var user = await _users.Find(emailFilter, new FindOptions { Collation = EmailCollation }).FirstOrDefaultAsync();
                 if (user == null)
                 {
                     _log.LogWarning("Login failed — user {Email} not found", email);

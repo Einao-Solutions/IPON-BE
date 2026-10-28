@@ -69,6 +69,20 @@ public class TicketServices
             Interlocked.Exchange(ref _indexesEnsured, 0);
             _logger.LogWarning(ex, "Failed to ensure tickets index on creatorId and Status");
         }
+
+        try
+        {
+            // staff queues and counts filter on Status (optionally with Category) without creatorId,
+            // so they cannot use the creatorId-prefixed index above.
+            var statusKeys = Builders<TicketInfo>.IndexKeys.Ascending("Status").Ascending("Category");
+            _ticketsCollection.Indexes.CreateOne(new CreateIndexModel<TicketInfo>(statusKeys,
+                new CreateIndexOptions { Name = "Status_1_Category_1", Background = true }));
+            _logger.LogInformation("Ensured tickets index on Status and Category");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to ensure tickets index on Status and Category");
+        }
     }
     #endregion
 

@@ -2020,10 +2020,9 @@ public class OppositionService
             foreach (var o in orphans)
             {
                 if (string.IsNullOrWhiteSpace(o.Email)) continue;
-                var emailRegex = new MongoDB.Bson.BsonRegularExpression(
-                    $"^{System.Text.RegularExpressions.Regex.Escape(o.Email.Trim())}$", "i");
                 var user = await _userCollection
-                    .Find(Builders<AppUser>.Filter.Regex(u => u.Email, emailRegex))
+                    .Find(Builders<AppUser>.Filter.Eq(u => u.Email, o.Email.Trim()),
+                        new FindOptions { Collation = AuthServices.EmailCollation })
                     .FirstOrDefaultAsync();
                 if (user == null || string.IsNullOrWhiteSpace(user.Id)) continue;
                 await _oppositionCollection.UpdateOneAsync(
