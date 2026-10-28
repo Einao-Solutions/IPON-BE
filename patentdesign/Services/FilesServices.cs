@@ -218,6 +218,21 @@ public class FilesServices
         {
             _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount");
         }
+
+        try
+        {
+            // the user's file grid filters on CreatorAccount together with Type and/or a DateCreated range.
+            var creatorTypeKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.CreatorAccount)
+                .Ascending(x => x.Type)
+                .Descending(x => x.DateCreated);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(creatorTypeKeys, new CreateIndexOptions { Name = "CreatorAccount_1_Type_1_DateCreated_-1", Background = true }));
+            _log.LogInformation("Ensured files index on CreatorAccount, Type and DateCreated");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount, Type and DateCreated");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -1994,6 +2009,21 @@ public class FilesServices
                (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
     }
 
+    private static FilterDefinition<Filling> BuildTitleSearchFilter(FilterDefinitionBuilder<Filling> filterBuilder, string title)
+    {
+        // user input is escaped so it is matched literally and cannot trigger expensive/malicious regex patterns.
+        var trimmed = title.Trim();
+        if (trimmed.Length == 0) return filterBuilder.Empty;
+        var regex = new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(trimmed), "i");
+        return filterBuilder.Or([
+            filterBuilder.Regex(f => f.TitleOfDesign, regex),
+            filterBuilder.Regex(f => f.TitleOfInvention, regex),
+            filterBuilder.Regex(f => f.TitleOfTradeMark, regex),
+            filterBuilder.Regex(f => f.FileId, regex),
+            filterBuilder.Regex(f => f.applicants.Select(x => x.Name), regex)
+        ]);
+    }
+
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
     {
         var filterBuilder = Builders<Filling>.Filter;
@@ -2031,13 +2061,7 @@ public class FilesServices
                     filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
                     filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
                 ])
-                : filterBuilder.Or([
-                    filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
-                ]);
+                : BuildTitleSearchFilter(filterBuilder, filter.Title);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
