@@ -44,6 +44,35 @@ public class PaymentService
         _payxWallet = db.GetCollection<XpayTwallet>("xpayTwallet");
         _users = db.GetCollection<AppUser>("appUsers");
         _log = log;
+        EnsurePaymentRecordIndex();
+    }
+
+    private static int _paymentIndexEnsured;
+
+    // AddPaymentRecord checks for an existing record by ApplicationId + PaymentType + RRR before every
+    // insert; without a matching index that check scans the whole payments collection.
+    private void EnsurePaymentRecordIndex()
+    {
+        if (Interlocked.Exchange(ref _paymentIndexEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var keys = Builders<PaymentRecord>.IndexKeys
+                .Ascending(p => p.ApplicationId)
+                .Ascending(p => p.PaymentType)
+                .Ascending("RemitaResponse.rrr");
+            _payments.Indexes.CreateOne(new CreateIndexModel<PaymentRecord>(keys,
+                new CreateIndexOptions { Name = "ApplicationId_1_PaymentType_1_RemitaResponse.rrr_1", Background = true }));
+            _log.LogInformation("Ensured payments index on ApplicationId, PaymentType and RemitaResponse.rrr");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _paymentIndexEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure payments index on ApplicationId, PaymentType and RemitaResponse.rrr");
+        }
     }
 
     public async Task<List<PaymentServiceModel>> GetAllPayment()

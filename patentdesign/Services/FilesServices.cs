@@ -2021,6 +2021,15 @@ public class FilesServices
                (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
     }
 
+    // terms pasted from chats/documents often carry invisible format characters (e.g. U+2060 word joiner,
+    // U+200B zero-width space, U+FEFF BOM). They make a file number look like free text, which turns an
+    // indexed exact lookup into a full regex scan that cannot match anything anyway.
+    private static string NormalizeSearchTerm(string term)
+    {
+        var cleaned = new string(term.Where(c => char.GetUnicodeCategory(c) != UnicodeCategory.Format).ToArray());
+        return cleaned.Trim();
+    }
+
     private static FilterDefinition<Filling> BuildTitleSearchFilter(FilterDefinitionBuilder<Filling> filterBuilder, string title)
     {
         // user input is escaped so it is matched literally and cannot trigger expensive/malicious regex patterns.
@@ -2064,16 +2073,22 @@ public class FilesServices
         var typeFilter = filter.types == null
             ? filterBuilder.Empty
             : filterBuilder.In(f => f.Type, filter.types);
-        var titleFilter = filter.Title == null
+        var searchTerm = filter.Title == null ? null : NormalizeSearchTerm(filter.Title);
+        if (searchTerm != null && searchTerm != filter.Title.Trim())
+        {
+            _log.LogDebug("Search term contained invisible characters; normalized from {Length} to {NormalizedLength} chars",
+                filter.Title.Length, searchTerm.Length);
+        }
+        var titleFilter = string.IsNullOrEmpty(searchTerm)
             ? filterBuilder.Empty
-            : LooksLikeFileNumber(filter.Title)
+            : LooksLikeFileNumber(searchTerm)
                 // a file/RTM number is an exact lookup; both fields are indexed, so this avoids
                 // the unanchored case-insensitive regex scan over the whole collection.
                 ? filterBuilder.Or([
-                    filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
-                    filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
+                    filterBuilder.Eq(f => f.FileId, searchTerm),
+                    filterBuilder.Eq(f => f.RtmNumber, searchTerm)
                 ])
-                : BuildTitleSearchFilter(filterBuilder, filter.Title);
+                : BuildTitleSearchFilter(filterBuilder, searchTerm);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
@@ -2533,6 +2548,17 @@ public class FilesServices
         }
     }
 
+    // $facet buffers every input document; keeping only the fields the stats read avoids carrying
+    // whole file documents (applicants, attachments, correspondence, etc.) through the pipeline.
+    private static BsonDocument StatsFieldsProjection() => new BsonDocument("$project", new BsonDocument
+    {
+        { "_id", 0 },
+        { "Type", 1 },
+        { "FileStatus", 1 },
+        { "ApplicationHistory.ApplicationType", 1 },
+        { "ApplicationHistory.CurrentStatus", 1 }
+    });
+
     private async Task<List<FileStatsRes>?> ComputeFileStats(string? userId)
     {
         try
@@ -2542,6 +2568,7 @@ public class FilesServices
             {
                 pipeline = new BsonDocument[]
                 {
+                StatsFieldsProjection(),
                 new BsonDocument("$facet", new BsonDocument
                 {
                     {
@@ -2613,6 +2640,7 @@ public class FilesServices
                         }
                     }
                 }),
+                StatsFieldsProjection(),
                 new BsonDocument("$facet", new BsonDocument
                 {
                     {
