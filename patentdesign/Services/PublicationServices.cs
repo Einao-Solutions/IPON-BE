@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using patentdesign.Models;
@@ -16,6 +16,8 @@ namespace patentdesign.Services
 {
     public class PublicationServices
     {
+        private static readonly HttpClient ImageDownloadClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
@@ -181,7 +183,7 @@ namespace patentdesign.Services
 
             _log.LogInformation("Fetched {Count} publications, skipping image downloads (temporarily disabled)", publicationsData.Count);
 
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var httpClient = ImageDownloadClient;
             using var gate = new SemaphoreSlim(8); // cap concurrent downloads
 
             async Task<byte[]?> DownloadAsync(string url)

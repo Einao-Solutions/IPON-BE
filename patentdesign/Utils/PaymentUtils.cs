@@ -525,7 +525,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
         {
             throw new ArgumentException("Total or Service Fee must be valid integers.");
         }
-        var _client = new HttpClient();
+        var _client = httpClientFactory?.CreateClient(RemitaClientName) ?? FallbackClient;
         var orderId = $"IPONMWD{DateTime.UtcNow.Ticks}";
         // var serviceId = "4019135160";
         var merchantId = "6230040240";
@@ -565,7 +565,6 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                  }),
                  Encoding.UTF8,
                  "application/json");
-        _client = new HttpClient();
         var test = merchantId + serviceId + orderId + total + apiKey;
         var apiHash = SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(test));
         var convertedHash = Convert.ToHexString(apiHash).ToLower();
@@ -720,7 +719,7 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
 
         try
         {
-            using var client = new HttpClient();
+            var client = httpClientFactory?.CreateClient(RemitaClientName) ?? FallbackClient;
             using var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
             request.Headers.TryAddWithoutValidation("Authorization",
                 $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");

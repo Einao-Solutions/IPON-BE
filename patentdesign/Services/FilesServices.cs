@@ -1637,6 +1637,15 @@ public class FilesServices
             startingIndex, quantity, filter.types != null ? string.Join(",", filter.types) : "all",
             filter.status != null ? string.Join(",", filter.status) : "all");
 
+        var searchTerm = filter.Title == null ? null : NormalizeSearchTerm(filter.Title);
+        var isFreeTextSearch = !string.IsNullOrEmpty(searchTerm) && !LooksLikeFileNumber(searchTerm);
+        if (isFreeTextSearch && searchTerm!.Length < MinFreeTextSearchLength)
+        {
+            // a 1-2 character unanchored regex matches almost everything and still scans the whole collection.
+            _log.LogDebug("GetPaginatedSummary skipped free-text search shorter than {Min} chars", MinFreeTextSearchLength);
+            return new PaginatedResponse { result = new List<FileSummary>(), count = 0 };
+        }
+
         var filters = getFilter(filter);
         var fillBuilder = Builders<Filling>.Projection;
         var projection = fillBuilder.Expression(x => new FileSummary()
@@ -1659,9 +1668,18 @@ public class FilesServices
         });
         // the count and the page are independent; run them concurrently instead of
         // blocking a thread on a synchronous count before the page query even starts.
-        var countTask = GetSummaryCountAsync(filters);
-        var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
-        await Task.WhenAll(countTask, resultTask);
+        var countTask = GetSummaryCountAsync(filters, isFreeTextSearch);
+        var findOptions = isFreeTextSearch ? new FindOptions { MaxTime = FreeTextSearchMaxTime } : null;
+        var resultTask = _fillingCollection.Find(filters, findOptions).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        try
+        {
+            await Task.WhenAll(countTask, resultTask);
+        }
+        catch (MongoExecutionTimeoutException ex)
+        {
+            _log.LogWarning(ex, "Free-text file search exceeded {MaxTime} for term length {Length}", FreeTextSearchMaxTime, searchTerm?.Length);
+            throw new TimeoutException("The search took too long. Please use a more specific search term.", ex);
+        }
         var count = await countTask;
         var result = await resultTask;
         _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
@@ -1676,9 +1694,14 @@ public class FilesServices
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Count, DateTime ExpiresAt)> _summaryCountCache = new();
     private static readonly TimeSpan _summaryCountTtl = TimeSpan.FromSeconds(60);
 
+    private const int MinFreeTextSearchLength = 3;
+    private const long FreeTextSearchCountCap = 1000;
+    private static readonly TimeSpan FreeTextSearchMaxTime = TimeSpan.FromSeconds(10);
+
     // the paginated grid counts every matching file on each page request, which stays expensive
     // even with an index. Totals are only used to render the pager, so a short TTL is acceptable.
-    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters)
+    // Free-text regex counts cannot use an index, so they stop at FreeTextSearchCountCap matches.
+    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters, bool isFreeTextSearch = false)
     {
         var key = filters.Render(BsonSerializer.SerializerRegistry.GetSerializer<Filling>(), BsonSerializer.SerializerRegistry).ToJson();
 
@@ -1688,7 +1711,10 @@ public class FilesServices
             return cached.Count;
         }
 
-        var count = await _fillingCollection.CountDocumentsAsync(filters);
+        var countOptions = isFreeTextSearch
+            ? new CountOptions { Limit = FreeTextSearchCountCap, MaxTime = FreeTextSearchMaxTime }
+            : null;
+        var count = await _fillingCollection.CountDocumentsAsync(filters, countOptions);
         _summaryCountCache[key] = (count, DateTime.UtcNow.Add(_summaryCountTtl));
 
         if (_summaryCountCache.Count > 200)
