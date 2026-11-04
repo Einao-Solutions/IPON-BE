@@ -325,6 +325,255 @@ public class FilesServices
         _log.LogInformation("ManualUpdate completed for FileId {FileId}", fileId);
         return file;
     }
+
+    // Application types whose post-payment transition is implemented in ProcessApplicationType.
+    // Anything else is rejected explicitly instead of being silently left in AwaitingPayment.
+    private static readonly HashSet<FormApplicationTypes> ApplicantConfirmableTypes =
+    [
+        FormApplicationTypes.NewApplication,
+        FormApplicationTypes.Amendment,
+        FormApplicationTypes.LicenseRenewal,
+        FormApplicationTypes.ChangeOfName,
+        FormApplicationTypes.ChangeOfAddress,
+        FormApplicationTypes.ClericalUpdate,
+        FormApplicationTypes.Restoration,
+        FormApplicationTypes.Reclassification,
+        FormApplicationTypes.DataUpdate,
+        FormApplicationTypes.Assignment,
+        FormApplicationTypes.License,
+        FormApplicationTypes.Mortgage,
+        FormApplicationTypes.Merger,
+        FormApplicationTypes.CertifiedTrueCopy
+    ];
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> ApplicantConfirmationLocks = new();
+
+    private async Task<bool> IsFileOwnerAsync(Filling file, string callerId)
+    {
+        if (string.Equals(file.CreatorAccount, callerId, StringComparison.Ordinal)) return true;
+
+        var creatorId = await _userCollection
+            .Find(AvailabilitySearchRules.OwnerFilter(callerId))
+            .Project(u => u.CreatorId)
+            .FirstOrDefaultAsync();
+        return !string.IsNullOrWhiteSpace(creatorId) &&
+               string.Equals(file.CreatorAccount, creatorId, StringComparison.Ordinal);
+    }
+
+    // Applicant-facing confirmation of an already persisted, file-linked application. The caller identity comes
+    // from the token, the stored RRR is verified with Remita, and the transition is applied once per application.
+    public async Task<ApplicantPaymentResult> ConfirmApplicantPayment(string callerId, bool isStaff, string? callerName,
+        string fileId, string applicationId, bool isCertificate = false)
+    {
+        if (string.IsNullOrWhiteSpace(callerId))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "Caller could not be identified.");
+        if (string.IsNullOrWhiteSpace(fileId) || string.IsNullOrWhiteSpace(applicationId))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.NotFound, "File or application not found.");
+
+        var gate = ApplicantConfirmationLocks.GetOrAdd($"{fileId}|{applicationId}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            return await ConfirmApplicantPaymentCore(callerId, isStaff, callerName, fileId, applicationId, isCertificate);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<ApplicantPaymentResult> ConfirmApplicantPaymentCore(string callerId, bool isStaff, string? callerName,
+        string fileId, string applicationId, bool isCertificate)
+    {
+        // fileId may be the internal id (GET /api/files/{id}) or the file number; both keys are indexed.
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Or(
+                Builders<Filling>.Filter.Eq(f => f.Id, fileId),
+                Builders<Filling>.Filter.Eq(f => f.FileId, fileId)))
+            .FirstOrDefaultAsync();
+        var application = file?.ApplicationHistory?.FirstOrDefault(a => a.id == applicationId);
+        if (file == null || application == null)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.NotFound, "Application not found for this file.");
+
+        if (!isStaff && !await IsFileOwnerAsync(file, callerId))
+        {
+            _log.LogWarning("Payment confirmation denied - caller {CallerId} does not own file {FileId}", callerId, file.Id);
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "You are not allowed to confirm this application.");
+        }
+
+        var expectedStatus = isCertificate ? ApplicationStatuses.AwaitingCertification : ApplicationStatuses.AwaitingPayment;
+        if (application.CurrentStatus != expectedStatus)
+        {
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.AlreadyProcessed,
+                "Application payment has already been processed.", file);
+        }
+
+        if (!isCertificate && !ApplicantConfirmableTypes.Contains(application.ApplicationType))
+        {
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Unsupported,
+                $"Resuming payment for {application.ApplicationType} applications is not supported yet.");
+        }
+
+        var reference = isCertificate ? application.CertificatePaymentId ?? application.PaymentId : application.PaymentId;
+        var verification = await PaymentVerifier.VerifyAsync(_paymentService.CheckPayment, reference);
+        if (!verification.IsPaid)
+        {
+            return new ApplicantPaymentResult(
+                verification.Outcome == PaymentVerificationOutcome.Unverifiable
+                    ? ApplicantPaymentOutcome.Unverifiable
+                    : ApplicantPaymentOutcome.NotPaid,
+                verification.Message);
+        }
+
+        if (isCertificate)
+        {
+            var updated = await UpdateCertificatePaymentStatus(file.Id, reference!);
+            return updated
+                ? new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Certificate payment confirmed.",
+                    await _fillingCollection.Find(f => f.Id == file.Id).FirstOrDefaultAsync())
+                : new ApplicantPaymentResult(ApplicantPaymentOutcome.Failed, "Certificate payment update failed.");
+        }
+
+        var paymentDate = patentdesign.Utils.AppTime.TryParseToUtc(verification.Payment?.paymentDate, out var paidAt)
+            ? paidAt
+            : DateTime.UtcNow;
+        var beforeStatus = application.CurrentStatus;
+
+        await ProcessApplicationType(file, application, paymentDate, callerName, callerId);
+
+        if (application.CurrentStatus == beforeStatus)
+        {
+            _log.LogError("No workflow transition applied for application {AppId} ({Type}) on file {FileId}",
+                application.id, application.ApplicationType, file.Id);
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Failed, "Payment update could not be applied.");
+        }
+
+        try
+        {
+            await SendStatusUpdateNotificationAsync(file, application.id, application.ApplicationType, beforeStatus,
+                application.CurrentStatus);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Status notification failed after payment confirmation for application {AppId}", application.id);
+        }
+
+        return new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Payment confirmed.", file);
+    }
+
+    // Existing RRR amount lookup for resuming payments. Only the owner (or staff) of an application holding
+    // the RRR can read its total; the amount is taken from Remita for that RRR, never recomputed from current fees.
+    public async Task<RrrCostResult> GetApplicantRrrCost(string callerId, bool isStaff, string rrr)
+    {
+        if (string.IsNullOrWhiteSpace(callerId))
+            return new RrrCostResult(RrrCostOutcome.Forbidden, Message: "Caller could not be identified.");
+        if (string.IsNullOrWhiteSpace(rrr))
+            return new RrrCostResult(RrrCostOutcome.NotFound, Message: "Payment reference is required.");
+
+        var reference = rrr.Trim();
+        if (!isStaff && !await CallerHoldsReferenceAsync(callerId, reference))
+            return new RrrCostResult(RrrCostOutcome.NotFound, Message: "Payment reference not found.");
+
+        RemitaResponseClass? payment;
+        try
+        {
+            payment = await _remitaPaymentUtils.GetDetailsByRRR(reference).WaitAsync(RemitaVerificationTimeout);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Remita amount lookup failed for {Rrr}", reference);
+            payment = null;
+        }
+
+        if (payment == null)
+            return new RrrCostResult(RrrCostOutcome.Unverifiable, Message: "Payment amount could not be retrieved from Remita.");
+        if (payment.amount is not > 0)
+            return new RrrCostResult(RrrCostOutcome.NotFound, Message: "No amount found for this payment reference.");
+
+        return new RrrCostResult(RrrCostOutcome.Ok, payment.amount);
+    }
+
+    private async Task<bool> CallerHoldsReferenceAsync(string callerId, string rrr)
+    {
+        var creatorId = await _userCollection
+            .Find(AvailabilitySearchRules.OwnerFilter(callerId))
+            .Project(u => u.CreatorId)
+            .FirstOrDefaultAsync();
+
+        var owners = new List<string> { callerId };
+        if (!string.IsNullOrWhiteSpace(creatorId)) owners.Add(creatorId);
+
+        var ownsFileApplication = await _fillingCollection
+            .Find(Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.In(f => f.CreatorAccount, owners),
+                Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
+                    a => a.PaymentId == rrr || a.CertificatePaymentId == rrr)))
+            .Project(f => f.Id)
+            .Limit(1)
+            .AnyAsync();
+        if (ownsFileApplication) return true;
+
+        return await _userCollection
+            .Find(Builders<AppUser>.Filter.And(
+                AvailabilitySearchRules.OwnerFilter(callerId),
+                Builders<AppUser>.Filter.ElemMatch(u => u.OtherApplications,
+                    a => a.PaymentId == rrr || a.CertificatePaymentId == rrr)))
+            .Project(u => u.Id)
+            .Limit(1)
+            .AnyAsync();
+    }
+
+    // Confirms a status-search request that is already persisted: owner/staff only, payment verified with Remita,
+    // and the AwaitingPayment -> Active transition is claimed atomically so retries and races do nothing twice.
+    public async Task<ApplicantPaymentResult> ConfirmStatusRequestPayment(string callerId, bool isStaff, string requestId)
+    {
+        if (string.IsNullOrWhiteSpace(callerId))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "Caller could not be identified.");
+
+        var request = string.IsNullOrWhiteSpace(requestId)
+            ? null
+            : await _statusCollection.Find(x => x.Id == requestId).FirstOrDefaultAsync();
+        if (request == null)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.NotFound, "Status request not found.");
+        if (!isStaff && !string.Equals(request.userId, callerId, StringComparison.Ordinal))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "You are not allowed to confirm this request.");
+        if (request.status != ApplicationStatuses.AwaitingPayment)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.AlreadyProcessed, "Status request already processed.");
+
+        var verification = await PaymentVerifier.VerifyAsync(_paymentService.CheckPayment, request.paymentId);
+        if (!verification.IsPaid)
+        {
+            return new ApplicantPaymentResult(
+                verification.Outcome == PaymentVerificationOutcome.Unverifiable
+                    ? ApplicantPaymentOutcome.Unverifiable
+                    : ApplicantPaymentOutcome.NotPaid,
+                verification.Message);
+        }
+
+        var claimed = await _statusCollection.FindOneAndUpdateAsync(
+            Builders<StatusRequests>.Filter.And(
+                Builders<StatusRequests>.Filter.Eq(x => x.Id, requestId),
+                Builders<StatusRequests>.Filter.Eq(x => x.status, ApplicationStatuses.AwaitingPayment)),
+            Builders<StatusRequests>.Update.Combine(
+                Builders<StatusRequests>.Update.Set(x => x.status, ApplicationStatuses.Active),
+                Builders<StatusRequests>.Update.Set(x => x.receiptLetter, ApplicationLetters.StatusRequestReceipt),
+                Builders<StatusRequests>.Update.Set(x => x.ackLetter, ApplicationLetters.StatusRequestAck)),
+            new FindOneAndUpdateOptions<StatusRequests> { ReturnDocument = ReturnDocument.After });
+        if (claimed == null)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.AlreadyProcessed, "Status request already processed.");
+
+        try
+        {
+            saveFinance(verification.Payment, "Status Check Application", claimed.Id, "-", "Nigeria");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Finance record could not be saved for status request {RequestId}", claimed.Id);
+        }
+
+        return new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Payment confirmed.");
+    }
+
     private async void SavePayment(RemitaResponseClass pay, PaymentTypes type, string fileId, string appId)
     {
         _log.LogDebug("Saving payment record for FileId {FileId}, AppId {AppId}, Type {PaymentType}", fileId, appId, type);
@@ -457,6 +706,19 @@ public class FilesServices
                 application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
                     paymentDate, userName, userId, "Payment Successful");
+                break;
+            // Same paid-state the creation flows use for these post-registration recordals.
+            case FormApplicationTypes.License:
+            case FormApplicationTypes.Mortgage:
+            case FormApplicationTypes.Merger:
+            case FormApplicationTypes.CertifiedTrueCopy:
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment successful, awaiting recordal process");
+                var postRegRecord = file.PostRegApplications?.FirstOrDefault(p => p.Id == application.id);
+                if (postRegRecord != null && string.IsNullOrWhiteSpace(postRegRecord.DateTreated))
+                {
+                    postRegRecord.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
+                }
                 break;
         }
         await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);

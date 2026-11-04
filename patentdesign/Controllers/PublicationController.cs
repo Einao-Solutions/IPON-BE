@@ -77,8 +77,12 @@ namespace patentdesign.Controllers
         {
             try
             {
-                var result = await publicationServices.UpdateJournalRequestStatus(dto.AppId, dto.UserId);
-                return Ok(new { success = result.Item1, message = result.Item2 });
+                var callerId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(callerId)) return Unauthorized();
+                var result = await publicationServices.UpdateJournalRequestStatus(dto.AppId, callerId);
+                return result.Item1
+                    ? Ok(new { success = true, message = result.Item2 })
+                    : StatusCode(StatusCodes.Status409Conflict, new { success = false, message = result.Item2 });
             }
             catch (Exception e)
             {
