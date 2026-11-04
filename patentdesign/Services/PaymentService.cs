@@ -75,10 +75,17 @@ public class PaymentService
         }
     }
 
+    private const int MaxPaymentsReturned = 1000;
+
     public async Task<List<PaymentServiceModel>> GetAllPayment()
     {
+        // unbounded reads of the whole collection on every request were a DB CPU hotspot.
         var data = await _paymentCollection.
-            Find(Builders<PaymentServiceModel>.Filter.Empty).ToListAsync();
+            Find(Builders<PaymentServiceModel>.Filter.Empty).Limit(MaxPaymentsReturned).ToListAsync();
+        if (data.Count == MaxPaymentsReturned)
+        {
+            _log.LogWarning("GetAllPayment hit the {Max} record cap; results are truncated", MaxPaymentsReturned);
+        }
         return data;
     }
 

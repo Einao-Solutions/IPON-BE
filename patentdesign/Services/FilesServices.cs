@@ -233,6 +233,24 @@ public class FilesServices
         {
             _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount, Type and DateCreated");
         }
+
+        try
+        {
+            // free-text search in the file grid used an unanchored case-insensitive regex over five fields,
+            // which scanned the whole collection on every request (DB CPU spikes). $text uses this index instead.
+            var textKeys = Builders<Filling>.IndexKeys
+                .Text(x => x.TitleOfDesign)
+                .Text(x => x.TitleOfInvention)
+                .Text(x => x.TitleOfTradeMark)
+                .Text(x => x.FileId)
+                .Text("applicants.Name");
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(textKeys, new CreateIndexOptions { Name = "FileSearch_text", Background = true }));
+            _log.LogInformation("Ensured files text index for free-text search");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files text index for free-text search");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -2058,17 +2076,10 @@ public class FilesServices
 
     private static FilterDefinition<Filling> BuildTitleSearchFilter(FilterDefinitionBuilder<Filling> filterBuilder, string title)
     {
-        // user input is escaped so it is matched literally and cannot trigger expensive/malicious regex patterns.
+        // uses the FileSearch_text index (whole-word, case-insensitive) instead of a collection-scanning regex.
         var trimmed = title.Trim();
         if (trimmed.Length == 0) return filterBuilder.Empty;
-        var regex = new BsonRegularExpression(System.Text.RegularExpressions.Regex.Escape(trimmed), "i");
-        return filterBuilder.Or([
-            filterBuilder.Regex(f => f.TitleOfDesign, regex),
-            filterBuilder.Regex(f => f.TitleOfInvention, regex),
-            filterBuilder.Regex(f => f.TitleOfTradeMark, regex),
-            filterBuilder.Regex(f => f.FileId, regex),
-            filterBuilder.Regex(f => f.applicants.Select(x => x.Name), regex)
-        ]);
+        return filterBuilder.Text(trimmed, new TextSearchOptions { CaseSensitive = false });
     }
 
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
@@ -2538,12 +2549,30 @@ public class FilesServices
     private static readonly SemaphoreSlim _globalFileStatsLock = new(1, 1);
     private static List<FileStatsRes>? _globalFileStatsCache;
     private static DateTime _globalFileStatsCachedAt;
+    // per-user stats run the same aggregate over a user's files; dashboards poll it too.
+    private const int MaxUserFileStatsEntries = 5000;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (List<FileStatsRes> Stats, DateTime CachedAt)> _userFileStatsCache = new();
 
     public async Task<List<FileStatsRes>?> FileStats(string? userId)
     {
         if (userId != "null")
         {
-            return await ComputeFileStats(userId);
+            var key = userId ?? string.Empty;
+            if (_userFileStatsCache.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.CachedAt < GlobalFileStatsTtl)
+            {
+                return cached.Stats;
+            }
+
+            var userStats = await ComputeFileStats(userId);
+            if (userStats != null)
+            {
+                if (_userFileStatsCache.Count > MaxUserFileStatsEntries)
+                {
+                    _userFileStatsCache.Clear();
+                }
+                _userFileStatsCache[key] = (userStats, DateTime.UtcNow);
+            }
+            return userStats;
         }
 
         if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)

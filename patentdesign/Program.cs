@@ -296,16 +296,16 @@ builder.Services.AddHostedService<TicketAutoCloseService>();
 var app = builder.Build();
 
 // ------------------ One-off DB backfill ------------------
-try
-{
-    using var scope = app.Services.CreateScope();
-    var oppSvc = scope.ServiceProvider.GetRequiredService<OppositionService>();
-    await oppSvc.BackfillOppositionCreatorIds();
-}
-catch (Exception ex)
-{
-    Log.Warning(ex, "Opposition backfill failed on startup \u2014 continuing");
-}
+//try
+//{
+//    using var scope = app.Services.CreateScope();
+//    var oppSvc = scope.ServiceProvider.GetRequiredService<OppositionService>();
+//    await oppSvc.BackfillOppositionCreatorIds();
+//}
+//catch (Exception ex)
+//{
+//    Log.Warning(ex, "Opposition backfill failed on startup \u2014 continuing");
+//}
 
 // ------------------ Pipeline ------------------
 if (app.Environment.IsDevelopment())
