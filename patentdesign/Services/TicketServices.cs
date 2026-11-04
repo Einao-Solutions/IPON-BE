@@ -42,6 +42,47 @@ public class TicketServices
         _logger.LogInformation("TicketServices initialized. TicketCollection: {TicketCollection}, FilesCollectionConfigured: {FilesCollectionConfigured}",
             patentDesignDbSettings.Value.TicketCollectionName,
             !string.IsNullOrWhiteSpace(s.FilesCollectionName));
+
+        EnsureTicketIndexes();
+    }
+
+    private static int _indexesEnsured;
+
+    // the per-user ticket stats, summaries and access checks all filter on creatorId (the stats
+    // also group by Status); without an index each request scans the whole tickets collection.
+    private void EnsureTicketIndexes()
+    {
+        if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var keys = Builders<TicketInfo>.IndexKeys.Ascending(x => x.creatorId).Ascending(x => x.Status);
+            _ticketsCollection.Indexes.CreateOne(new CreateIndexModel<TicketInfo>(keys,
+                new CreateIndexOptions { Name = "creatorId_1_Status_1", Background = true }));
+            _logger.LogInformation("Ensured tickets index on creatorId and Status");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _indexesEnsured, 0);
+            _logger.LogWarning(ex, "Failed to ensure tickets index on creatorId and Status");
+        }
+
+        try
+        {
+            // staff queues and counts filter on Status (optionally with Category) without creatorId,
+            // so they cannot use the creatorId-prefixed index above.
+            var statusKeys = Builders<TicketInfo>.IndexKeys.Ascending("Status").Ascending("Category");
+            _ticketsCollection.Indexes.CreateOne(new CreateIndexModel<TicketInfo>(statusKeys,
+                new CreateIndexOptions { Name = "Status_1_Category_1", Background = true }));
+            _logger.LogInformation("Ensured tickets index on Status and Category");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to ensure tickets index on Status and Category");
+        }
     }
     #endregion
 

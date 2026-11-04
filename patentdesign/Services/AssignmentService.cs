@@ -1,4 +1,4 @@
-﻿using System.Security.Authentication;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,6 +12,7 @@ using Tfunctions.pdfs;
 
 public class AssignmentService
 {
+    private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(30) };
     private static IMongoCollection<Filling> _fillingCollection;
     private static IMongoCollection<AttachmentInfo> _attachmentCollection;
     private PaymentUtils _remitaPaymentUtils;
@@ -238,7 +239,7 @@ public class AssignmentService
                 x.Correspondence,
             }).FirstAsync();
             var signature =
-                await (new HttpClient()).GetByteArrayAsync(data.signatureUrl);
+                await SharedHttpClient.GetByteArrayAsync(data.signatureUrl);
             var approval=await GenerateAndSaveCertificate(new AssignmentCertificateType()
             {
                 fileNumber = fileData.FileId,
@@ -279,7 +280,7 @@ public class AssignmentService
                 x.Correspondence,
             }).FirstAsync();
             var signature =
-                await (new HttpClient()).GetByteArrayAsync(data.signatureUrl);
+                await SharedHttpClient.GetByteArrayAsync(data.signatureUrl);
             var rejection =await GenerateAndSaveRejection(new AssignmentCertificateType()
             {
                 fileNumber = fileData.FileId,
@@ -422,7 +423,7 @@ public class AssignmentService
         var hash = Convert.ToHexString(apiHash).ToLower();
         var transactionStatusUrl =
             $"https://login.remita.net/remita/exapp/api/v1/send/api/echannelsvc/{merchantId}/{rrr}/{hash}/status.reg";
-        var client = new HttpClient();
+        var client = SharedHttpClient;
         var request = new HttpRequestMessage(HttpMethod.Get, transactionStatusUrl);
         request.Headers.TryAddWithoutValidation("Authorization",
             $"remitaConsumerKey={merchantId},remitaConsumerToken={hash}");

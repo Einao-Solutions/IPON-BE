@@ -205,6 +205,52 @@ public class FilesServices
         {
             _log.LogWarning(ex, "Failed to ensure files index on RtmNumber");
         }
+
+        try
+        {
+            // the per-user dashboard stats aggregate and the user's file grid both start with a
+            // CreatorAccount match; without an index each request scans every file.
+            var creatorKeys = Builders<Filling>.IndexKeys.Ascending(x => x.CreatorAccount);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(creatorKeys, new CreateIndexOptions { Name = "CreatorAccount_1", Background = true }));
+            _log.LogInformation("Ensured files index on CreatorAccount");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount");
+        }
+
+        try
+        {
+            // the user's file grid filters on CreatorAccount together with Type and/or a DateCreated range.
+            var creatorTypeKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.CreatorAccount)
+                .Ascending(x => x.Type)
+                .Descending(x => x.DateCreated);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(creatorTypeKeys, new CreateIndexOptions { Name = "CreatorAccount_1_Type_1_DateCreated_-1", Background = true }));
+            _log.LogInformation("Ensured files index on CreatorAccount, Type and DateCreated");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount, Type and DateCreated");
+        }
+
+        try
+        {
+            // free-text search in the file grid used an unanchored case-insensitive regex over five fields,
+            // which scanned the whole collection on every request (DB CPU spikes). $text uses this index instead.
+            var textKeys = Builders<Filling>.IndexKeys
+                .Text(x => x.TitleOfDesign)
+                .Text(x => x.TitleOfInvention)
+                .Text(x => x.TitleOfTradeMark)
+                .Text(x => x.FileId)
+                .Text("applicants.Name");
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(textKeys, new CreateIndexOptions { Name = "FileSearch_text", Background = true }));
+            _log.LogInformation("Ensured files text index for free-text search");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files text index for free-text search");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -343,6 +389,7 @@ public class FilesServices
         FormApplicationTypes.License,
         FormApplicationTypes.Mortgage,
         FormApplicationTypes.Merger,
+        FormApplicationTypes.RegisteredUser,
         FormApplicationTypes.CertifiedTrueCopy
     ];
 
@@ -707,18 +754,37 @@ public class FilesServices
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
                     paymentDate, userName, userId, "Payment Successful");
                 break;
-            // Same paid-state the creation flows use for these post-registration recordals.
-            case FormApplicationTypes.License:
-            case FormApplicationTypes.Mortgage:
-            case FormApplicationTypes.Merger:
-            case FormApplicationTypes.CertifiedTrueCopy:
+// Same paid-state the creation flows use for these post-registration recordals.
+case FormApplicationTypes.License:
+case FormApplicationTypes.Mortgage:
+case FormApplicationTypes.CertifiedTrueCopy:
+    application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+    AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+        paymentDate, userName, userId, "Payment successful, awaiting recordal process");
+    var postRegRecord = file.PostRegApplications?.FirstOrDefault(p => p.Id == application.id);
+    if (postRegRecord != null && string.IsNullOrWhiteSpace(postRegRecord.DateTreated))
+    {
+        postRegRecord.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
+    }
+    break;
+
+case FormApplicationTypes.Merger:
+                _log.LogInformation("Processing merger payment for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
-                    paymentDate, userName, userId, "Payment successful, awaiting recordal process");
-                var postRegRecord = file.PostRegApplications?.FirstOrDefault(p => p.Id == application.id);
-                if (postRegRecord != null && string.IsNullOrWhiteSpace(postRegRecord.DateTreated))
-                {
-                    postRegRecord.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
-                }
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+
+            case FormApplicationTypes.RegisteredUser:
+                _log.LogInformation("Processing registered user payment for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+
+            default:
+                _log.LogWarning("No payment processing defined for application type {AppType} (FileId {FileId}, AppId {AppId}); status left unchanged",
+                    application.ApplicationType, file.FileId, application.id);
                 break;
         }
         await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
@@ -1852,6 +1918,15 @@ public class FilesServices
             startingIndex, quantity, filter.types != null ? string.Join(",", filter.types) : "all",
             filter.status != null ? string.Join(",", filter.status) : "all");
 
+        var searchTerm = filter.Title == null ? null : NormalizeSearchTerm(filter.Title);
+        var isFreeTextSearch = !string.IsNullOrEmpty(searchTerm) && !LooksLikeFileNumber(searchTerm);
+        if (isFreeTextSearch && searchTerm!.Length < MinFreeTextSearchLength)
+        {
+            // a 1-2 character unanchored regex matches almost everything and still scans the whole collection.
+            _log.LogDebug("GetPaginatedSummary skipped free-text search shorter than {Min} chars", MinFreeTextSearchLength);
+            return new PaginatedResponse { result = new List<FileSummary>(), count = 0 };
+        }
+
         var filters = getFilter(filter);
         var fillBuilder = Builders<Filling>.Projection;
         var projection = fillBuilder.Expression(x => new FileSummary()
@@ -1874,9 +1949,18 @@ public class FilesServices
         });
         // the count and the page are independent; run them concurrently instead of
         // blocking a thread on a synchronous count before the page query even starts.
-        var countTask = GetSummaryCountAsync(filters);
-        var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
-        await Task.WhenAll(countTask, resultTask);
+        var countTask = GetSummaryCountAsync(filters, isFreeTextSearch);
+        var findOptions = isFreeTextSearch ? new FindOptions { MaxTime = FreeTextSearchMaxTime } : null;
+        var resultTask = _fillingCollection.Find(filters, findOptions).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        try
+        {
+            await Task.WhenAll(countTask, resultTask);
+        }
+        catch (MongoExecutionTimeoutException ex)
+        {
+            _log.LogWarning(ex, "Free-text file search exceeded {MaxTime} for term length {Length}", FreeTextSearchMaxTime, searchTerm?.Length);
+            throw new TimeoutException("The search took too long. Please use a more specific search term.", ex);
+        }
         var count = await countTask;
         var result = await resultTask;
         _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
@@ -1891,9 +1975,14 @@ public class FilesServices
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Count, DateTime ExpiresAt)> _summaryCountCache = new();
     private static readonly TimeSpan _summaryCountTtl = TimeSpan.FromSeconds(60);
 
+    private const int MinFreeTextSearchLength = 3;
+    private const long FreeTextSearchCountCap = 1000;
+    private static readonly TimeSpan FreeTextSearchMaxTime = TimeSpan.FromSeconds(10);
+
     // the paginated grid counts every matching file on each page request, which stays expensive
     // even with an index. Totals are only used to render the pager, so a short TTL is acceptable.
-    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters)
+    // Free-text regex counts cannot use an index, so they stop at FreeTextSearchCountCap matches.
+    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters, bool isFreeTextSearch = false)
     {
         var key = filters.Render(BsonSerializer.SerializerRegistry.GetSerializer<Filling>(), BsonSerializer.SerializerRegistry).ToJson();
 
@@ -1903,7 +1992,10 @@ public class FilesServices
             return cached.Count;
         }
 
-        var count = await _fillingCollection.CountDocumentsAsync(filters);
+        var countOptions = isFreeTextSearch
+            ? new CountOptions { Limit = FreeTextSearchCountCap, MaxTime = FreeTextSearchMaxTime }
+            : null;
+        var count = await _fillingCollection.CountDocumentsAsync(filters, countOptions);
         _summaryCountCache[key] = (count, DateTime.UtcNow.Add(_summaryCountTtl));
 
         if (_summaryCountCache.Count > 200)
@@ -2236,6 +2328,23 @@ public class FilesServices
                (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
     }
 
+    // terms pasted from chats/documents often carry invisible format characters (e.g. U+2060 word joiner,
+    // U+200B zero-width space, U+FEFF BOM). They make a file number look like free text, which turns an
+    // indexed exact lookup into a full regex scan that cannot match anything anyway.
+    private static string NormalizeSearchTerm(string term)
+    {
+        var cleaned = new string(term.Where(c => char.GetUnicodeCategory(c) != UnicodeCategory.Format).ToArray());
+        return cleaned.Trim();
+    }
+
+    private static FilterDefinition<Filling> BuildTitleSearchFilter(FilterDefinitionBuilder<Filling> filterBuilder, string title)
+    {
+        // uses the FileSearch_text index (whole-word, case-insensitive) instead of a collection-scanning regex.
+        var trimmed = title.Trim();
+        if (trimmed.Length == 0) return filterBuilder.Empty;
+        return filterBuilder.Text(trimmed, new TextSearchOptions { CaseSensitive = false });
+    }
+
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
     {
         var filterBuilder = Builders<Filling>.Filter;
@@ -2264,22 +2373,22 @@ public class FilesServices
         var typeFilter = filter.types == null
             ? filterBuilder.Empty
             : filterBuilder.In(f => f.Type, filter.types);
-        var titleFilter = filter.Title == null
+        var searchTerm = filter.Title == null ? null : NormalizeSearchTerm(filter.Title);
+        if (searchTerm != null && searchTerm != filter.Title.Trim())
+        {
+            _log.LogDebug("Search term contained invisible characters; normalized from {Length} to {NormalizedLength} chars",
+                filter.Title.Length, searchTerm.Length);
+        }
+        var titleFilter = string.IsNullOrEmpty(searchTerm)
             ? filterBuilder.Empty
-            : LooksLikeFileNumber(filter.Title)
+            : LooksLikeFileNumber(searchTerm)
                 // a file/RTM number is an exact lookup; both fields are indexed, so this avoids
                 // the unanchored case-insensitive regex scan over the whole collection.
                 ? filterBuilder.Or([
-                    filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
-                    filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
+                    filterBuilder.Eq(f => f.FileId, searchTerm),
+                    filterBuilder.Eq(f => f.RtmNumber, searchTerm)
                 ])
-                : filterBuilder.Or([
-                    filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
-                ]);
+                : BuildTitleSearchFilter(filterBuilder, searchTerm);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
@@ -2697,7 +2806,78 @@ public class FilesServices
     }
 
     
+    // the global (all files) stats scan and unwind the whole files collection; dashboards poll it,
+    // so share one recent result instead of re-running the aggregate on every request.
+    private static readonly TimeSpan GlobalFileStatsTtl = TimeSpan.FromMinutes(2);
+    private static readonly SemaphoreSlim _globalFileStatsLock = new(1, 1);
+    private static List<FileStatsRes>? _globalFileStatsCache;
+    private static DateTime _globalFileStatsCachedAt;
+    // per-user stats run the same aggregate over a user's files; dashboards poll it too.
+    private const int MaxUserFileStatsEntries = 5000;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (List<FileStatsRes> Stats, DateTime CachedAt)> _userFileStatsCache = new();
+
     public async Task<List<FileStatsRes>?> FileStats(string? userId)
+    {
+        if (userId != "null")
+        {
+            var key = userId ?? string.Empty;
+            if (_userFileStatsCache.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.CachedAt < GlobalFileStatsTtl)
+            {
+                return cached.Stats;
+            }
+
+            var userStats = await ComputeFileStats(userId);
+            if (userStats != null)
+            {
+                if (_userFileStatsCache.Count > MaxUserFileStatsEntries)
+                {
+                    _userFileStatsCache.Clear();
+                }
+                _userFileStatsCache[key] = (userStats, DateTime.UtcNow);
+            }
+            return userStats;
+        }
+
+        if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)
+        {
+            return _globalFileStatsCache;
+        }
+
+        await _globalFileStatsLock.WaitAsync();
+        try
+        {
+            if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)
+            {
+                return _globalFileStatsCache;
+            }
+
+            var stats = await ComputeFileStats(userId);
+            if (stats != null)
+            {
+                _globalFileStatsCache = stats;
+                _globalFileStatsCachedAt = DateTime.UtcNow;
+                _log.LogInformation("Global file stats recomputed and cached for {Ttl}", GlobalFileStatsTtl);
+            }
+            return stats;
+        }
+        finally
+        {
+            _globalFileStatsLock.Release();
+        }
+    }
+
+    // $facet buffers every input document; keeping only the fields the stats read avoids carrying
+    // whole file documents (applicants, attachments, correspondence, etc.) through the pipeline.
+    private static BsonDocument StatsFieldsProjection() => new BsonDocument("$project", new BsonDocument
+    {
+        { "_id", 0 },
+        { "Type", 1 },
+        { "FileStatus", 1 },
+        { "ApplicationHistory.ApplicationType", 1 },
+        { "ApplicationHistory.CurrentStatus", 1 }
+    });
+
+    private async Task<List<FileStatsRes>?> ComputeFileStats(string? userId)
     {
         try
         {
@@ -2706,6 +2886,7 @@ public class FilesServices
             {
                 pipeline = new BsonDocument[]
                 {
+                StatsFieldsProjection(),
                 new BsonDocument("$facet", new BsonDocument
                 {
                     {
@@ -2777,6 +2958,7 @@ public class FilesServices
                         }
                     }
                 }),
+                StatsFieldsProjection(),
                 new BsonDocument("$facet", new BsonDocument
                 {
                     {

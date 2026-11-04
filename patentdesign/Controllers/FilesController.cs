@@ -46,8 +46,15 @@ public class FilesController(FilesServices fileService) : ControllerBase
     public async Task<ActionResult> GetSummary([FromQuery] int index,
         [FromQuery] int quantity, [FromBody] SummaryRequestObj request)
     {
-        var result = await fileService.GetPaginatedSummaryAsync(index, quantity, request);
-        return Ok(result);
+        try
+        {
+            var result = await fileService.GetPaginatedSummaryAsync(index, quantity, request);
+            return Ok(result);
+        }
+        catch (TimeoutException ex)
+        {
+            return StatusCode(StatusCodes.Status408RequestTimeout, new { message = ex.Message });
+        }
     }
 
     [HttpPost("ValidatePayment")]
