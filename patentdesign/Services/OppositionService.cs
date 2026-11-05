@@ -364,6 +364,21 @@ public class OppositionService
             throw;
         }
     }
+    // Independent server-side proof of payment; a client-side redirect or status flag is never trusted.
+    private async Task RequireRemitaPaymentAsync(string paymentId)
+    {
+        var verification = await PaymentVerifier.VerifyAsync(_remitaPaymentUtils.GetDetailsByRRR, paymentId);
+        switch (verification.Outcome)
+        {
+            case PaymentVerificationOutcome.Paid:
+                return;
+            case PaymentVerificationOutcome.Unverifiable:
+                throw new RemitaUnavailableException(verification.Message);
+            default:
+                throw new InvalidOperationException(verification.Message);
+        }
+    }
+
     public async Task<bool> UpdateOppositionPaymentStatus(string paymentId)
     {
         try
@@ -374,15 +389,21 @@ public class OppositionService
             // Idempotency: if already paid, return success without duplicating
             if (opp.Paid == true) return true;
 
+            await RequireRemitaPaymentAsync(paymentId);
+
             opp.Paid = true;
             opp.OppositionDate = DateTime.UtcNow;
-            await _oppositionCollection.UpdateOneAsync(
-                Builders<Opposition>.Filter.Eq(x => x.PaymentId, paymentId),
+            // Atomic claim: only one concurrent caller flips Paid, so side effects below run once.
+            var claimed = await _oppositionCollection.FindOneAndUpdateAsync(
+                Builders<Opposition>.Filter.And(
+                    Builders<Opposition>.Filter.Eq(x => x.PaymentId, paymentId),
+                    Builders<Opposition>.Filter.Ne(x => x.Paid, true)),
                 Builders<Opposition>.Update.Combine(
                     Builders<Opposition>.Update.Set(x => x.Paid, true),
                     Builders<Opposition>.Update.Set(x => x.Status, ApplicationStatuses.AwaitingCounter),
                     Builders<Opposition>.Update.Set(x => x.OppositionDate, DateTime.UtcNow)
                 ));
+            if (claimed == null) return true;
             // File status and opposition status — only update AFTER payment confirmed
             var file = await _fillingCollection.Find(f => f.FileId == opp.FileNumber).FirstOrDefaultAsync();
             if (file != null)
@@ -984,9 +1005,15 @@ public class OppositionService
             if (cs.Paid == true)
                 return (true, "Counter statement payment already confirmed");
 
-            await _counterStatementCollection.UpdateOneAsync(
-                Builders<CounterStatement>.Filter.Eq(x => x.PaymentId, paymentId),
+            await RequireRemitaPaymentAsync(paymentId);
+
+            var claimedCs = await _counterStatementCollection.FindOneAndUpdateAsync(
+                Builders<CounterStatement>.Filter.And(
+                    Builders<CounterStatement>.Filter.Eq(x => x.PaymentId, paymentId),
+                    Builders<CounterStatement>.Filter.Ne(x => x.Paid, true)),
                 Builders<CounterStatement>.Update.Set(x => x.Paid, true));
+            if (claimedCs == null)
+                return (true, "Counter statement payment already confirmed");
 
             var opp = await _oppositionCollection.Find(o => o.id == cs.OppositionId).FirstOrDefaultAsync();
             if (opp == null)
@@ -1373,11 +1400,17 @@ public class OppositionService
             if (sd.Paid == true)
                 return (true, "Statutory declaration payment already confirmed");
 
-            await _statutoryDeclarationCollection.UpdateOneAsync(
-                Builders<StatutoryDeclaration>.Filter.Eq(x => x.PaymentId, paymentId),
+            await RequireRemitaPaymentAsync(paymentId);
+
+            var claimedSd = await _statutoryDeclarationCollection.FindOneAndUpdateAsync(
+                Builders<StatutoryDeclaration>.Filter.And(
+                    Builders<StatutoryDeclaration>.Filter.Eq(x => x.PaymentId, paymentId),
+                    Builders<StatutoryDeclaration>.Filter.Ne(x => x.Paid, true)),
                 Builders<StatutoryDeclaration>.Update.Combine(
                     Builders<StatutoryDeclaration>.Update.Set(x => x.Paid, true),
                     Builders<StatutoryDeclaration>.Update.Set(x => x.ApplicationStatus, ApplicationStatuses.AwaitingOfficeProcess)));
+            if (claimedSd == null)
+                return (true, "Statutory declaration payment already confirmed");
 
             // Re-fetch the updated SD to push correct state into opposition
             sd = await _statutoryDeclarationCollection.Find(x => x.PaymentId == paymentId).FirstOrDefaultAsync();
@@ -2175,12 +2208,18 @@ public class OppositionService
             if (oppCheck?.Status == ApplicationStatuses.WithdrawalRequested)
                 return (false, "A withdrawal request has already been submitted for this opposition and is pending review. You cannot submit another withdrawal request.");
 
-            await _oppositionWithdrawalCollection.UpdateOneAsync(
-                Builders<OppositionWithdrawal>.Filter.Eq(w => w.PaymentId, paymentId),
+            await RequireRemitaPaymentAsync(paymentId);
+
+            var claimedWithdrawal = await _oppositionWithdrawalCollection.FindOneAndUpdateAsync(
+                Builders<OppositionWithdrawal>.Filter.And(
+                    Builders<OppositionWithdrawal>.Filter.Eq(w => w.PaymentId, paymentId),
+                    Builders<OppositionWithdrawal>.Filter.Ne(w => w.Paid, true)),
                 Builders<OppositionWithdrawal>.Update.Combine(
                     Builders<OppositionWithdrawal>.Update.Set(w => w.Paid, true),
                     Builders<OppositionWithdrawal>.Update.Set(w => w.PaymentStatus, "success"),
                     Builders<OppositionWithdrawal>.Update.Set(w => w.UpdatedAt, DateTime.UtcNow)));
+            if (claimedWithdrawal == null)
+                return (true, "Withdrawal payment already confirmed");
 
             // Set opposition status to WithdrawalRequested (38)
             var opp = await _oppositionCollection.Find(o => o.id == withdrawal.OppositionId).FirstOrDefaultAsync();

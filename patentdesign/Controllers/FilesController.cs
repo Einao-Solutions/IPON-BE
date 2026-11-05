@@ -141,8 +141,16 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpGet("GetRRRCost")]
     public async Task<ActionResult<dynamic>> GetCostFromRRR([FromQuery] string rrr)
     {
-        var res = await fileService.GetNewAppCostFromRemita(rrr);
-        return Ok(res);
+        var callerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(callerId)) return Unauthorized();
+        var res = await fileService.GetApplicantRrrCost(callerId, IsStaffCaller(), rrr);
+        return res.Outcome switch
+        {
+            RrrCostOutcome.Ok => Ok(new { cost = res.Amount }),
+            RrrCostOutcome.Unverifiable => StatusCode(StatusCodes.Status503ServiceUnavailable, new { success = false, message = res.Message }),
+            RrrCostOutcome.Forbidden => Forbid(),
+            _ => NotFound(new { success = false, message = res.Message })
+        };
     }
 
 
@@ -205,12 +213,32 @@ public class FilesController(FilesServices fileService) : ControllerBase
     }
 
     [HttpPost("ManualUpdate")]
-    public async Task<ActionResult> ManualPaymentUpdate([FromQuery] string fileId, [FromQuery] string applicationId,
+    public async Task<IActionResult> ManualPaymentUpdate([FromQuery] string fileId, [FromQuery] string applicationId,
             [FromQuery] string? userId, [FromQuery] string? userName, [FromQuery] bool isCertificate)
     {
-        var result = await fileService.ManualUpdate(fileId, applicationId, userName, userId, isCertificate);
-        return Ok(result);
+        var callerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(callerId)) return Unauthorized();
+        var callerName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var result = await fileService.ConfirmApplicantPayment(callerId, IsStaffCaller(), callerName, fileId, applicationId, isCertificate);
+        return ApplicantResult(result);
     }
+
+    private bool IsStaffCaller() =>
+        User.IsInRole(nameof(Roles.SuperAdmin)) ||
+        User.IsInRole(nameof(Roles.TrademarkRegistrar)) ||
+        User.IsInRole(nameof(Roles.PatentDesignRegistrar));
+
+    private IActionResult ApplicantResult(ApplicantPaymentResult result) => result.Outcome switch
+    {
+        ApplicantPaymentOutcome.Confirmed or ApplicantPaymentOutcome.AlreadyProcessed =>
+            Ok(new { success = true, message = result.Message }),
+        ApplicantPaymentOutcome.NotFound => NotFound(new { success = false, message = result.Message }),
+        ApplicantPaymentOutcome.Forbidden => StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = result.Message }),
+        ApplicantPaymentOutcome.Unverifiable => StatusCode(StatusCodes.Status503ServiceUnavailable, new { success = false, message = result.Message }),
+        ApplicantPaymentOutcome.NotPaid => StatusCode(StatusCodes.Status402PaymentRequired, new { success = false, message = result.Message }),
+        ApplicantPaymentOutcome.Unsupported => UnprocessableEntity(new { success = false, message = result.Message }),
+        _ => StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = result.Message })
+    };
 
 
     [HttpPost("BulkAdd")]
@@ -465,12 +493,10 @@ public class FilesController(FilesServices fileService) : ControllerBase
     [HttpPost("UpdateStatusRequest")]
     public async Task<IActionResult> UpdateStatusRequest([FromQuery] string requestId, [FromQuery] bool? simulate = false)
     {
-        var result = await fileService.updateStatusRequest(requestId, simulate);
-        if (result == null)
-        {
-            return BadRequest("NOT FOUND");
-        }
-        return Ok(result);
+        var callerId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(callerId)) return Unauthorized();
+        var result = await fileService.ConfirmStatusRequestPayment(callerId, IsStaffCaller(), requestId);
+        return ApplicantResult(result);
     }
     
     [HttpGet("GetAvailabilitySearch")]

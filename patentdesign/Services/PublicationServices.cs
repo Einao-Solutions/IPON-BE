@@ -552,13 +552,17 @@ namespace patentdesign.Services
                 throw new InvalidOperationException("Payment ID not found");
             }
 
+            if (app.CurrentStatus != ApplicationStatuses.AwaitingPayment)
+            {
+                return (true, "Journal request already processed");
+            }
+
             var payment = await _paymentUtils.GetDetailsByRRR(app.PaymentId);
-            if (payment?.status != "00")
+            if (payment?.status != "00" || !string.Equals(payment.rrr, app.PaymentId, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("Unsuccessful payment");
             }
 
-            app.CurrentStatus = ApplicationStatuses.JournalRequested;
             var history = new ApplicationHistory
             {
                 Date = DateTime.UtcNow,
@@ -568,12 +572,13 @@ namespace patentdesign.Services
                 User = "System",
                 UserId = "System"
             };
-            app.StatusHistory ??= [];
-            app.StatusHistory.Add(history);
             var filter = Builders<AppUser>.Filter.And(
                 Builders<AppUser>.Filter.Eq(x => x.Id, userId),
-                Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a => a.id == appId));
-            var updates = Builders<AppUser>.Update.Set("OtherApplications.$", app);
+                Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications,
+                    a => a.id == appId && a.CurrentStatus == ApplicationStatuses.AwaitingPayment));
+            var updates = Builders<AppUser>.Update
+                .Set(x => x.OtherApplications[-1].CurrentStatus, ApplicationStatuses.JournalRequested)
+                .Push(x => x.OtherApplications[-1].StatusHistory, history);
             var result = await _users.FindOneAndUpdateAsync(
                 filter,
                 updates,
@@ -582,7 +587,7 @@ namespace patentdesign.Services
 
             return result is not null
                 ? (true, "Journal request status updated successfully")
-                : (false, "Journal request status update failed");
+                : (true, "Journal request already processed");
         }
     }
 }
