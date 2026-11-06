@@ -251,6 +251,23 @@ public class FilesServices
         {
             _log.LogWarning(ex, "Failed to ensure files text index for free-text search");
         }
+
+        try
+        {
+            // POA lookups filter attachments by AssociatedFileId + AssociationType and sort by UploadedAtUtc;
+            // without this index each call was a COLLSCAN plus in-memory sort over the whole collection (DB CPU spikes).
+            var attachmentKeys = Builders<AttachmentInfo>.IndexKeys
+                .Ascending(a => a.AssociatedFileId)
+                .Ascending(a => a.AssociationType)
+                .Ascending(a => a.UploadedAtUtc);
+            _attachmentCollection.Indexes.CreateOne(new CreateIndexModel<AttachmentInfo>(attachmentKeys, new CreateIndexOptions { Name = "AssociatedFileId_1_AssociationType_1_UploadedAtUtc_1", Background = true }));
+            _log.LogInformation("Ensured attachments index on AssociatedFileId, AssociationType, UploadedAtUtc");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _indexesEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure attachments index on AssociatedFileId, AssociationType, UploadedAtUtc");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
