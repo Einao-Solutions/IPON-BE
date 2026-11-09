@@ -2097,6 +2097,10 @@ public class LettersServices
         {
             data = new PatentRenewalReceipt(receipt, "uri", file).GeneratePdf();
         }
+        else if (file.Type == FileTypes.Design)
+        {
+            data = new ReceiptModel(receipt, "uri", file).GeneratePdf();
+        }
         else
         {
             throw new NotSupportedException("Renewal receipt not supported for this file type.");
@@ -2149,6 +2153,10 @@ public class LettersServices
         else if (file.Type == FileTypes.Patent)
         {
             data = new PatentRenewalAcknowlegementLetter(file, applicationId, receipt).GeneratePdf();
+        }
+        else if (file.Type == FileTypes.Design)
+        {
+            data = new DesignRenewalAcknowledgementLetter(file, applicationId, receipt).GeneratePdf();
         }
         else
         {
@@ -2207,6 +2215,10 @@ public class LettersServices
         else if (fileData.Type == FileTypes.Patent)
         {
             data = new PatentRenewalCertificate(fileData, $"https://portal.iponigeria.com/qr?fileId={fileData.FileId}", receipt).GeneratePdf();
+        }
+        else if (fileData.Type == FileTypes.Design)
+        {
+            data = new DesignRenewalCertificate(fileData, applicationId).GeneratePdf();
         }
         else
         {
