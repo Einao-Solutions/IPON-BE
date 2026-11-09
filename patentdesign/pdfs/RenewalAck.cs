@@ -204,8 +204,11 @@ namespace patentdesign.pdfs
                             }
                         });
                         table.Cell().ColumnSpan(2).Element(Block).Column(c => {
-                            c.Item().Text("Description of Goods:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
-                            c.Item().Text(model.TrademarkClassDescription).FontSize(12).FontFamily(Fonts.TimesNewRoman);
+                            c.Item().Text("Trademark Specification:").FontSize(10).FontFamily(Fonts.TimesNewRoman).SemiBold();
+                            var specification = model.AdditionalDescription ??
+                                model.TrademarkSpecification
+                                ?? model?.TrademarkClassDescription;
+                            c.Item().Text(specification).FontSize(12).FontFamily(Fonts.TimesNewRoman).Justify();
                         });
                     });
 

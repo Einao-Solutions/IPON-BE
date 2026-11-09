@@ -62,30 +62,31 @@ public class UsersService
         }
 
         var filter = Builders<AppUser>.Filter.Or(clauses);
-        var result = await _userCollection.Find(filter).ToListAsync();
+        // unanchored regex scans appUsers; cap the result set so broad terms cannot return every user.
+        var result = await _userCollection.Find(filter).Limit(MaxUserSearchResults).ToListAsync();
+        _log.LogDebug("SearchUsersByNameId returned {Count} users", result.Count);
         return result;
     }
     
+    private const int MaxUserSearchResults = 100;
+
     public async Task<dynamic?> LoadUsers(GetUsersRequest user)
     {
         try
         {
             var filter=Builders<AppUser>.Filter;
+            // user input must be escaped: a raw pattern lets a caller run arbitrary (catastrophic) regexes on the DB server.
+            var nameRegex = user.name == null ? null : new BsonRegularExpression(Regex.Escape(user.name), "i");
             var filters = Builders<AppUser>.Filter.And([
-                filter.Or([
-                user.name == null ? filter.Empty : filter.Regex(f => f.FirstName, new BsonRegularExpression(user.name, "i")),
-                user.name == null ? filter.Empty : filter.Regex(f => f.Id, new BsonRegularExpression(user.name, "i")),
-                user.name == null ? filter.Empty : filter.Regex(f => f.CreatorId, new BsonRegularExpression(user.name, "i")),
-                user.name == null
+                nameRegex == null
                     ? filter.Empty
-                    : filter.Regex(f => f.Email, new BsonRegularExpression(user.name, "i")),
-                user.name == null
-                    ? filter.Empty
-                    : filter.Regex(f => f.FirstName, new BsonRegularExpression(user.name, "i")),
-                user.name == null
-                    ? filter.Empty
-                    : filter.Regex(f => f.LastName, new BsonRegularExpression(user.name, "i")),
-                ]),
+                    : filter.Or([
+                        filter.Regex(f => f.FirstName, nameRegex),
+                        filter.Regex(f => f.Id, nameRegex),
+                        filter.Regex(f => f.CreatorId, nameRegex),
+                        filter.Regex(f => f.Email, nameRegex),
+                        filter.Regex(f => f.LastName, nameRegex),
+                    ]),
                 user.Roles == null ? filter.Empty : filter.AnyIn(f => f.UserRoles, user.Roles)
             ]);
             var result=await _userCollection.Find(filters).Project(x=>new
@@ -95,11 +96,12 @@ public class UsersService
                 x.FirstName
             }). Skip(user.skip).Limit(user.take).ToListAsync();
 
-            var count = _userCollection.CountDocuments(filters);
+            var count = await _userCollection.CountDocumentsAsync(filters);
             return  new {result, count};
         }
-        catch
+        catch (Exception ex)
         {
+            _log.LogError(ex, "LoadUsers failed");
             return null;
         }
     }

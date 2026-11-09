@@ -1404,8 +1404,16 @@ public class StatisticsService
         return payment?.RemitaResponse?.lineItems?.FirstOrDefault()?.beneficiaryAmount ?? 0d;
     }
 
+    private static int _indexesEnsured;
+
+    // StatisticsService is scoped, so without this guard both CreateOne round-trips ran on every request.
     private void EnsurePaymentIndexes()
     {
+        if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+        {
+            return;
+        }
+
         try
         {
             var indexKeys = Builders<PaymentRecord>.IndexKeys

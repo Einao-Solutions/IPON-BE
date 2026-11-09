@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
 using patentdesign.Models;
@@ -16,6 +16,8 @@ namespace patentdesign.Services
 {
     public class PublicationServices
     {
+        private static readonly HttpClient ImageDownloadClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+
         private readonly IConfiguration _config;
         private static IMongoCollection<AppUser> _users;
         private static IMongoCollection<PublicationInfo> _pubCollection;
@@ -181,7 +183,7 @@ namespace patentdesign.Services
 
             _log.LogInformation("Fetched {Count} publications, skipping image downloads (temporarily disabled)", publicationsData.Count);
 
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var httpClient = ImageDownloadClient;
             using var gate = new SemaphoreSlim(8); // cap concurrent downloads
 
             async Task<byte[]?> DownloadAsync(string url)
@@ -550,13 +552,17 @@ namespace patentdesign.Services
                 throw new InvalidOperationException("Payment ID not found");
             }
 
+            if (app.CurrentStatus != ApplicationStatuses.AwaitingPayment)
+            {
+                return (true, "Journal request already processed");
+            }
+
             var payment = await _paymentUtils.GetDetailsByRRR(app.PaymentId);
-            if (payment?.status != "00")
+            if (payment?.status != "00" || !string.Equals(payment.rrr, app.PaymentId, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("Unsuccessful payment");
             }
 
-            app.CurrentStatus = ApplicationStatuses.JournalRequested;
             var history = new ApplicationHistory
             {
                 Date = DateTime.UtcNow,
@@ -566,12 +572,13 @@ namespace patentdesign.Services
                 User = "System",
                 UserId = "System"
             };
-            app.StatusHistory ??= [];
-            app.StatusHistory.Add(history);
             var filter = Builders<AppUser>.Filter.And(
                 Builders<AppUser>.Filter.Eq(x => x.Id, userId),
-                Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications, a => a.id == appId));
-            var updates = Builders<AppUser>.Update.Set("OtherApplications.$", app);
+                Builders<AppUser>.Filter.ElemMatch(x => x.OtherApplications,
+                    a => a.id == appId && a.CurrentStatus == ApplicationStatuses.AwaitingPayment));
+            var updates = Builders<AppUser>.Update
+                .Set(x => x.OtherApplications[-1].CurrentStatus, ApplicationStatuses.JournalRequested)
+                .Push(x => x.OtherApplications[-1].StatusHistory, history);
             var result = await _users.FindOneAndUpdateAsync(
                 filter,
                 updates,
@@ -580,7 +587,7 @@ namespace patentdesign.Services
 
             return result is not null
                 ? (true, "Journal request status updated successfully")
-                : (false, "Journal request status update failed");
+                : (true, "Journal request already processed");
         }
     }
 }

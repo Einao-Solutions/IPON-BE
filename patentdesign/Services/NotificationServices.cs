@@ -31,6 +31,71 @@ namespace patentdesign.Services
             _logger = logger;
             _users = db.GetCollection<AppUser>("appUsers");
             _emailServices = emailServices;
+
+            EnsureNotificationIndexes();
+        }
+
+        private static int _indexesEnsured;
+
+        // RetryPendingEmailsAsync filters and sorts on EmailNextAttemptAt. The field is unset once an
+        // email is sent, so a sparse index only holds pending/retrying emails and stays small.
+        private void EnsureNotificationIndexes()
+        {
+            if (Interlocked.Exchange(ref _indexesEnsured, 1) == 1)
+            {
+                return;
+            }
+
+            try
+            {
+                var keys = Builders<Notification>.IndexKeys.Ascending(x => x.EmailNextAttemptAt);
+                _notifications.Indexes.CreateOne(new CreateIndexModel<Notification>(keys,
+                    new CreateIndexOptions { Name = "EmailNextAttemptAt_1", Background = true, Sparse = true }));
+                _logger.LogInformation("Ensured notifications index on EmailNextAttemptAt");
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Exchange(ref _indexesEnsured, 0);
+                _logger.LogWarning(ex, "Failed to ensure notifications index on EmailNextAttemptAt");
+            }
+
+            // the unread count/list/mark-all queries match (RecipientId OR Audience) AND IsRead.
+            // An $or only uses indexes when every branch is indexed, so both branches need one.
+            EnsureIndex(Builders<Notification>.IndexKeys.Ascending(x => x.RecipientId).Ascending(x => x.IsRead), "RecipientId_1_IsRead_1");
+            EnsureIndex(Builders<Notification>.IndexKeys.Ascending(x => x.Audience).Ascending(x => x.IsRead), "Audience_1_IsRead_1");
+
+            // every notification send resolves the recipient by Id OR Email OR CreatorId. The case-insensitive
+            // Email_ci index cannot serve a default-collation query, so without these each send scans appUsers.
+            EnsureUserIndex(Builders<AppUser>.IndexKeys.Ascending(u => u.CreatorId), "CreatorId_1");
+            EnsureUserIndex(Builders<AppUser>.IndexKeys.Ascending(u => u.Email), "Email_1");
+        }
+
+        private void EnsureUserIndex(IndexKeysDefinition<AppUser> keys, string name)
+        {
+            try
+            {
+                _users.Indexes.CreateOne(new CreateIndexModel<AppUser>(keys,
+                    new CreateIndexOptions { Name = name, Background = true }));
+                _logger.LogInformation("Ensured appUsers index {IndexName}", name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to ensure appUsers index {IndexName}", name);
+            }
+        }
+
+        private void EnsureIndex(IndexKeysDefinition<Notification> keys, string name)
+        {
+            try
+            {
+                _notifications.Indexes.CreateOne(new CreateIndexModel<Notification>(keys,
+                    new CreateIndexOptions { Name = name, Background = true }));
+                _logger.LogInformation("Ensured notifications index {IndexName}", name);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to ensure notifications index {IndexName}", name);
+            }
         }
 
         public virtual Task CreateNotificationAsync(CreateNotificationDto dto)
@@ -281,15 +346,21 @@ namespace patentdesign.Services
                 Builders<Notification>.Filter.Eq("Audience", NotificationAudience.System.ToString()),
                 Builders<Notification>.Filter.Eq("Audience", (int)NotificationAudience.System));
 
+            // System notifications are shared by every user and accumulate forever; returning the whole
+            // history on each call grows without bound, so only the most recent ones are sent.
             var notifications = await _notifications
                 .Find(audienceFilter)
                 .SortByDescending(x => x.CreatedAt)
+                .Limit(MaxNotificationsReturned)
                 .ToListAsync();
 
-            _logger.LogInformation("Retrieved {NotificationCount} notifications for user {UserId}", notifications.Count, userId);
+            _logger.LogDebug("Retrieved {NotificationCount} notifications for user {UserId}", notifications.Count, userId);
 
             return notifications;
         }
+
+        private const int MaxNotificationsReturned = 100;
+
         public async Task<long> GetUnreadCount(string userId)
         {
             _logger.LogDebug("Retrieving unread notification count for user {UserId}", userId);
@@ -308,7 +379,7 @@ namespace patentdesign.Services
                 .Find(unreadFilter)
                 .CountDocumentsAsync();
 
-            _logger.LogInformation("Unread notification count for user {UserId} is {UnreadCount}", userId, count);
+            _logger.LogDebug("Unread notification count for user {UserId} is {UnreadCount}", userId, count);
 
             return count;
         }

@@ -44,12 +44,48 @@ public class PaymentService
         _payxWallet = db.GetCollection<XpayTwallet>("xpayTwallet");
         _users = db.GetCollection<AppUser>("appUsers");
         _log = log;
+        EnsurePaymentRecordIndex();
     }
+
+    private static int _paymentIndexEnsured;
+
+    // AddPaymentRecord checks for an existing record by ApplicationId + PaymentType + RRR before every
+    // insert; without a matching index that check scans the whole payments collection.
+    private void EnsurePaymentRecordIndex()
+    {
+        if (Interlocked.Exchange(ref _paymentIndexEnsured, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var keys = Builders<PaymentRecord>.IndexKeys
+                .Ascending(p => p.ApplicationId)
+                .Ascending(p => p.PaymentType)
+                .Ascending("RemitaResponse.rrr");
+            _payments.Indexes.CreateOne(new CreateIndexModel<PaymentRecord>(keys,
+                new CreateIndexOptions { Name = "ApplicationId_1_PaymentType_1_RemitaResponse.rrr_1", Background = true }));
+            _log.LogInformation("Ensured payments index on ApplicationId, PaymentType and RemitaResponse.rrr");
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _paymentIndexEnsured, 0);
+            _log.LogWarning(ex, "Failed to ensure payments index on ApplicationId, PaymentType and RemitaResponse.rrr");
+        }
+    }
+
+    private const int MaxPaymentsReturned = 1000;
 
     public async Task<List<PaymentServiceModel>> GetAllPayment()
     {
+        // unbounded reads of the whole collection on every request were a DB CPU hotspot.
         var data = await _paymentCollection.
-            Find(Builders<PaymentServiceModel>.Filter.Empty).ToListAsync();
+            Find(Builders<PaymentServiceModel>.Filter.Empty).Limit(MaxPaymentsReturned).ToListAsync();
+        if (data.Count == MaxPaymentsReturned)
+        {
+            _log.LogWarning("GetAllPayment hit the {Max} record cap; results are truncated", MaxPaymentsReturned);
+        }
         return data;
     }
 

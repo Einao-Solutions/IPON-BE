@@ -116,7 +116,7 @@ public class FakeRemita() : PaymentUtils(Options.Create(new PaymentInfo
         Interlocked.Increment(ref VerifyCalls);
         await Task.Delay(50);
         if (Unreachable) return null;
-        amount = Amount };
+        return new RemitaResponseClass { rrr = rrr, status = Statuses.GetValueOrDefault(rrr, "021"), amount = Amount };
     }
 }
 

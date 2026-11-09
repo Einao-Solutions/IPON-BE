@@ -458,6 +458,7 @@ public record PostRegistrationApp
     public string? OldEmail { get; set; } = String.Empty;
     public int? Class { get; set; }
     public int? OldClass { get; set; }
+    public string? NewAdditionalDescription { get; set; }
     public string? dateOfRecordal { get; set; }
     public string? Address { get; set; }
     public string? OldAddress { get; set; } = String.Empty;

@@ -205,6 +205,52 @@ public class FilesServices
         {
             _log.LogWarning(ex, "Failed to ensure files index on RtmNumber");
         }
+
+        try
+        {
+            // the per-user dashboard stats aggregate and the user's file grid both start with a
+            // CreatorAccount match; without an index each request scans every file.
+            var creatorKeys = Builders<Filling>.IndexKeys.Ascending(x => x.CreatorAccount);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(creatorKeys, new CreateIndexOptions { Name = "CreatorAccount_1", Background = true }));
+            _log.LogInformation("Ensured files index on CreatorAccount");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount");
+        }
+
+        try
+        {
+            // the user's file grid filters on CreatorAccount together with Type and/or a DateCreated range.
+            var creatorTypeKeys = Builders<Filling>.IndexKeys
+                .Ascending(x => x.CreatorAccount)
+                .Ascending(x => x.Type)
+                .Descending(x => x.DateCreated);
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(creatorTypeKeys, new CreateIndexOptions { Name = "CreatorAccount_1_Type_1_DateCreated_-1", Background = true }));
+            _log.LogInformation("Ensured files index on CreatorAccount, Type and DateCreated");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files index on CreatorAccount, Type and DateCreated");
+        }
+
+        try
+        {
+            // free-text search in the file grid used an unanchored case-insensitive regex over five fields,
+            // which scanned the whole collection on every request (DB CPU spikes). $text uses this index instead.
+            var textKeys = Builders<Filling>.IndexKeys
+                .Text(x => x.TitleOfDesign)
+                .Text(x => x.TitleOfInvention)
+                .Text(x => x.TitleOfTradeMark)
+                .Text(x => x.FileId)
+                .Text("applicants.Name");
+            _fillingCollection.Indexes.CreateOne(new CreateIndexModel<Filling>(textKeys, new CreateIndexOptions { Name = "FileSearch_text", Background = true }));
+            _log.LogInformation("Ensured files text index for free-text search");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to ensure files text index for free-text search");
+        }
     }
 
     private static bool HasOfflineRenewalCertificateRole(AppUser user, FileTypes fileType)
@@ -325,6 +371,256 @@ public class FilesServices
         _log.LogInformation("ManualUpdate completed for FileId {FileId}", fileId);
         return file;
     }
+
+    // Application types whose post-payment transition is implemented in ProcessApplicationType.
+    // Anything else is rejected explicitly instead of being silently left in AwaitingPayment.
+    private static readonly HashSet<FormApplicationTypes> ApplicantConfirmableTypes =
+    [
+        FormApplicationTypes.NewApplication,
+        FormApplicationTypes.Amendment,
+        FormApplicationTypes.LicenseRenewal,
+        FormApplicationTypes.ChangeOfName,
+        FormApplicationTypes.ChangeOfAddress,
+        FormApplicationTypes.ClericalUpdate,
+        FormApplicationTypes.Restoration,
+        FormApplicationTypes.Reclassification,
+        FormApplicationTypes.DataUpdate,
+        FormApplicationTypes.Assignment,
+        FormApplicationTypes.License,
+        FormApplicationTypes.Mortgage,
+        FormApplicationTypes.Merger,
+        FormApplicationTypes.RegisteredUser,
+        FormApplicationTypes.CertifiedTrueCopy
+    ];
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> ApplicantConfirmationLocks = new();
+
+    private async Task<bool> IsFileOwnerAsync(Filling file, string callerId)
+    {
+        if (string.Equals(file.CreatorAccount, callerId, StringComparison.Ordinal)) return true;
+
+        var creatorId = await _userCollection
+            .Find(AvailabilitySearchRules.OwnerFilter(callerId))
+            .Project(u => u.CreatorId)
+            .FirstOrDefaultAsync();
+        return !string.IsNullOrWhiteSpace(creatorId) &&
+               string.Equals(file.CreatorAccount, creatorId, StringComparison.Ordinal);
+    }
+
+    // Applicant-facing confirmation of an already persisted, file-linked application. The caller identity comes
+    // from the token, the stored RRR is verified with Remita, and the transition is applied once per application.
+    public async Task<ApplicantPaymentResult> ConfirmApplicantPayment(string callerId, bool isStaff, string? callerName,
+        string fileId, string applicationId, bool isCertificate = false)
+    {
+        if (string.IsNullOrWhiteSpace(callerId))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "Caller could not be identified.");
+        if (string.IsNullOrWhiteSpace(fileId) || string.IsNullOrWhiteSpace(applicationId))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.NotFound, "File or application not found.");
+
+        var gate = ApplicantConfirmationLocks.GetOrAdd($"{fileId}|{applicationId}", _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            return await ConfirmApplicantPaymentCore(callerId, isStaff, callerName, fileId, applicationId, isCertificate);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task<ApplicantPaymentResult> ConfirmApplicantPaymentCore(string callerId, bool isStaff, string? callerName,
+        string fileId, string applicationId, bool isCertificate)
+    {
+        // fileId may be the internal id (GET /api/files/{id}) or the file number; both keys are indexed.
+        var file = await _fillingCollection
+            .Find(Builders<Filling>.Filter.Or(
+                Builders<Filling>.Filter.Eq(f => f.Id, fileId),
+                Builders<Filling>.Filter.Eq(f => f.FileId, fileId)))
+            .FirstOrDefaultAsync();
+        var application = file?.ApplicationHistory?.FirstOrDefault(a => a.id == applicationId);
+        if (file == null || application == null)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.NotFound, "Application not found for this file.");
+
+        if (!isStaff && !await IsFileOwnerAsync(file, callerId))
+        {
+            _log.LogWarning("Payment confirmation denied - caller {CallerId} does not own file {FileId}", callerId, file.Id);
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "You are not allowed to confirm this application.");
+        }
+
+        var expectedStatus = isCertificate ? ApplicationStatuses.AwaitingCertification : ApplicationStatuses.AwaitingPayment;
+        if (application.CurrentStatus != expectedStatus)
+        {
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.AlreadyProcessed,
+                "Application payment has already been processed.", file);
+        }
+
+        if (!isCertificate && !ApplicantConfirmableTypes.Contains(application.ApplicationType))
+        {
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Unsupported,
+                $"Resuming payment for {application.ApplicationType} applications is not supported yet.");
+        }
+
+        var reference = isCertificate ? application.CertificatePaymentId ?? application.PaymentId : application.PaymentId;
+        var verification = await PaymentVerifier.VerifyAsync(_paymentService.CheckPayment, reference);
+        if (!verification.IsPaid)
+        {
+            return new ApplicantPaymentResult(
+                verification.Outcome == PaymentVerificationOutcome.Unverifiable
+                    ? ApplicantPaymentOutcome.Unverifiable
+                    : ApplicantPaymentOutcome.NotPaid,
+                verification.Message);
+        }
+
+        if (isCertificate)
+        {
+            var updated = await UpdateCertificatePaymentStatus(file.Id, reference!);
+            return updated
+                ? new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Certificate payment confirmed.",
+                    await _fillingCollection.Find(f => f.Id == file.Id).FirstOrDefaultAsync())
+                : new ApplicantPaymentResult(ApplicantPaymentOutcome.Failed, "Certificate payment update failed.");
+        }
+
+        var paymentDate = patentdesign.Utils.AppTime.TryParseToUtc(verification.Payment?.paymentDate, out var paidAt)
+            ? paidAt
+            : DateTime.UtcNow;
+        var beforeStatus = application.CurrentStatus;
+
+        await ProcessApplicationType(file, application, paymentDate, callerName, callerId);
+
+        if (application.CurrentStatus == beforeStatus)
+        {
+            _log.LogError("No workflow transition applied for application {AppId} ({Type}) on file {FileId}",
+                application.id, application.ApplicationType, file.Id);
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Failed, "Payment update could not be applied.");
+        }
+
+        try
+        {
+            await SendStatusUpdateNotificationAsync(file, application.id, application.ApplicationType, beforeStatus,
+                application.CurrentStatus);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Status notification failed after payment confirmation for application {AppId}", application.id);
+        }
+
+        return new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Payment confirmed.", file);
+    }
+
+    // Existing RRR amount lookup for resuming payments. Only the owner (or staff) of an application holding
+    // the RRR can read its total; the amount is taken from Remita for that RRR, never recomputed from current fees.
+    public async Task<RrrCostResult> GetApplicantRrrCost(string callerId, bool isStaff, string rrr)
+    {
+        if (string.IsNullOrWhiteSpace(callerId))
+            return new RrrCostResult(RrrCostOutcome.Forbidden, Message: "Caller could not be identified.");
+        if (string.IsNullOrWhiteSpace(rrr))
+            return new RrrCostResult(RrrCostOutcome.NotFound, Message: "Payment reference is required.");
+
+        var reference = rrr.Trim();
+        if (!isStaff && !await CallerHoldsReferenceAsync(callerId, reference))
+            return new RrrCostResult(RrrCostOutcome.NotFound, Message: "Payment reference not found.");
+
+        RemitaResponseClass? payment;
+        try
+        {
+            payment = await _remitaPaymentUtils.GetDetailsByRRR(reference).WaitAsync(RemitaVerificationTimeout);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Remita amount lookup failed for {Rrr}", reference);
+            payment = null;
+        }
+
+        if (payment == null)
+            return new RrrCostResult(RrrCostOutcome.Unverifiable, Message: "Payment amount could not be retrieved from Remita.");
+        if (payment.amount is not > 0)
+            return new RrrCostResult(RrrCostOutcome.NotFound, Message: "No amount found for this payment reference.");
+
+        return new RrrCostResult(RrrCostOutcome.Ok, payment.amount);
+    }
+
+    private async Task<bool> CallerHoldsReferenceAsync(string callerId, string rrr)
+    {
+        var creatorId = await _userCollection
+            .Find(AvailabilitySearchRules.OwnerFilter(callerId))
+            .Project(u => u.CreatorId)
+            .FirstOrDefaultAsync();
+
+        var owners = new List<string> { callerId };
+        if (!string.IsNullOrWhiteSpace(creatorId)) owners.Add(creatorId);
+
+        var ownsFileApplication = await _fillingCollection
+            .Find(Builders<Filling>.Filter.And(
+                Builders<Filling>.Filter.In(f => f.CreatorAccount, owners),
+                Builders<Filling>.Filter.ElemMatch(f => f.ApplicationHistory,
+                    a => a.PaymentId == rrr || a.CertificatePaymentId == rrr)))
+            .Project(f => f.Id)
+            .Limit(1)
+            .AnyAsync();
+        if (ownsFileApplication) return true;
+
+        return await _userCollection
+            .Find(Builders<AppUser>.Filter.And(
+                AvailabilitySearchRules.OwnerFilter(callerId),
+                Builders<AppUser>.Filter.ElemMatch(u => u.OtherApplications,
+                    a => a.PaymentId == rrr || a.CertificatePaymentId == rrr)))
+            .Project(u => u.Id)
+            .Limit(1)
+            .AnyAsync();
+    }
+
+    // Confirms a status-search request that is already persisted: owner/staff only, payment verified with Remita,
+    // and the AwaitingPayment -> Active transition is claimed atomically so retries and races do nothing twice.
+    public async Task<ApplicantPaymentResult> ConfirmStatusRequestPayment(string callerId, bool isStaff, string requestId)
+    {
+        if (string.IsNullOrWhiteSpace(callerId))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "Caller could not be identified.");
+
+        var request = string.IsNullOrWhiteSpace(requestId)
+            ? null
+            : await _statusCollection.Find(x => x.Id == requestId).FirstOrDefaultAsync();
+        if (request == null)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.NotFound, "Status request not found.");
+        if (!isStaff && !string.Equals(request.userId, callerId, StringComparison.Ordinal))
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "You are not allowed to confirm this request.");
+        if (request.status != ApplicationStatuses.AwaitingPayment)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.AlreadyProcessed, "Status request already processed.");
+
+        var verification = await PaymentVerifier.VerifyAsync(_paymentService.CheckPayment, request.paymentId);
+        if (!verification.IsPaid)
+        {
+            return new ApplicantPaymentResult(
+                verification.Outcome == PaymentVerificationOutcome.Unverifiable
+                    ? ApplicantPaymentOutcome.Unverifiable
+                    : ApplicantPaymentOutcome.NotPaid,
+                verification.Message);
+        }
+
+        var claimed = await _statusCollection.FindOneAndUpdateAsync(
+            Builders<StatusRequests>.Filter.And(
+                Builders<StatusRequests>.Filter.Eq(x => x.Id, requestId),
+                Builders<StatusRequests>.Filter.Eq(x => x.status, ApplicationStatuses.AwaitingPayment)),
+            Builders<StatusRequests>.Update.Combine(
+                Builders<StatusRequests>.Update.Set(x => x.status, ApplicationStatuses.Active),
+                Builders<StatusRequests>.Update.Set(x => x.receiptLetter, ApplicationLetters.StatusRequestReceipt),
+                Builders<StatusRequests>.Update.Set(x => x.ackLetter, ApplicationLetters.StatusRequestAck)),
+            new FindOneAndUpdateOptions<StatusRequests> { ReturnDocument = ReturnDocument.After });
+        if (claimed == null)
+            return new ApplicantPaymentResult(ApplicantPaymentOutcome.AlreadyProcessed, "Status request already processed.");
+
+        try
+        {
+            saveFinance(verification.Payment, "Status Check Application", claimed.Id, "-", "Nigeria");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Finance record could not be saved for status request {RequestId}", claimed.Id);
+        }
+
+        return new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Payment confirmed.");
+    }
+
     private async void SavePayment(RemitaResponseClass pay, PaymentTypes type, string fileId, string appId)
     {
         _log.LogDebug("Saving payment record for FileId {FileId}, AppId {AppId}, Type {PaymentType}", fileId, appId, type);
@@ -457,6 +753,38 @@ public class FilesServices
                 application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
                 AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
                     paymentDate, userName, userId, "Payment Successful");
+                break;
+// Same paid-state the creation flows use for these post-registration recordals.
+case FormApplicationTypes.License:
+case FormApplicationTypes.Mortgage:
+case FormApplicationTypes.CertifiedTrueCopy:
+    application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+    AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+        paymentDate, userName, userId, "Payment successful, awaiting recordal process");
+    var postRegRecord = file.PostRegApplications?.FirstOrDefault(p => p.Id == application.id);
+    if (postRegRecord != null && string.IsNullOrWhiteSpace(postRegRecord.DateTreated))
+    {
+        postRegRecord.DateTreated = patentdesign.Utils.AppTime.LagosNow.ToString();
+    }
+    break;
+
+case FormApplicationTypes.Merger:
+                _log.LogInformation("Processing merger payment for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+
+            case FormApplicationTypes.RegisteredUser:
+                _log.LogInformation("Processing registered user payment for FileId {FileId}, AppId {AppId}", file.FileId, application.id);
+                application.CurrentStatus = ApplicationStatuses.AwaitingRecordalProcess;
+                AddStatusHistory(application, ApplicationStatuses.AwaitingPayment, ApplicationStatuses.AwaitingRecordalProcess,
+                    paymentDate, userName, userId, "Payment Successful");
+                break;
+
+            default:
+                _log.LogWarning("No payment processing defined for application type {AppType} (FileId {FileId}, AppId {AppId}); status left unchanged",
+                    application.ApplicationType, file.FileId, application.id);
                 break;
         }
         await _fillingCollection.FindOneAndReplaceAsync(f => f.Id == file.Id, file);
@@ -1590,6 +1918,15 @@ public class FilesServices
             startingIndex, quantity, filter.types != null ? string.Join(",", filter.types) : "all",
             filter.status != null ? string.Join(",", filter.status) : "all");
 
+        var searchTerm = filter.Title == null ? null : NormalizeSearchTerm(filter.Title);
+        var isFreeTextSearch = !string.IsNullOrEmpty(searchTerm) && !LooksLikeFileNumber(searchTerm);
+        if (isFreeTextSearch && searchTerm!.Length < MinFreeTextSearchLength)
+        {
+            // a 1-2 character unanchored regex matches almost everything and still scans the whole collection.
+            _log.LogDebug("GetPaginatedSummary skipped free-text search shorter than {Min} chars", MinFreeTextSearchLength);
+            return new PaginatedResponse { result = new List<FileSummary>(), count = 0 };
+        }
+
         var filters = getFilter(filter);
         var fillBuilder = Builders<Filling>.Projection;
         var projection = fillBuilder.Expression(x => new FileSummary()
@@ -1612,9 +1949,18 @@ public class FilesServices
         });
         // the count and the page are independent; run them concurrently instead of
         // blocking a thread on a synchronous count before the page query even starts.
-        var countTask = GetSummaryCountAsync(filters);
-        var resultTask = _fillingCollection.Find(filters).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
-        await Task.WhenAll(countTask, resultTask);
+        var countTask = GetSummaryCountAsync(filters, isFreeTextSearch);
+        var findOptions = isFreeTextSearch ? new FindOptions { MaxTime = FreeTextSearchMaxTime } : null;
+        var resultTask = _fillingCollection.Find(filters, findOptions).Project(projection).Skip(startingIndex).Limit(quantity).ToListAsync();
+        try
+        {
+            await Task.WhenAll(countTask, resultTask);
+        }
+        catch (MongoExecutionTimeoutException ex)
+        {
+            _log.LogWarning(ex, "Free-text file search exceeded {MaxTime} for term length {Length}", FreeTextSearchMaxTime, searchTerm?.Length);
+            throw new TimeoutException("The search took too long. Please use a more specific search term.", ex);
+        }
         var count = await countTask;
         var result = await resultTask;
         _log.LogDebug("GetPaginatedSummary returned {ResultCount} of {TotalCount} records", result.Count, count);
@@ -1629,9 +1975,14 @@ public class FilesServices
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Count, DateTime ExpiresAt)> _summaryCountCache = new();
     private static readonly TimeSpan _summaryCountTtl = TimeSpan.FromSeconds(60);
 
+    private const int MinFreeTextSearchLength = 3;
+    private const long FreeTextSearchCountCap = 1000;
+    private static readonly TimeSpan FreeTextSearchMaxTime = TimeSpan.FromSeconds(10);
+
     // the paginated grid counts every matching file on each page request, which stays expensive
     // even with an index. Totals are only used to render the pager, so a short TTL is acceptable.
-    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters)
+    // Free-text regex counts cannot use an index, so they stop at FreeTextSearchCountCap matches.
+    private async Task<long> GetSummaryCountAsync(FilterDefinition<Filling> filters, bool isFreeTextSearch = false)
     {
         var key = filters.Render(BsonSerializer.SerializerRegistry.GetSerializer<Filling>(), BsonSerializer.SerializerRegistry).ToJson();
 
@@ -1641,7 +1992,10 @@ public class FilesServices
             return cached.Count;
         }
 
-        var count = await _fillingCollection.CountDocumentsAsync(filters);
+        var countOptions = isFreeTextSearch
+            ? new CountOptions { Limit = FreeTextSearchCountCap, MaxTime = FreeTextSearchMaxTime }
+            : null;
+        var count = await _fillingCollection.CountDocumentsAsync(filters, countOptions);
         _summaryCountCache[key] = (count, DateTime.UtcNow.Add(_summaryCountTtl));
 
         if (_summaryCountCache.Count > 200)
@@ -1974,6 +2328,23 @@ public class FilesServices
                (trimmed.Contains('/') && trimmed.All(c => char.IsLetterOrDigit(c) || c == '/'));
     }
 
+    // terms pasted from chats/documents often carry invisible format characters (e.g. U+2060 word joiner,
+    // U+200B zero-width space, U+FEFF BOM). They make a file number look like free text, which turns an
+    // indexed exact lookup into a full regex scan that cannot match anything anyway.
+    private static string NormalizeSearchTerm(string term)
+    {
+        var cleaned = new string(term.Where(c => char.GetUnicodeCategory(c) != UnicodeCategory.Format).ToArray());
+        return cleaned.Trim();
+    }
+
+    private static FilterDefinition<Filling> BuildTitleSearchFilter(FilterDefinitionBuilder<Filling> filterBuilder, string title)
+    {
+        // uses the FileSearch_text index (whole-word, case-insensitive) instead of a collection-scanning regex.
+        var trimmed = title.Trim();
+        if (trimmed.Length == 0) return filterBuilder.Empty;
+        return filterBuilder.Text(trimmed, new TextSearchOptions { CaseSensitive = false });
+    }
+
     private FilterDefinition<Filling> getFilter(SummaryRequestObj filter)
     {
         var filterBuilder = Builders<Filling>.Filter;
@@ -2002,22 +2373,22 @@ public class FilesServices
         var typeFilter = filter.types == null
             ? filterBuilder.Empty
             : filterBuilder.In(f => f.Type, filter.types);
-        var titleFilter = filter.Title == null
+        var searchTerm = filter.Title == null ? null : NormalizeSearchTerm(filter.Title);
+        if (searchTerm != null && searchTerm != filter.Title.Trim())
+        {
+            _log.LogDebug("Search term contained invisible characters; normalized from {Length} to {NormalizedLength} chars",
+                filter.Title.Length, searchTerm.Length);
+        }
+        var titleFilter = string.IsNullOrEmpty(searchTerm)
             ? filterBuilder.Empty
-            : LooksLikeFileNumber(filter.Title)
+            : LooksLikeFileNumber(searchTerm)
                 // a file/RTM number is an exact lookup; both fields are indexed, so this avoids
                 // the unanchored case-insensitive regex scan over the whole collection.
                 ? filterBuilder.Or([
-                    filterBuilder.Eq(f => f.FileId, filter.Title.Trim()),
-                    filterBuilder.Eq(f => f.RtmNumber, filter.Title.Trim())
+                    filterBuilder.Eq(f => f.FileId, searchTerm),
+                    filterBuilder.Eq(f => f.RtmNumber, searchTerm)
                 ])
-                : filterBuilder.Or([
-                    filterBuilder.Regex(f => f.TitleOfDesign, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.TitleOfInvention, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.TitleOfTradeMark, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.FileId, new BsonRegularExpression(filter.Title, "i")),
-                    filterBuilder.Regex(f => f.applicants.Select(x => x.Name), new BsonRegularExpression(filter.Title, "i"))
-                ]);
+                : BuildTitleSearchFilter(filterBuilder, searchTerm);
         var startDateFilter = filter.startDate == null
             ? filterBuilder.Empty
             : filterBuilder.Gte(f => f.DateCreated, filter.startDate);
@@ -2435,7 +2806,78 @@ public class FilesServices
     }
 
     
+    // the global (all files) stats scan and unwind the whole files collection; dashboards poll it,
+    // so share one recent result instead of re-running the aggregate on every request.
+    private static readonly TimeSpan GlobalFileStatsTtl = TimeSpan.FromMinutes(2);
+    private static readonly SemaphoreSlim _globalFileStatsLock = new(1, 1);
+    private static List<FileStatsRes>? _globalFileStatsCache;
+    private static DateTime _globalFileStatsCachedAt;
+    // per-user stats run the same aggregate over a user's files; dashboards poll it too.
+    private const int MaxUserFileStatsEntries = 5000;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (List<FileStatsRes> Stats, DateTime CachedAt)> _userFileStatsCache = new();
+
     public async Task<List<FileStatsRes>?> FileStats(string? userId)
+    {
+        if (userId != "null")
+        {
+            var key = userId ?? string.Empty;
+            if (_userFileStatsCache.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.CachedAt < GlobalFileStatsTtl)
+            {
+                return cached.Stats;
+            }
+
+            var userStats = await ComputeFileStats(userId);
+            if (userStats != null)
+            {
+                if (_userFileStatsCache.Count > MaxUserFileStatsEntries)
+                {
+                    _userFileStatsCache.Clear();
+                }
+                _userFileStatsCache[key] = (userStats, DateTime.UtcNow);
+            }
+            return userStats;
+        }
+
+        if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)
+        {
+            return _globalFileStatsCache;
+        }
+
+        await _globalFileStatsLock.WaitAsync();
+        try
+        {
+            if (_globalFileStatsCache != null && DateTime.UtcNow - _globalFileStatsCachedAt < GlobalFileStatsTtl)
+            {
+                return _globalFileStatsCache;
+            }
+
+            var stats = await ComputeFileStats(userId);
+            if (stats != null)
+            {
+                _globalFileStatsCache = stats;
+                _globalFileStatsCachedAt = DateTime.UtcNow;
+                _log.LogInformation("Global file stats recomputed and cached for {Ttl}", GlobalFileStatsTtl);
+            }
+            return stats;
+        }
+        finally
+        {
+            _globalFileStatsLock.Release();
+        }
+    }
+
+    // $facet buffers every input document; keeping only the fields the stats read avoids carrying
+    // whole file documents (applicants, attachments, correspondence, etc.) through the pipeline.
+    private static BsonDocument StatsFieldsProjection() => new BsonDocument("$project", new BsonDocument
+    {
+        { "_id", 0 },
+        { "Type", 1 },
+        { "FileStatus", 1 },
+        { "ApplicationHistory.ApplicationType", 1 },
+        { "ApplicationHistory.CurrentStatus", 1 }
+    });
+
+    private async Task<List<FileStatsRes>?> ComputeFileStats(string? userId)
     {
         try
         {
@@ -2444,6 +2886,7 @@ public class FilesServices
             {
                 pipeline = new BsonDocument[]
                 {
+                StatsFieldsProjection(),
                 new BsonDocument("$facet", new BsonDocument
                 {
                     {
@@ -2515,6 +2958,7 @@ public class FilesServices
                         }
                     }
                 }),
+                StatsFieldsProjection(),
                 new BsonDocument("$facet", new BsonDocument
                 {
                     {
@@ -7320,6 +7764,7 @@ public class FilesServices
                 FileNumber = dto.FileId,
                 OldClass = file.TrademarkClass,
                 Class = dto.NewClass,
+                NewAdditionalDescription = dto.NewAdditionalDescription ?? "",
                 RecordalType = "Reclassification",
                 DateTreated = ""
             };
@@ -7726,7 +8171,8 @@ public class FilesServices
                 ApplicantPhone = applicant.Phone,
                 ApplicantNationality = applicant.country,
                 TrademarkClass = fileInfo.TrademarkClass,
-                DataChangeType = changeType
+                DataChangeType = changeType,
+                AdditionalDescription = classChange ? (fileInfo.AdditionalDescription ?? fileInfo.TrademarkSpecification ?? "") : null
             };
             _log.LogInformation($"New Change data recordal application for {fileId}, with {paymentId}");
             return changeCost;
@@ -7896,6 +8342,7 @@ public class FilesServices
             documentUrl = recordal?.documentUrl,
             OldClass = recordal.OldClass,
             NewClass = recordal?.Class,
+            NewAdditionalDescription = recordal?.NewAdditionalDescription,
         };
 
         return changeDetails;
