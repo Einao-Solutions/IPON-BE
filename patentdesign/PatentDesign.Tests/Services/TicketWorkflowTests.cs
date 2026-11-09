@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -10,6 +12,7 @@ using patentdesign.Dtos.Request;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
+using patentdesign.Utils;
 
 namespace patentdesign.Tests.Services;
 
@@ -20,6 +23,7 @@ public class TicketWorkflowTests
     private TicketInfo? _ticket;
     private BsonDocument? _filter;
     private BsonDocument? _update;
+    private BsonArray? _pipeline;
     private CancellationToken _cancellationToken;
 
     public TicketWorkflowTests()
@@ -61,6 +65,19 @@ public class TicketWorkflowTests
                 {
                     document[field.Name] = field.Value;
                 }
+                if (_update.TryGetValue("$inc", out var increment))
+                {
+                    foreach (var field in increment.AsBsonDocument)
+                    {
+                        document[field.Name] = document.GetValue(field.Name, 0L).ToInt64() + field.Value.ToInt64();
+                    }
+                }
+                if (_update.TryGetValue("$push", out var push))
+                {
+                    var messages = document["Correspondences"].IsBsonNull ? new BsonArray() : document["Correspondences"].AsBsonArray;
+                    messages.Add(push["Correspondences"]);
+                    document["Correspondences"] = messages;
+                }
                 _ticket = BsonSerializer.Deserialize<TicketInfo>(document);
                 return Task.FromResult(_ticket);
             });
@@ -70,11 +87,44 @@ public class TicketWorkflowTests
     {
         var serializer = BsonSerializer.LookupSerializer<TicketInfo>();
         _filter = filter.Render(serializer, BsonSerializer.SerializerRegistry);
-        _update = update.Render(serializer, BsonSerializer.SerializerRegistry).AsBsonDocument;
+        var rendered = update.Render(serializer, BsonSerializer.SerializerRegistry);
+        _pipeline = rendered.IsBsonArray ? rendered.AsBsonArray : null;
+        if (_pipeline != null)
+        {
+            var fields = new BsonDocument();
+            foreach (var field in _pipeline[0]["$set"].AsBsonDocument)
+            {
+                fields[field.Name] = field.Value is BsonDocument literal && literal.Contains("$literal")
+                    ? literal["$literal"] : field.Value;
+            }
+            _update = new BsonDocument("$set", fields);
+        }
+        else
+        {
+            _update = rendered.AsBsonDocument;
+        }
         _cancellationToken = token;
     }
 
     private static BsonValue State(TicketState state) => new TicketInfo { Status = state }.ToBsonDocument()["Status"];
+
+    private static TicketViewer Viewer(string id) => TicketViewer.FromPrincipal(new ClaimsPrincipal(new ClaimsIdentity(
+        [new Claim(ClaimTypes.NameIdentifier, id), new Claim(ClaimTypes.Role, nameof(Roles.Tech))], "test")));
+
+    private TicketController Controller()
+    {
+        return new TicketController(_service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                        [new Claim(ClaimTypes.NameIdentifier, "creator"), new Claim(ClaimTypes.Role, nameof(Roles.Tech))], "test"))
+                }
+            }
+        };
+    }
 
     private static NewCorrespondenceType Message(string sender = "creator", TicketState status = TicketState.AwaitingStaff) => new()
     {
@@ -87,6 +137,7 @@ public class TicketWorkflowTests
     {
         _ticket = new TicketInfo
         {
+            MessageTrackingVersion = TicketMessageTracking.CurrentVersion,
             id = "ticket", creatorId = "creator", Category = TicketCategory.TechnicalSupport,
             Status = TicketState.Resolved, ResolvedAt = DateTime.UtcNow.AddHours(-hoursAgo),
             resolution = new ResolveInfo { StaffId = "staff" }, IsEscalatedToDev = true
@@ -107,13 +158,15 @@ public class TicketWorkflowTests
         var before = DateTime.UtcNow;
         Assert.True(await _service.CloseTicketsAsync(new ResolveTicketType
         {
-            ticketId = ["ticket"], resolution = new ResolveInfo { Date = DateTime.UtcNow.AddDays(-10), StaffId = "staff" }
+            ticketId = ["ticket"], resolution = new ResolveInfo { Date = DateTime.UtcNow.AddDays(-10), StaffId = "staff", StaffName = "$Status" }
         }));
         var set = _update!["$set"];
         Assert.Equal(State(TicketState.Resolved), set["Status"]);
         Assert.InRange(set["ResolvedAt"].ToUniversalTime(), before.AddMilliseconds(-1), DateTime.UtcNow);
         Assert.Equal(set["ResolvedAt"], set["resolution"]["Date"]);
         Assert.True(set["ClosedAt"].IsBsonNull);
+        Assert.Equal("$Status", _pipeline![0]["$set"]["StatusBeforeResolution"].AsString);
+        Assert.Equal("$Status", _pipeline[0]["$set"]["resolution"]["$literal"]["StaffName"].AsString);
         var excluded = _filter!["Status"]["$nin"].AsBsonArray;
         Assert.Contains(State(TicketState.Resolved), excluded);
         Assert.Contains(State(TicketState.Closed), excluded);
@@ -142,19 +195,28 @@ public class TicketWorkflowTests
     }
 
     [Theory]
-    [InlineData(TicketState.AwaitingStaff)]
-    [InlineData(TicketState.Resolved)]
-    [InlineData(TicketState.Closed)]
-    public async Task CreatorReplyReopensResolvedTicketAndClearsResolution(TicketState clientStatus)
+    [InlineData(TicketState.AwaitingUser, false, TicketState.InProgress, TicketState.AwaitingStaff)]
+    [InlineData(TicketState.AwaitingStaff, false, TicketState.AwaitingUser, TicketState.AwaitingStaff)]
+    [InlineData(TicketState.AwaitingStaff, true, TicketState.Resolved, TicketState.AwaitingStaff)]
+    [InlineData(TicketState.InProgress, false, TicketState.AwaitingStaff, TicketState.InProgress)]
+    [InlineData(TicketState.InProgress, true, TicketState.Closed, TicketState.InProgress)]
+    [InlineData(null, false, TicketState.InProgress, TicketState.AwaitingStaff)]
+    [InlineData(null, true, TicketState.AwaitingStaff, TicketState.InProgress)]
+    [InlineData(null, false, TicketState.Closed, TicketState.AwaitingStaff)]
+    public async Task CreatorReplyReopensResolvedTicketAndClearsResolution(
+        TicketState? previousStatus, bool escalatedToDev, TicketState clientStatus, TicketState expected)
     {
         Resolved();
+        _ticket!.StatusBeforeResolution = previousStatus;
+        _ticket.IsEscalatedToDev = escalatedToDev;
         var resolvedAt = _ticket!.ResolvedAt;
-        var result = await _service.AddMessageAsync(Message(status: clientStatus));
-        Assert.Equal(TicketState.InProgress, result!.Status);
+        var result = await _service.AddMessageAsync(Message("staff", clientStatus), Viewer("creator"));
+        Assert.Equal(expected, result!.Status);
+        Assert.Equal(previousStatus, result.StatusBeforeResolution);
         Assert.Null(result.ResolvedAt);
         Assert.Null(result.resolution);
         Assert.Null(result.ClosedAt);
-        Assert.True(result.IsEscalatedToDev);
+        Assert.Equal(escalatedToDev, result.IsEscalatedToDev);
         Assert.Equal(State(TicketState.Resolved), _filter!["Status"]);
         Assert.Equal(new BsonDateTime(resolvedAt!.Value), _filter["ResolvedAt"]);
         Assert.Equal("Reply", _update!["$push"]["Correspondences"]["Message"].AsString);
@@ -164,12 +226,14 @@ public class TicketWorkflowTests
     public async Task StaffReplyDoesNotReopenOrResetResolutionDeadline()
     {
         Resolved();
+        _ticket!.StatusBeforeResolution = TicketState.InProgress;
         var resolvedAt = _ticket!.ResolvedAt;
-        var result = await _service.AddMessageAsync(Message("staff"));
+        var result = await _service.AddMessageAsync(Message("creator"), Viewer("staff"));
         Assert.Equal(TicketState.Resolved, result!.Status);
         Assert.Equal(resolvedAt!.Value.Ticks / TimeSpan.TicksPerMillisecond,
             result.ResolvedAt!.Value.Ticks / TimeSpan.TicksPerMillisecond);
         Assert.NotNull(result.resolution);
+        Assert.Equal(TicketState.InProgress, result.StatusBeforeResolution);
         Assert.False(_update!["$set"].AsBsonDocument.Contains("ResolvedAt"));
     }
 
@@ -186,7 +250,7 @@ public class TicketWorkflowTests
     [Fact]
     public async Task ClosedTicketCannotBeReopenedByMessage()
     {
-        _ticket = new TicketInfo { id = "ticket", Status = TicketState.Closed };
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Status = TicketState.Closed };
         await Assert.ThrowsAsync<InvalidOperationException>(() => _service.AddMessageAsync(Message()));
         Assert.Null(_update);
     }
@@ -204,26 +268,48 @@ public class TicketWorkflowTests
     [InlineData((TicketState)99)]
     public async Task MessageCannotBypassResolutionWorkflow(TicketState status)
     {
-        _ticket = new TicketInfo { id = "ticket", Status = TicketState.InProgress };
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Status = TicketState.InProgress };
         await Assert.ThrowsAsync<ArgumentException>(() => _service.AddMessageAsync(Message(status: status)));
         Assert.Null(_update);
     }
 
     [Theory]
-    [InlineData(TicketState.AwaitingUser)]
-    [InlineData(TicketState.AwaitingStaff)]
-    [InlineData(TicketState.InProgress)]
-    public async Task ActiveTicketMessagesPreserveSupportedStatusSelection(TicketState status)
+    [InlineData(TicketState.AwaitingUser, "creator")]
+    [InlineData(TicketState.AwaitingStaff, "creator")]
+    [InlineData(TicketState.InProgress, "creator")]
+    [InlineData(TicketState.AwaitingUser, "staff")]
+    [InlineData(TicketState.AwaitingStaff, "staff")]
+    [InlineData(TicketState.InProgress, "staff")]
+    public async Task ActiveInProgressRepliesRemainInProgress(TicketState status, string sender)
     {
-        _ticket = new TicketInfo { id = "ticket", Status = TicketState.InProgress };
-        var result = await _service.AddMessageAsync(Message(status: status));
-        Assert.Equal(status, result!.Status);
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Status = TicketState.InProgress };
+        _ticket.creatorId = "creator";
+        var result = await _service.AddMessageAsync(Message(status: status), Viewer(sender));
+        Assert.Equal(TicketState.InProgress, result!.Status);
+    }
+
+    [Theory]
+    [InlineData(TicketState.AwaitingUser, "creator", TicketState.AwaitingUser, TicketState.AwaitingStaff)]
+    [InlineData(TicketState.AwaitingStaff, "creator", TicketState.InProgress, TicketState.AwaitingStaff)]
+    [InlineData(TicketState.AwaitingStaff, "staff", TicketState.AwaitingStaff, TicketState.AwaitingUser)]
+    [InlineData(TicketState.AwaitingUser, "staff", TicketState.InProgress, TicketState.AwaitingUser)]
+    public async Task OrdinaryRepliesUseAuthenticatedSenderInsteadOfRequestedStatus(
+        TicketState current, string sender, TicketState requested, TicketState expected)
+    {
+        _ticket = new TicketInfo
+        {
+            MessageTrackingVersion = TicketMessageTracking.CurrentVersion,
+            id = "ticket", creatorId = "creator", Status = current
+        };
+        var spoofedSender = sender == "creator" ? "staff" : "creator";
+        var result = await _service.AddMessageAsync(Message(spoofedSender, requested), Viewer(sender));
+        Assert.Equal(expected, result!.Status);
     }
 
     [Fact]
     public async Task DeveloperEscalationMarksTechnicalTicketInProgressWithoutChangingCategory()
     {
-        _ticket = new TicketInfo { id = "ticket", Category = TicketCategory.TechnicalSupport, Status = TicketState.AwaitingStaff };
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Category = TicketCategory.TechnicalSupport, Status = TicketState.AwaitingStaff };
         var result = await _service.EscalateTicketToDevAsync(new EscalateTicketToDevRequest
         {
             TicketId = "ticket", EscalatedById = "staff", EscalatedByName = "Support"
@@ -234,6 +320,8 @@ public class TicketWorkflowTests
         Assert.False(result.IsEscalated);
         Assert.Equal("staff", result.EscalatedToDevById);
         Assert.NotNull(result.EscalatedToDevAt);
+        Assert.Equal(1, result.LatestMessageSequence);
+        Assert.Equal(1, result.Correspondences!.Last().MessageSequence);
         Assert.False(_update!["$set"].AsBsonDocument.Contains("Category"));
         Assert.Equal((int)TicketCategory.TechnicalSupport, _filter!["Category"].AsInt32);
         Assert.Contains(State(TicketState.Closed), _filter["Status"]["$nin"].AsBsonArray);
@@ -246,7 +334,7 @@ public class TicketWorkflowTests
     [InlineData(TicketCategory.PatentDesignRegistry)]
     public async Task NonTechnicalTicketCannotBeEscalatedToDevelopers(TicketCategory category)
     {
-        _ticket = new TicketInfo { id = "ticket", Category = category };
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Category = category };
         await Assert.ThrowsAsync<ArgumentException>(() => _service.EscalateTicketToDevAsync(new EscalateTicketToDevRequest { TicketId = "ticket" }));
         Assert.Null(_update);
     }
@@ -256,7 +344,7 @@ public class TicketWorkflowTests
     [InlineData(TicketState.Closed)]
     public async Task InactiveTicketCannotBeEscalatedToDevelopers(TicketState status)
     {
-        _ticket = new TicketInfo { id = "ticket", Category = TicketCategory.TechnicalSupport, Status = status };
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Category = TicketCategory.TechnicalSupport, Status = status };
         await Assert.ThrowsAsync<InvalidOperationException>(() => _service.EscalateTicketToDevAsync(new EscalateTicketToDevRequest { TicketId = "ticket" }));
         Assert.Null(_update);
     }
@@ -264,7 +352,7 @@ public class TicketWorkflowTests
     [Fact]
     public async Task RepeatedDeveloperEscalationDoesNotDuplicateHistory()
     {
-        _ticket = new TicketInfo { id = "ticket", Category = TicketCategory.TechnicalSupport, Status = TicketState.InProgress, IsEscalatedToDev = true };
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Category = TicketCategory.TechnicalSupport, Status = TicketState.InProgress, IsEscalatedToDev = true };
         Assert.Same(_ticket, await _service.EscalateTicketToDevAsync(new EscalateTicketToDevRequest { TicketId = "ticket" }));
         Assert.Null(_update);
     }
@@ -303,8 +391,8 @@ public class TicketWorkflowTests
     [Fact]
     public async Task ControllerReturnsBadRequestForNonTechnicalDeveloperEscalation()
     {
-        _ticket = new TicketInfo { id = "ticket", Category = TicketCategory.TrademarkRegistry };
-        var result = await new TicketController(_service).EscalateTicketToDev(new EscalateTicketToDevRequest { TicketId = "ticket" });
+        _ticket = new TicketInfo { MessageTrackingVersion = TicketMessageTracking.CurrentVersion, id = "ticket", Category = TicketCategory.TrademarkRegistry };
+        var result = await Controller().EscalateTicketToDev(new EscalateTicketToDevRequest { TicketId = "ticket" });
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
@@ -312,13 +400,13 @@ public class TicketWorkflowTests
     public async Task ControllerReturnsConflictForExpiredReply()
     {
         Resolved(25);
-        Assert.IsType<ConflictObjectResult>(await new TicketController(_service).AddMessageToTicket(Message()));
+        Assert.IsType<ConflictObjectResult>(await Controller().AddMessageToTicket(Message()));
     }
 
     [Fact]
     public async Task ControllerReturnsBadRequestForMissingResolutionDetails()
     {
-        var result = await new TicketController(_service).CloseTickets(new ResolveTicketType
+        var result = await Controller().CloseTickets(new ResolveTicketType
         {
             ticketId = ["ticket"], resolution = null!
         });

@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 using patentdesign.Dtos.Request;
 using patentdesign.Enums;
@@ -86,6 +87,55 @@ public class TicketServices
     }
     #endregion
 
+    private async Task<TicketInfo?> FindTrackedTicketAsync(string id, TicketViewer? viewer)
+    {
+        var access = Builders<TicketInfo>.Filter.Eq(x => x.id, id) & TicketAccessRules.Filter(viewer);
+        var ticket = await _ticketsCollection.Find(access).FirstOrDefaultAsync();
+        if (ticket == null || ticket.MessageTrackingVersion == TicketMessageTracking.CurrentVersion) return ticket;
+
+        var filter = access & Builders<TicketInfo>.Filter.Ne(x => x.MessageTrackingVersion, TicketMessageTracking.CurrentVersion);
+        PipelineDefinition<TicketInfo, TicketInfo> pipeline = TicketMessageTracking.LegacyInitializationStages();
+        var initialized = await _ticketsCollection.FindOneAndUpdateAsync(filter,
+            Builders<TicketInfo>.Update.Pipeline(pipeline),
+            new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After });
+        return initialized ?? await _ticketsCollection.Find(access).FirstOrDefaultAsync();
+    }
+
+    private static FilterDefinition<TicketInfo> SequenceFilter(TicketInfo ticket) =>
+        Builders<TicketInfo>.Filter.Eq(x => x.LatestMessageSequence, ticket.LatestMessageSequence)
+        & Builders<TicketInfo>.Filter.Eq(x => x.MessageTrackingVersion, TicketMessageTracking.CurrentVersion);
+
+    private static TicketInfo? ForViewer(TicketInfo? ticket, TicketViewer? viewer)
+    {
+        if (ticket == null) return null;
+        NormalizeTicketAttachments(ticket);
+        return TicketMessageTracking.Apply(ticket, viewer);
+    }
+
+    public async Task<TicketReadResult?> MarkTicketReadAsync(string id, long throughMessageSequence, TicketViewer viewer)
+    {
+        if (throughMessageSequence < 0) throw new ArgumentOutOfRangeException(nameof(throughMessageSequence));
+        var ticket = await FindTrackedTicketAsync(id, viewer);
+        if (ticket == null) return null;
+
+        var through = Math.Min(throughMessageSequence, ticket.LatestMessageSequence);
+        var readerField = nameof(TicketInfo.ReadMessageSequences) + "." + TicketMessageTracking.ReaderKey(viewer.UserId);
+        var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, id) & TicketAccessRules.Filter(viewer);
+        var updated = await _ticketsCollection.FindOneAndUpdateAsync(filter,
+            Builders<TicketInfo>.Update.Max(readerField, through),
+            new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After });
+        if (updated == null) return null;
+        TicketMessageTracking.Apply(updated, viewer);
+        return new TicketReadResult
+        {
+            TicketId = updated.id,
+            LastReadMessageSequence = TicketMessageTracking.LastReadSequence(updated, viewer),
+            HasUnreadMessages = updated.HasUnreadMessages,
+            UnreadCount = updated.UnreadCount,
+            LatestMessageSequence = updated.LatestMessageSequence
+        };
+    }
+
     private static void NormalizeTicketAttachments(TicketInfo? ticket)
     {
         if (ticket?.Correspondences == null || ticket.Correspondences.Count == 0)
@@ -160,7 +210,7 @@ public class TicketServices
     }
 
     #region Ticket lifecycle
-    public async Task CreateTicketAsync(TicketInfo ticket)
+    public async Task CreateTicketAsync(TicketInfo ticket, TicketViewer? viewer = null)
     {
         _logger.LogInformation("Creating ticket for CreatorId: {CreatorId}, FileNumber: {FileNumber}", ticket.creatorId, ticket.FileNumber);
 
@@ -172,10 +222,22 @@ public class TicketServices
         ticket.ResolvedAt = null;
         ticket.ClosedAt = null;
         ticket.resolution = null;
+        ticket.StatusBeforeResolution = null;
         ticket.IsEscalatedToDev = false;
         ticket.EscalatedToDevAt = null;
         ticket.EscalatedToDevById = null;
         ticket.EscalatedToDevByName = null;
+        if (viewer != null)
+        {
+            ticket.creatorId = viewer.UserId;
+            ticket.creatorName = viewer.DisplayName;
+            foreach (var message in ticket.Correspondences ?? [])
+            {
+                message.SenderId = viewer.UserId;
+                message.SenderName = viewer.DisplayName;
+            }
+        }
+        TicketMessageTracking.InitializeNewTicket(ticket);
         NormalizeTicketAttachments(ticket);
 
         var count = await _ticketsCollection.EstimatedDocumentCountAsync();
@@ -208,7 +270,7 @@ public class TicketServices
         }
     }
 
-    public async Task<bool> CloseTicketsAsync(ResolveTicketType res)
+    public async Task<bool> CloseTicketsAsync(ResolveTicketType res, TicketViewer? viewer = null)
     {
         _logger.LogInformation("Resolving tickets. Count: {Count}", res.ticketId?.Count ?? 0);
 
@@ -219,10 +281,23 @@ public class TicketServices
         }
 
         ArgumentNullException.ThrowIfNull(res.resolution);
+        if (viewer != null)
+        {
+            var ids = res.ticketId.Distinct().ToList();
+            var accessible = await _ticketsCollection.CountDocumentsAsync(
+                Builders<TicketInfo>.Filter.In(x => x.id, ids) & TicketAccessRules.Filter(viewer));
+            if (accessible != ids.Count) throw new UnauthorizedAccessException("One or more tickets are not accessible.");
+        }
         var now = DateTime.UtcNow;
         var filter = Builders<TicketInfo>.Filter.In(f => f.id, res.ticketId)
-            & Builders<TicketInfo>.Filter.Nin(f => f.Status, new[] { TicketState.Resolved, TicketState.Closed });
-        var resolution = res.resolution with { Date = now };
+            & Builders<TicketInfo>.Filter.Nin(f => f.Status, new[] { TicketState.Resolved, TicketState.Closed })
+            & TicketAccessRules.Filter(viewer);
+        var resolution = res.resolution with
+        {
+            Date = now,
+            StaffId = viewer?.UserId ?? res.resolution.StaffId,
+            StaffName = viewer?.DisplayName ?? res.resolution.StaffName
+        };
         List<UpdateDefinition<TicketInfo>> updates =
         [
             Builders<TicketInfo>.Update.Set(f => f.resolution, resolution),
@@ -230,9 +305,18 @@ public class TicketServices
             Builders<TicketInfo>.Update.Set(f => f.ResolvedAt, now),
             Builders<TicketInfo>.Update.Set(f => f.ClosedAt, null)
         ];
+        var values = Builders<TicketInfo>.Update.Combine(updates)
+            .Render(BsonSerializer.LookupSerializer<TicketInfo>(), BsonSerializer.SerializerRegistry)["$set"].AsBsonDocument;
+        var fields = new BsonDocument();
+        foreach (var value in values)
+        {
+            fields[value.Name] = new BsonDocument("$literal", value.Value);
+        }
+        fields[nameof(TicketInfo.StatusBeforeResolution)] = "$Status";
+        PipelineDefinition<TicketInfo, TicketInfo> pipeline = new[] { new BsonDocument("$set", fields) };
         var result = await _ticketsCollection.UpdateManyAsync(
             filter,
-            Builders<TicketInfo>.Update.Combine(updates));
+            Builders<TicketInfo>.Update.Pipeline(pipeline));
 
         _logger.LogInformation("Close tickets completed. Acknowledged: {Acknowledged}, Matched: {Matched}, Modified: {Modified}",
             result.IsAcknowledged,
@@ -263,7 +347,7 @@ public class TicketServices
     #endregion
 
     #region Ticket communication
-    public async Task<TicketInfo?> AddMessageAsync(NewCorrespondenceType correspondence)
+    public async Task<TicketInfo?> AddMessageAsync(NewCorrespondenceType correspondence, TicketViewer? viewer = null)
     {
         _logger.LogInformation("Adding message to ticket {TicketId} with new status {NewStatus}", correspondence.ticketId, correspondence.newStatus);
 
@@ -273,11 +357,16 @@ public class TicketServices
         }
 
         ArgumentNullException.ThrowIfNull(correspondence.correspondence);
+        if (viewer != null)
+        {
+            correspondence.correspondence.SenderId = viewer.UserId;
+            correspondence.correspondence.SenderName = viewer.DisplayName;
+        }
         correspondence.correspondence.Attachment = NormalizeAttachmentLink(correspondence.correspondence.Attachment);
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            var ticket = await _ticketsCollection.Find(x => x.id == correspondence.ticketId).FirstOrDefaultAsync();
+            var ticket = await FindTrackedTicketAsync(correspondence.ticketId, viewer);
             if (ticket == null) return null;
 
             var now = DateTime.UtcNow;
@@ -294,19 +383,30 @@ public class TicketServices
                 throw new ArgumentException("Messages must use an active status. Use CloseTicket to resolve a ticket.");
             }
 
-            var reopen = ticket.Status == TicketState.Resolved &&
-                !string.IsNullOrWhiteSpace(ticket.creatorId) &&
+            var isCreator = !string.IsNullOrWhiteSpace(ticket.creatorId) &&
                 ticket.creatorId == correspondence.correspondence.SenderId;
-            var status = ticket.Status == TicketState.Resolved
-                ? (reopen ? TicketState.InProgress : TicketState.Resolved)
-                : correspondence.newStatus;
+            var reopen = ticket.Status == TicketState.Resolved && isCreator;
+            var previouslyInProgress = ticket.StatusBeforeResolution.HasValue
+                ? ticket.StatusBeforeResolution == TicketState.InProgress
+                : ticket.IsEscalatedToDev;
+            var status = ticket.Status switch
+            {
+                TicketState.Resolved when !reopen => TicketState.Resolved,
+                TicketState.Resolved => previouslyInProgress ? TicketState.InProgress : TicketState.AwaitingStaff,
+                TicketState.InProgress => TicketState.InProgress,
+                _ => isCreator ? TicketState.AwaitingStaff : TicketState.AwaitingUser
+            };
 
             correspondence.correspondence.DateAdded = now;
+            correspondence.correspondence.MessageSequence = checked(ticket.LatestMessageSequence + 1);
             var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, correspondence.ticketId)
                 & Builders<TicketInfo>.Filter.Eq(x => x.Status, ticket.Status)
-                & Builders<TicketInfo>.Filter.Eq(x => x.ResolvedAt, ticket.ResolvedAt);
+                & Builders<TicketInfo>.Filter.Eq(x => x.ResolvedAt, ticket.ResolvedAt)
+                & SequenceFilter(ticket)
+                & TicketAccessRules.Filter(viewer);
             var update = Builders<TicketInfo>.Update
                 .Push(x => x.Correspondences, correspondence.correspondence)
+                .Inc(x => x.LatestMessageSequence, 1L)
                 .Set(x => x.Status, status);
             if (reopen)
             {
@@ -317,7 +417,7 @@ public class TicketServices
 
             var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
             var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, update, options);
-            if (result != null) return result;
+            if (result != null) return ForViewer(result, viewer);
         }
 
         throw new InvalidOperationException("The ticket changed while adding your message. Please retry.");
@@ -325,19 +425,18 @@ public class TicketServices
     #endregion
 
     #region Ticket retrieval and reporting
-    public async Task<TicketInfo> GetTicketAsync(string id)
+    public async Task<TicketInfo?> GetTicketAsync(string id, TicketViewer? viewer = null)
     {
         _logger.LogInformation("Fetching ticket by Id: {TicketId}", id);
 
-        var result = await _ticketsCollection.Find(x => x.id == id).FirstOrDefaultAsync();
-        NormalizeTicketAttachments(result);
+        var result = await FindTrackedTicketAsync(id, viewer);
 
         _logger.LogInformation("Fetch ticket completed for Id: {TicketId}. Found: {Found}", id, result != null);
 
-        return result;
+        return ForViewer(result, viewer);
     }
 
-    public async Task<List<TicketSummary>> GetTicketsSummariesAsync(TicketsSummariesType info)
+    public async Task<List<TicketSummary>> GetTicketsSummariesAsync(TicketsSummariesType info, TicketViewer? viewer = null)
     {
         _logger.LogInformation("Fetching ticket summaries. CreatorId: {CreatorId}, Status: {Status}, Category: {Category}, RegistryCategory: {RegistryCategory}, StartIndex: {StartIndex}, Amount: {Amount}",
             info.creatorId,
@@ -349,7 +448,8 @@ public class TicketServices
 
         var filter = Builders<TicketInfo>.Filter;
 
-        var creatorFilter = info.creatorId == "null" ? filter.Empty : filter.Eq(x => x.creatorId, info.creatorId);
+        var creatorFilter = string.IsNullOrWhiteSpace(info.creatorId) || info.creatorId == "null"
+            ? filter.Empty : filter.Eq(x => x.creatorId, info.creatorId);
         var statusFilter = info.status == null ? filter.Empty : filter.Eq(x => x.Status, info.status);
         var titleFilter = info.title == null
             ? filter.Empty
@@ -380,39 +480,12 @@ public class TicketServices
             categoryFilter, registryCategoryFilter,
             escalatedFilter, devEscalatedFilter, registryStaffFilter,
             ticketNumberFilter, fileNumberFilter, appTypeFilter,
-            startDateFilter, endDateFilter
+            startDateFilter, endDateFilter, TicketAccessRules.Filter(viewer)
         );
-
-        var projection = Builders<TicketInfo>.Projection.Expression(x => new TicketSummary
-        {
-            Status = x.Status,
-            Title = x.Title,
-            Creator = new TicketCreator { Name = x.creatorName, Id = x.creatorId },
-            LastInteraction = x.Correspondences.Any()
-                ? x.Correspondences.Last().DateAdded
-                : x.Created,
-            DateCreated = x.Created,
-            TicketId = x.id,
-            TicketNumber = x.TicketNumber,
-            Category = x.Category,
-            RegistryCategory = x.RegistryCategory,
-            TicketType = x.TicketType,
-            ApplicationType = x.ApplicationType,
-            RecordalType = x.RecordalType,
-            FileNumber = x.FileNumber,
-            RaisedByRegistryStaff = x.RaisedByRegistryStaff,
-            IsEscalated = x.IsEscalated,
-            EscalatedFromCategory = x.EscalatedFromCategory,
-            Resolution = x.resolution,
-            IsEscalatedToDev = x.IsEscalatedToDev,
-            EscalatedToDevAt = x.EscalatedToDevAt,
-            ResolvedAt = x.ResolvedAt,
-            ClosedAt = x.ClosedAt
-        });
 
         var tickets = await _ticketsCollection
             .Find(combined)
-            .Project(projection)
+            .Project<TicketSummary>(TicketMessageTracking.SummaryProjection(viewer))
             .Skip(info.startIndex ?? 0)
             .Limit(info.amount ?? 50)
             .ToListAsync();
@@ -426,7 +499,11 @@ public class TicketServices
         string? creatorId,
         int? category = null,
         int? registryCategory = null,
-        bool? raisedByRegistryStaff = null)
+        bool? raisedByRegistryStaff = null,
+        TicketViewer? viewer = null,
+        TicketState? status = null,
+        bool? isEscalated = null,
+        bool? isEscalatedToDev = null)
     {
         _logger.LogInformation("Calculating ticket stats. CreatorId: {CreatorId}, Category: {Category}, RegistryCategory: {RegistryCategory}, RaisedByRegistryStaff: {RaisedByRegistryStaff}",
             creatorId,
@@ -435,9 +512,9 @@ public class TicketServices
             raisedByRegistryStaff);
 
         var filter = Builders<TicketInfo>.Filter;
-        var baseFilter = filter.Empty;
+        var baseFilter = TicketAccessRules.Filter(viewer);
 
-        if (!string.IsNullOrWhiteSpace(creatorId))
+        if (!string.IsNullOrWhiteSpace(creatorId) && creatorId != "null")
         {
             baseFilter = filter.And(
                 baseFilter,
@@ -469,17 +546,32 @@ public class TicketServices
             );
         }
 
-        var statusCounts = await _ticketsCollection
+        if (status.HasValue) baseFilter &= filter.Eq(x => x.Status, status.Value);
+        if (isEscalated.HasValue) baseFilter &= isEscalated.Value
+            ? filter.Eq(x => x.IsEscalated, true) : filter.Ne(x => x.IsEscalated, true);
+        if (isEscalatedToDev.HasValue) baseFilter &= isEscalatedToDev.Value
+            ? filter.Eq(x => x.IsEscalatedToDev, true) : filter.Ne(x => x.IsEscalatedToDev, true);
+
+        var groupedCounts = await _ticketsCollection
             .Aggregate()
             .Match(baseFilter)
-            .Group(
-                x => x.Status,
-                g => new TicketStatusCount
+            .Group<BsonDocument>(new BsonDocument
+            {
+                { "_id", "$Status" },
+                { "Count", new BsonDocument("$sum", 1L) },
+                { "UnreadTickets", new BsonDocument("$sum", new BsonDocument("$cond", new BsonArray
                 {
-                    Status = g.Key,
-                    Count = g.LongCount()
-                })
+                    new BsonDocument("$gt", new BsonArray { TicketMessageTracking.UnreadCountExpression(viewer), 0L }),
+                    1L,
+                    0L
+                })) }
+            })
             .ToListAsync();
+        var statusCounts = groupedCounts.Select(group => BsonSerializer.Deserialize<TicketStatusCount>(new BsonDocument
+        {
+            { "Status", group["_id"] },
+            { "Count", group["Count"] }
+        })).ToList();
 
         var total = statusCounts.Sum(x => x.Count);
         var awaitingStaff = statusCounts.FirstOrDefault(x => x.Status == TicketState.AwaitingStaff)?.Count ?? 0;
@@ -487,6 +579,7 @@ public class TicketServices
         var closed = statusCounts.FirstOrDefault(x => x.Status == TicketState.Closed)?.Count ?? 0;
         var inProgress = statusCounts.FirstOrDefault(x => x.Status == TicketState.InProgress)?.Count ?? 0;
         var resolved = statusCounts.FirstOrDefault(x => x.Status == TicketState.Resolved)?.Count ?? 0;
+        var unreadTickets = groupedCounts.Sum(group => group["UnreadTickets"].ToInt64());
 
         return new TicketStatsReturnType
         {
@@ -495,93 +588,99 @@ public class TicketServices
             user = awaitingUser,
             closed = closed,
             inProgress = inProgress,
-            resolved = resolved
+            resolved = resolved,
+            unreadTickets = unreadTickets
         };
     }
     #endregion
 
     #region Ticket escalation
-    public async Task<TicketInfo?> EscalateTicketToDevAsync(EscalateTicketToDevRequest request)
+    public async Task<TicketInfo?> EscalateTicketToDevAsync(EscalateTicketToDevRequest request, TicketViewer? viewer = null)
     {
-        var ticket = await _ticketsCollection.Find(x => x.id == request.TicketId).FirstOrDefaultAsync();
-        if (ticket == null) return null;
-        if (ticket.Category != TicketCategory.TechnicalSupport)
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            throw new ArgumentException("Only technical support tickets can be escalated to developers.");
-        }
-        if (ticket.Status is TicketState.Closed or TicketState.Resolved)
-        {
-            throw new InvalidOperationException("Only active tickets can be escalated to developers.");
-        }
-        if (ticket.IsEscalatedToDev) return ticket;
-
-        var now = DateTime.UtcNow;
-        var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, request.TicketId)
-            & Builders<TicketInfo>.Filter.Eq(x => x.Category, TicketCategory.TechnicalSupport)
-            & Builders<TicketInfo>.Filter.Nin(x => x.Status, new[] { TicketState.Resolved, TicketState.Closed })
-            & Builders<TicketInfo>.Filter.Ne(x => x.IsEscalatedToDev, true);
-        var update = Builders<TicketInfo>.Update
-            .Set(x => x.IsEscalatedToDev, true)
-            .Set(x => x.Status, TicketState.InProgress)
-            .Set(x => x.EscalatedToDevAt, now)
-            .Set(x => x.EscalatedToDevById, request.EscalatedById)
-            .Set(x => x.EscalatedToDevByName, request.EscalatedByName)
-            .Push(x => x.Correspondences, new TicketCorrespondence
+            var ticket = await FindTrackedTicketAsync(request.TicketId!, viewer);
+            if (ticket == null) return null;
+            if (ticket.Category != TicketCategory.TechnicalSupport)
             {
-                SenderId = "system",
-                SenderName = "System",
-                Message = string.IsNullOrWhiteSpace(request.AutoMessage) ? "Escalated to developers." : request.AutoMessage,
-                DateAdded = now
-            });
-        var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, update,
-            new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After });
-        return result ?? throw new InvalidOperationException("The ticket changed during escalation. Please retry.");
+                throw new ArgumentException("Only technical support tickets can be escalated to developers.");
+            }
+            if (ticket.Status is TicketState.Closed or TicketState.Resolved)
+            {
+                throw new InvalidOperationException("Only active tickets can be escalated to developers.");
+            }
+            if (ticket.IsEscalatedToDev) return ForViewer(ticket, viewer);
+
+            var now = DateTime.UtcNow;
+            var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, request.TicketId)
+                & Builders<TicketInfo>.Filter.Eq(x => x.Category, TicketCategory.TechnicalSupport)
+                & Builders<TicketInfo>.Filter.Nin(x => x.Status, new[] { TicketState.Resolved, TicketState.Closed })
+                & Builders<TicketInfo>.Filter.Ne(x => x.IsEscalatedToDev, true)
+                & SequenceFilter(ticket)
+                & TicketAccessRules.Filter(viewer);
+            var update = Builders<TicketInfo>.Update
+                .Set(x => x.IsEscalatedToDev, true)
+                .Set(x => x.Status, TicketState.InProgress)
+                .Set(x => x.EscalatedToDevAt, now)
+                .Set(x => x.EscalatedToDevById, viewer?.UserId ?? request.EscalatedById)
+                .Set(x => x.EscalatedToDevByName, viewer?.DisplayName ?? request.EscalatedByName)
+                .Inc(x => x.LatestMessageSequence, 1L)
+                .Push(x => x.Correspondences, new TicketCorrespondence
+                {
+                    SenderId = "system",
+                    SenderName = "System",
+                    Message = string.IsNullOrWhiteSpace(request.AutoMessage) ? "Escalated to developers." : request.AutoMessage,
+                    DateAdded = now,
+                    MessageSequence = checked(ticket.LatestMessageSequence + 1)
+                });
+            var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, update,
+                new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After });
+            if (result != null) return ForViewer(result, viewer);
+        }
+        throw new InvalidOperationException("The ticket changed during escalation. Please retry.");
     }
 
-    public async Task<TicketInfo> EscalateTicketAsync(EscalateTicketRequest request)
+    public async Task<TicketInfo?> EscalateTicketAsync(EscalateTicketRequest request, TicketViewer? viewer = null)
     {
         _logger.LogInformation("Escalating ticket {TicketId} to category {EscalateToCategory} by {EscalatedById}",
             request.TicketId,
             request.EscalateToCategory,
             request.EscalatedById);
 
-        var ticket = await _ticketsCollection.Find(x => x.id == request.TicketId).FirstOrDefaultAsync();
-        if (ticket == null)
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            _logger.LogWarning("Escalation failed. Ticket not found: {TicketId}", request.TicketId);
-            return null;
+            var ticket = await FindTrackedTicketAsync(request.TicketId!, viewer);
+            if (ticket == null) return null;
+            var now = DateTime.UtcNow;
+            var systemMsg = new TicketCorrespondence
+            {
+                SenderId = "system",
+                SenderName = "System",
+                Message = request.AutoMessage,
+                DateAdded = now,
+                MessageSequence = checked(ticket.LatestMessageSequence + 1)
+            };
+            var filter = Builders<TicketInfo>.Filter.Eq(x => x.id, request.TicketId)
+                & SequenceFilter(ticket) & TicketAccessRules.Filter(viewer);
+            var update = Builders<TicketInfo>.Update
+                .Set(x => x.Category, request.EscalateToCategory)
+                .Set(x => x.IsEscalated, true)
+                .Set(x => x.EscalatedFromCategory, ticket.Category)
+                .Set(x => x.EscalatedAt, now)
+                .Set(x => x.EscalatedById, viewer?.UserId ?? request.EscalatedById)
+                .Set(x => x.EscalatedByName, viewer?.DisplayName ?? request.EscalatedByName)
+                .Inc(x => x.LatestMessageSequence, 1L)
+                .Push(x => x.Correspondences, systemMsg);
+            var result = await _ticketsCollection.FindOneAndUpdateAsync(filter, update,
+                new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After });
+            if (result != null) return ForViewer(result, viewer);
         }
-
-        var systemMsg = new TicketCorrespondence
-        {
-            SenderId = "system",
-            SenderName = "System",
-            Message = request.AutoMessage,
-            DateAdded = DateTime.UtcNow
-        };
-
-        var filter = Builders<TicketInfo>.Filter.Eq(f => f.id, request.TicketId);
-        List<UpdateDefinition<TicketInfo>> updates = [
-            Builders<TicketInfo>.Update.Set(f => f.Category, request.EscalateToCategory),
-        Builders<TicketInfo>.Update.Set(f => f.IsEscalated, true),
-        Builders<TicketInfo>.Update.Set(f => f.EscalatedFromCategory, ticket.Category),
-        Builders<TicketInfo>.Update.Set(f => f.EscalatedAt, DateTime.UtcNow),
-        Builders<TicketInfo>.Update.Set(f => f.EscalatedById, request.EscalatedById),
-        Builders<TicketInfo>.Update.Set(f => f.EscalatedByName, request.EscalatedByName),
-        Builders<TicketInfo>.Update.Push(f => f.Correspondences, systemMsg),
-    ];
-        var options = new FindOneAndUpdateOptions<TicketInfo> { ReturnDocument = ReturnDocument.After };
-        var result = await _ticketsCollection.FindOneAndUpdateAsync(
-            filter, Builders<TicketInfo>.Update.Combine(updates), options);
-
-        _logger.LogInformation("Escalation completed for ticket {TicketId}. Updated: {Updated}", request.TicketId, result != null);
-
-        return result;
+        throw new InvalidOperationException("The ticket changed during escalation. Please retry.");
     }
     #endregion
 
     #region Ticket search
-    public async Task<List<TicketSummary>> SearchTicketsAsync(TicketSearchRequest request)
+    public async Task<List<TicketSummary>> SearchTicketsAsync(TicketSearchRequest request, TicketViewer viewer)
     {
         _logger.LogInformation("Searching tickets. TicketNumber: {TicketNumber}, FileNumber: {FileNumber}, IsTech: {IsTech}, RequesterId: {RequesterId}, SupportRegistryCategory: {SupportRegistryCategory}",
             request.ticketNumber,
@@ -609,64 +708,11 @@ public class TicketServices
             );
         }
 
-        var accessFilter = filter.Empty;
-
-        if (request.isTech)
-        {
-            accessFilter = filter.Empty;
-        }
-        else if (request.supportRegistryCategory.HasValue)
-        {
-            var normalRegistryTickets = filter.Eq(
-                x => x.Category,
-                request.supportRegistryCategory.Value
-            );
-
-            var registryTechnicalTickets = filter.And(
-                filter.Eq(x => x.Category, TicketCategory.TechnicalSupport),
-                filter.Eq(x => x.RegistryCategory, request.supportRegistryCategory.Value),
-                filter.Eq(x => x.RaisedByRegistryStaff, true)
-            );
-
-            accessFilter = filter.Or(normalRegistryTickets, registryTechnicalTickets);
-        }
-        else
-        {
-            accessFilter = filter.Eq(x => x.creatorId, request.requesterId);
-        }
-
-        var combined = filter.And(searchFilter, accessFilter);
-
-        var projection = Builders<TicketInfo>.Projection.Expression(x => new TicketSummary
-        {
-            Status = x.Status,
-            Title = x.Title,
-            Creator = new TicketCreator { Name = x.creatorName, Id = x.creatorId },
-            LastInteraction = x.Correspondences.Any()
-                ? x.Correspondences.Last().DateAdded
-                : x.Created,
-            DateCreated = x.Created,
-            TicketId = x.id,
-            TicketNumber = x.TicketNumber,
-            Category = x.Category,
-            RegistryCategory = x.RegistryCategory,
-            TicketType = x.TicketType,
-            ApplicationType = x.ApplicationType,
-            RecordalType = x.RecordalType,
-            FileNumber = x.FileNumber,
-            RaisedByRegistryStaff = x.RaisedByRegistryStaff,
-            IsEscalated = x.IsEscalated,
-            EscalatedFromCategory = x.EscalatedFromCategory,
-            Resolution = x.resolution,
-            IsEscalatedToDev = x.IsEscalatedToDev,
-            EscalatedToDevAt = x.EscalatedToDevAt,
-            ResolvedAt = x.ResolvedAt,
-            ClosedAt = x.ClosedAt
-        });
+        var combined = filter.And(searchFilter, TicketAccessRules.Filter(viewer));
 
         var results = await _ticketsCollection
             .Find(combined)
-            .Project(projection)
+            .Project<TicketSummary>(TicketMessageTracking.SummaryProjection(viewer))
             .SortByDescending(x => x.Created)
             .Limit(100)
             .ToListAsync();
