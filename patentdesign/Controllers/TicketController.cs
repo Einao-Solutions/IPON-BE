@@ -4,13 +4,17 @@ using patentdesign.Dtos.Request;
 using patentdesign.Enums;
 using patentdesign.Models;
 using patentdesign.Services;
+using patentdesign.Utils;
 
 namespace patentdesign.Controllers;
 
 [Authorize]
+[TicketAccess]
 [ApiController] [Route("api/tickets")]
 public class TicketController(TicketServices ticketService) :ControllerBase
 {
+    private TicketViewer Viewer => TicketViewer.FromPrincipal(User);
+
     #region Ticket lifecycle endpoints
     /// <summary>
     /// Creates a new support ticket.
@@ -22,7 +26,7 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     {
         try
         {
-            await ticketService.CreateTicketAsync(ticket);
+            await ticketService.CreateTicketAsync(ticket, Viewer);
             return CreatedAtAction(nameof(GetTicket), new { id = ticket.id }, ticket);
         }
         catch (ArgumentException ex)
@@ -39,7 +43,9 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<TicketInfo?>> GetTicket(string id)
     {
-        return await ticketService.GetTicketAsync(id);
+        var ticket = await ticketService.GetTicketAsync(id, Viewer);
+        if (ticket == null) return NotFound();
+        return Ok(ticket);
     }
 
     /// <summary>
@@ -50,7 +56,7 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     [HttpPost("TicketSummaries")]
     public async Task<ActionResult<List<TicketSummary>?>> GetTicketSummaries([FromBody] TicketsSummariesType info)
     {
-        var res= await ticketService.GetTicketsSummariesAsync(info);
+        var res= await ticketService.GetTicketsSummariesAsync(info, Viewer);
         return Ok(res);
     }
 
@@ -64,7 +70,7 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     {
         try
         {
-            var result = await ticketService.CloseTicketsAsync(res);
+            var result = await ticketService.CloseTicketsAsync(res, Viewer);
             return Ok(result);
         }
         catch (ArgumentException ex)
@@ -88,6 +94,24 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     
     #region Ticket communication endpoints
     /// <summary>
+    /// Marks messages through the supplied sequence as read for the authenticated viewer.
+    /// </summary>
+    /// <param name="ticketId">Ticket identifier.</param>
+    /// <param name="request">Last message sequence actually displayed to the viewer.</param>
+    /// <returns>The viewer's updated read progress and unread counts.</returns>
+    [HttpPost("{ticketId}/Read")]
+    public async Task<ActionResult<TicketReadResult>> MarkTicketRead(string ticketId, [FromBody] ReadTicketRequest request)
+    {
+        if (!request.ThroughMessageSequence.HasValue || request.ThroughMessageSequence.Value < 0)
+        {
+            return BadRequest("throughMessageSequence is required and must be nonnegative.");
+        }
+        var result = await ticketService.MarkTicketReadAsync(ticketId, request.ThroughMessageSequence.Value, Viewer);
+        if (result == null) return NotFound();
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Adds a correspondence message to an existing ticket.
     /// </summary>
     /// <param name="newMessageInfo">Message content and target ticket metadata.</param>
@@ -97,7 +121,7 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     {
         try
         {
-            var res = await ticketService.AddMessageAsync(newMessageInfo);
+            var res = await ticketService.AddMessageAsync(newMessageInfo, Viewer);
             if (res == null) return NotFound();
             return Ok(res);
         }
@@ -120,19 +144,29 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     /// <param name="category">Optional support category filter.</param>
     /// <param name="registryCategory">Optional registry category filter.</param>
     /// <param name="raisedByRegistryStaff">Optional registry staff origin filter.</param>
+    /// <param name="status">Optional ticket status filter.</param>
+    /// <param name="isEscalated">Optional category escalation filter.</param>
+    /// <param name="isEscalatedToDev">Optional developer escalation filter.</param>
     /// <returns>Ticket counts by status for the selected scope.</returns>
     [HttpGet("GetStats")]
     public async Task<ActionResult> GetTicketStats(
         [FromQuery] string? userId,
         [FromQuery] int? category = null,
         [FromQuery] int? registryCategory = null,
-        [FromQuery] bool? raisedByRegistryStaff = null)
+        [FromQuery] bool? raisedByRegistryStaff = null,
+        [FromQuery] TicketState? status = null,
+        [FromQuery] bool? isEscalated = null,
+        [FromQuery] bool? isEscalatedToDev = null)
     {
         var tickets = await ticketService.TicketStats(
             userId,
             category,
             registryCategory,
-            raisedByRegistryStaff
+            raisedByRegistryStaff,
+            Viewer,
+            status,
+            isEscalated,
+            isEscalatedToDev
         );
 
         return Ok(tickets);
@@ -150,7 +184,7 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     {
         try
         {
-            var result = await ticketService.EscalateTicketToDevAsync(request);
+            var result = await ticketService.EscalateTicketToDevAsync(request, Viewer);
             if (result == null) return NotFound();
             return Ok(result);
         }
@@ -172,9 +206,16 @@ public class TicketController(TicketServices ticketService) :ControllerBase
     [HttpPost("Escalate")]
     public async Task<ActionResult<TicketInfo>> EscalateTicket([FromBody] EscalateTicketRequest request)
     {
-        var result = await ticketService.EscalateTicketAsync(request);
-        if (result == null) return NotFound();
-        return Ok(result);
+        try
+        {
+            var result = await ticketService.EscalateTicketAsync(request, Viewer);
+            if (result == null) return NotFound();
+            return Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
     }
 
     /// <summary>
@@ -197,7 +238,7 @@ public class TicketController(TicketServices ticketService) :ControllerBase
             return BadRequest("Search by either ticketNumber or fileNumber, not both.");
         }
 
-        var result = await ticketService.SearchTicketsAsync(request);
+        var result = await ticketService.SearchTicketsAsync(request, Viewer);
         return Ok(result);
     }
     #endregion

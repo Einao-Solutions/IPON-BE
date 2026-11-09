@@ -1189,9 +1189,13 @@ public record TicketCreator
 public record TicketSummary
 {
     public string? TicketId { get; set; }
+    public bool HasUnreadMessages { get; set; }
+    public long UnreadCount { get; set; }
+    public long LatestMessageSequence { get; set; }
     public string? TicketNumber { get; set; }
     public string? Title { get; set; }
     public TicketState Status { get; set; }
+    public TicketState? StatusBeforeResolution { get; set; }
     public TicketCategory? Category { get; set; }
     public TicketType? TicketType { get; set; }
     public bool IsEscalated { get; set; } = false;
@@ -1214,6 +1218,17 @@ public record TicketSummary
 public record TicketInfo
 {
     public string id { get; set; } = Guid.NewGuid().ToString();
+    public long LatestMessageSequence { get; set; }
+    [BsonIgnore]
+    public bool HasUnreadMessages { get; set; }
+    [BsonIgnore]
+    public long UnreadCount { get; set; }
+    [JsonIgnore]
+    public int MessageTrackingVersion { get; set; }
+    [JsonIgnore]
+    public long UnreadBaselineSequence { get; set; }
+    [JsonIgnore]
+    public Dictionary<string, long> ReadMessageSequences { get; set; } = new();
     public string? TicketNumber { get; set; }
     public string? Title { get; set; }
     public string? creatorId { get; set; }
@@ -1237,6 +1252,7 @@ public record TicketInfo
     public bool RaisedByRegistryStaff { get; set; } = false;
     public List<TicketCorrespondence>? Correspondences { get; set; }
     public TicketState Status { get; set; }
+    public TicketState? StatusBeforeResolution { get; set; }
     public ResolveInfo? resolution { get; set; }
     public DateTime Created { get; set; } = DateTime.UtcNow;
     public List<AffectedFile>? AffectedFiles { get; set; }
@@ -1260,11 +1276,21 @@ public record ResolveInfo
 public  record TicketCorrespondence
 {
     public string id { get; set; } = Guid.NewGuid().ToString();
+    public long MessageSequence { get; set; }
     public string? Message { get; set; }
     public string? Attachment { get; set; }
     public string SenderId { get; set; }
     public string SenderName { get; set; }
     public DateTime DateAdded { get; set; }=  DateTime.UtcNow;
+}
+
+public record TicketReadResult
+{
+    public string TicketId { get; set; } = string.Empty;
+    public long LastReadMessageSequence { get; set; }
+    public bool HasUnreadMessages { get; set; }
+    public long UnreadCount { get; set; }
+    public long LatestMessageSequence { get; set; }
 }
 
 

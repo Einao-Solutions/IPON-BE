@@ -153,6 +153,7 @@ namespace patentdesign.Enums;
         public long closed { get; set; }
         public long inProgress { get; set; }
         public long resolved { get; set; }
+        public long unreadTickets { get; set; }
     }
 
     public record UserUpdateReq
