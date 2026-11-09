@@ -1,4 +1,4 @@
-﻿for design files when i try to view renewal document this what i see why ? just mirror the way patent does its own to view renewal documentusing Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
