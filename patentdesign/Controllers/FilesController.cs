@@ -226,7 +226,9 @@ public class FilesController(FilesServices fileService) : ControllerBase
     private bool IsStaffCaller() =>
         User.IsInRole(nameof(Roles.SuperAdmin)) ||
         User.IsInRole(nameof(Roles.TrademarkRegistrar)) ||
-        User.IsInRole(nameof(Roles.PatentDesignRegistrar));
+        User.IsInRole(nameof(Roles.PatentDesignRegistrar)) ||
+        User.IsInRole(nameof(Roles.Tech)) ||
+        User.IsInRole(nameof(Roles.User));
 
     private IActionResult ApplicantResult(ApplicantPaymentResult result) => result.Outcome switch
     {
@@ -925,7 +927,7 @@ if (string.IsNullOrWhiteSpace(searchTerm))
         if (string.IsNullOrWhiteSpace(fileNumber) && !string.IsNullOrWhiteSpace(referenceNumber))
         {
             if (User?.Identity?.IsAuthenticated != true) return Unauthorized();
-            if (!AvailabilitySearchRules.IsSuperAdmin(User)) return Forbid();
+            if (!AvailabilitySearchRules.IsSuperAdmin(User) && !User.IsInRole(nameof(Roles.Tech))) return Forbid();
             if (AvailabilitySearchRules.NormalizeReference(referenceNumber) == null)
                 return BadRequest(new { message = "referenceNumber must be an Availability Search reference such as AVS-XXXXXXXXXX" });
 

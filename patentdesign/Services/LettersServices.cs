@@ -1156,11 +1156,15 @@ public class LettersServices
                     }
                     documents.AddRange(new[]
                     {
-                        ApplicationLetters.RenewalReceipt,
-                        ApplicationLetters.RenewalAck,
-                        ApplicationLetters.RenewalCertificate
-                    });
-                    break;
+                            ApplicationLetters.RenewalReceipt,
+                            ApplicationLetters.RenewalAck
+                        });
+                        if (app.CurrentStatus == ApplicationStatuses.Approved
+                            || (file.Type == FileTypes.TradeMark && app.CurrentStatus == ApplicationStatuses.AutoApproved))
+                        {
+                            documents.Add(ApplicationLetters.RenewalCertificate);
+                        }
+                        break;
 
                 case FormApplicationTypes.Assignment:
                     if (file.Type == FileTypes.Patent)
