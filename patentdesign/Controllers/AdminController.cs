@@ -25,7 +25,7 @@ namespace patentdesign.Controllers
             return BadRequest(new { message = "Failed to change status" });
         }
 
-        [Authorize(Roles = "SuperAdmin")]
+        [Authorize(Roles = "SuperAdmin,Tech")]
         [HttpPost("ApplicationHistory")]
         [HttpPost("CreateApplicationHistory")]
         public async Task<IActionResult> CreateApplicationHistory(
@@ -59,7 +59,7 @@ namespace patentdesign.Controllers
         /// Returns a single application history entry (<c>hist</c>) shaped so the SuperAdmin
         /// UI can pre-fill its recordal forms directly. See <see cref="ApplicationHistoryResponseDto"/>.
         /// </summary>
-        [Authorize(Roles = "SuperAdmin")]
+        [Authorize(Roles = "SuperAdmin,Tech")]
         [HttpGet("ApplicationHistory/{applicationId}")]
         public async Task<IActionResult> GetApplicationHistory([FromRoute] string applicationId)
         {
@@ -89,7 +89,7 @@ namespace patentdesign.Controllers
             return Ok(dump);
         }
 
-        [Authorize(Roles = "SuperAdmin")]
+        [Authorize(Roles = "SuperAdmin,Tech")]
         [HttpPatch("ApplicationHistory")]
         public async Task<IActionResult> UpdateApplicationHistory([FromBody] UpdateApplicationHistoryDto dto)
         {
@@ -114,7 +114,7 @@ namespace patentdesign.Controllers
             }
         }
 
-        [Authorize(Roles = "SuperAdmin")]
+        [Authorize(Roles = "SuperAdmin,Tech")]
         [HttpDelete("ApplicationHistory")]
         public async Task<IActionResult> DeleteApplicationHistory([FromBody] DeleteApplicationHistoryDto dto)
         {
