@@ -113,7 +113,7 @@ public class TicketWorkflowTests
 
     private TicketController Controller()
     {
-        return new TicketController(_service)
+        var controller = new TicketController(_service)
         {
             ControllerContext = new ControllerContext
             {
@@ -124,6 +124,8 @@ public class TicketWorkflowTests
                 }
             }
         };
+        controller.HttpContext.Features.Set(Viewer("creator"));
+        return controller;
     }
 
     private static NewCorrespondenceType Message(string sender = "creator", TicketState status = TicketState.AwaitingStaff) => new()

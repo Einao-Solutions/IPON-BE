@@ -229,7 +229,7 @@ public class TicketServices
         ticket.EscalatedToDevByName = null;
         if (viewer != null)
         {
-            ticket.creatorId = viewer.UserId;
+            ticket.creatorId = viewer.CreatorId;
             ticket.creatorName = viewer.DisplayName;
             foreach (var message in ticket.Correspondences ?? [])
             {
@@ -383,8 +383,9 @@ public class TicketServices
                 throw new ArgumentException("Messages must use an active status. Use CloseTicket to resolve a ticket.");
             }
 
-            var isCreator = !string.IsNullOrWhiteSpace(ticket.creatorId) &&
-                ticket.creatorId == correspondence.correspondence.SenderId;
+            var isCreator = viewer != null
+                ? viewer.OwnsTicket(ticket.creatorId)
+                : !string.IsNullOrWhiteSpace(ticket.creatorId) && ticket.creatorId == correspondence.correspondence.SenderId;
             var reopen = ticket.Status == TicketState.Resolved && isCreator;
             var previouslyInProgress = ticket.StatusBeforeResolution.HasValue
                 ? ticket.StatusBeforeResolution == TicketState.InProgress
@@ -448,13 +449,14 @@ public class TicketServices
 
         var filter = Builders<TicketInfo>.Filter;
 
-        var creatorFilter = string.IsNullOrWhiteSpace(info.creatorId) || info.creatorId == "null"
-            ? filter.Empty : filter.Eq(x => x.creatorId, info.creatorId);
+        var creatorFilter = TicketAccessRules.CreatorFilter(info.creatorId, viewer);
         var statusFilter = info.status == null ? filter.Empty : filter.Eq(x => x.Status, info.status);
         var titleFilter = info.title == null
             ? filter.Empty
             : filter.Regex(f => f.Title, new BsonRegularExpression(info.title, "i"));
-        var categoryFilter = info.category == null ? filter.Empty : filter.Eq(x => x.Category, info.category);
+        var categoryFilter = info.category == null
+            ? filter.Ne(x => x.Category, null)
+            : filter.Eq(x => x.Category, info.category);
         var registryCategoryFilter = info.registryCategory == null
             ? filter.Empty
             : filter.Eq(x => x.RegistryCategory, info.registryCategory);
@@ -512,15 +514,8 @@ public class TicketServices
             raisedByRegistryStaff);
 
         var filter = Builders<TicketInfo>.Filter;
-        var baseFilter = TicketAccessRules.Filter(viewer);
-
-        if (!string.IsNullOrWhiteSpace(creatorId) && creatorId != "null")
-        {
-            baseFilter = filter.And(
-                baseFilter,
-                filter.Eq(x => x.creatorId, creatorId)
-            );
-        }
+        var baseFilter = TicketAccessRules.Filter(viewer) & TicketAccessRules.CreatorFilter(creatorId, viewer);
+        if (!category.HasValue) baseFilter &= filter.Ne(x => x.Category, null);
 
         if (category.HasValue)
         {
@@ -708,7 +703,7 @@ public class TicketServices
             );
         }
 
-        var combined = filter.And(searchFilter, TicketAccessRules.Filter(viewer));
+        var combined = filter.And(searchFilter, filter.Ne(x => x.Category, null), TicketAccessRules.Filter(viewer));
 
         var results = await _ticketsCollection
             .Find(combined)

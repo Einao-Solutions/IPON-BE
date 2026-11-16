@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -152,6 +153,11 @@ public class TicketUnreadTests
 
     private static TicketViewer Viewer(string id = "owner", params Roles[] roles) => TicketViewer.FromPrincipal(Principal(id, roles));
 
+    private const string AccountId = "eee7b344-1a62-4817-8bbe-140850a8d028";
+
+    private static TicketViewer AccountViewer() => TicketViewer.FromPrincipal(Principal(AccountId),
+        new AppUser { Id = AccountId, CreatorId = "3880" });
+
     private void TrackedTicket()
     {
         _ticket = new TicketInfo { id = "ticket", creatorId = "owner", Category = TicketCategory.TechnicalSupport, Status = TicketState.InProgress };
@@ -193,6 +199,212 @@ public class TicketUnreadTests
         });
         Assert.IsType<UnauthorizedResult>(executing.Result);
         Assert.False(called);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AuthorizationFilterResolvesOnlyTheAuthenticatedAccount(bool accountExists)
+    {
+        var users = new Mock<IMongoCollection<AppUser>>();
+        var db = new Mock<IMongoDatabase>();
+        db.Setup(x => x.GetCollection<AppUser>("appUsers", It.IsAny<MongoCollectionSettings>())).Returns(users.Object);
+        BsonDocument? accountFilter = null;
+        users.Setup(x => x.FindAsync(It.IsAny<FilterDefinition<AppUser>>(),
+                It.IsAny<FindOptions<AppUser, AppUser>>(), It.IsAny<CancellationToken>()))
+            .Returns((FilterDefinition<AppUser> filter, FindOptions<AppUser, AppUser> _, CancellationToken token) =>
+            {
+                accountFilter = filter.Render(BsonSerializer.LookupSerializer<AppUser>(), BsonSerializer.SerializerRegistry);
+                return Task.FromResult(Cursor(accountExists
+                    ? new[] { new AppUser { Id = AccountId, CreatorId = "3880" } }
+                    : Array.Empty<AppUser>()));
+            });
+        using var services = new ServiceCollection().AddSingleton<IMongoDatabase>(db.Object).BuildServiceProvider();
+        var http = new DefaultHttpContext { User = Principal(AccountId), RequestServices = services };
+        http.Request.QueryString = new QueryString("?creatorId=someone-else");
+        var context = new ActionContext(http, new RouteData(), new ActionDescriptor());
+        var executing = new ActionExecutingContext(context, new List<IFilterMetadata>(), new Dictionary<string, object?>(), new object());
+        var called = false;
+        await new TicketAccessAttribute().OnActionExecutionAsync(executing, () =>
+        {
+            called = true;
+            Assert.Equal("3880", http.Features.Get<TicketViewer>()!.CreatorId);
+            return Task.FromResult(new ActionExecutedContext(context, new List<IFilterMetadata>(), new object()));
+        });
+        Assert.Equal(AccountId, accountFilter!["_id"].AsString);
+        Assert.Equal(accountExists, called);
+        if (!accountExists)
+        {
+            Assert.IsType<UnauthorizedResult>(executing.Result);
+            Assert.Null(http.Features.Get<TicketViewer>());
+        }
+    }
+
+    [Theory]
+    [InlineData("3880", true)]
+    [InlineData(AccountId, true)]
+    [InlineData("someone-else", false)]
+    [InlineData(null, false)]
+    public void AccountOwnershipAcceptsOnlyTrustedIdentifiers(string? creatorId, bool expected)
+    {
+        var viewer = AccountViewer();
+        var ticket = new TicketInfo { creatorId = creatorId };
+        Assert.Equal(expected, viewer.OwnsTicket(creatorId));
+        Assert.Equal(expected, TicketAccessRules.CanAccess(ticket, viewer));
+        Assert.Equal(expected, Matches(Render(TicketAccessRules.Filter(viewer)), ticket.ToBsonDocument()));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void MissingCreatorIdFallsBackToAuthenticatedAccountId(string? creatorId)
+    {
+        var viewer = TicketViewer.FromPrincipal(Principal(AccountId), new AppUser { Id = AccountId, CreatorId = creatorId });
+        Assert.Equal(AccountId, viewer.CreatorId);
+        Assert.True(viewer.OwnsTicket(AccountId));
+        Assert.False(viewer.OwnsTicket("3880"));
+        var filter = Render(TicketAccessRules.CreatorFilter(AccountId, viewer));
+        Assert.True(Matches(filter, new TicketInfo { creatorId = AccountId }.ToBsonDocument()));
+        Assert.False(Matches(filter, new TicketInfo { creatorId = "3880" }.ToBsonDocument()));
+    }
+
+    [Fact]
+    public void CreatorClaimsCannotOverrideTrustedAccountMapping()
+    {
+        var principal = Principal(AccountId);
+        ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim("creatorId", "someone-else"));
+        var account = new AppUser { Id = AccountId, CreatorId = "3880" };
+        var viewer = TicketViewer.FromPrincipal(principal, account);
+        Assert.True(viewer.OwnsTicket("3880"));
+        Assert.False(viewer.OwnsTicket("someone-else"));
+        Assert.Throws<AuthenticationException>(() => TicketViewer.FromPrincipal(Principal("someone-else"), account));
+    }
+
+    [Theory]
+    [InlineData("3880", "3880", true)]
+    [InlineData("3880", AccountId, true)]
+    [InlineData("3880", "someone-else", false)]
+    [InlineData(AccountId, "3880", true)]
+    [InlineData(AccountId, AccountId, true)]
+    [InlineData(AccountId, "someone-else", false)]
+    [InlineData("someone-else", "3880", false)]
+    [InlineData("someone-else", AccountId, false)]
+    [InlineData("someone-else", "someone-else", false)]
+    public async Task SummaryCreatorFilterAcceptsBothOwnIdentifiersButNotAnotherAccountsTickets(
+        string requestedCreator, string storedCreator, bool expected)
+    {
+        await _service.GetTicketsSummariesAsync(new TicketsSummariesType
+        {
+            creatorId = requestedCreator, amount = 100000, startIndex = 0
+        }, AccountViewer());
+        Assert.Equal(expected, Matches(_filter!, new TicketInfo
+        {
+            creatorId = storedCreator, Category = TicketCategory.TechnicalSupport
+        }.ToBsonDocument()));
+        Assert.False(Matches(_filter!, new TicketInfo { creatorId = storedCreator }.ToBsonDocument()));
+    }
+
+    [Theory]
+    [InlineData("3880", "3880", true)]
+    [InlineData("3880", AccountId, true)]
+    [InlineData("3880", "someone-else", false)]
+    [InlineData(AccountId, "3880", true)]
+    [InlineData(AccountId, AccountId, true)]
+    [InlineData(AccountId, "someone-else", false)]
+    [InlineData("someone-else", "3880", false)]
+    [InlineData("someone-else", AccountId, false)]
+    [InlineData("someone-else", "someone-else", false)]
+    public async Task StatisticsCreatorFilterAcceptsBothOwnIdentifiersButNotAnotherAccountsTickets(
+        string requestedCreator, string storedCreator, bool expected)
+    {
+        IReadOnlyList<BsonDocument>? stages = null;
+        _collection.Setup(x => x.AggregateAsync(It.IsAny<PipelineDefinition<TicketInfo, BsonDocument>>(),
+                It.IsAny<AggregateOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((PipelineDefinition<TicketInfo, BsonDocument> pipeline, AggregateOptions _, CancellationToken token) =>
+            {
+                stages = pipeline.Render(BsonSerializer.LookupSerializer<TicketInfo>(), BsonSerializer.SerializerRegistry).Documents.ToArray();
+                return Task.FromResult(Cursor(Array.Empty<BsonDocument>()));
+            });
+        await _service.TicketStats(requestedCreator, viewer: AccountViewer());
+        Assert.Equal(expected, Matches(stages![0]["$match"].AsBsonDocument,
+            new TicketInfo { creatorId = storedCreator, Category = TicketCategory.TechnicalSupport }.ToBsonDocument()));
+        Assert.False(Matches(stages[0]["$match"].AsBsonDocument,
+            new TicketInfo { creatorId = storedCreator }.ToBsonDocument()));
+    }
+
+    [Theory]
+    [InlineData(Roles.Tech)]
+    [InlineData(Roles.SuperAdmin)]
+    [InlineData(Roles.TrademarkSupport)]
+    [InlineData(Roles.PatentDesignSupport)]
+    public void OtherCreatorRequestsRemainExactForSupportRoles(Roles role)
+    {
+        var viewer = TicketViewer.FromPrincipal(Principal(AccountId, role),
+            new AppUser { Id = AccountId, CreatorId = "3880" });
+        var filter = Render(TicketAccessRules.CreatorFilter("someone-else", viewer));
+        Assert.True(Matches(filter, new TicketInfo { creatorId = "someone-else" }.ToBsonDocument()));
+        Assert.False(Matches(filter, new TicketInfo { creatorId = "3880" }.ToBsonDocument()));
+        Assert.False(Matches(filter, new TicketInfo { creatorId = AccountId }.ToBsonDocument()));
+    }
+
+    [Fact]
+    public void CreatorRequestsWithoutAuthenticatedMappingRemainExact()
+    {
+        var filter = Render(TicketAccessRules.CreatorFilter("3880", null));
+        Assert.True(Matches(filter, new TicketInfo { creatorId = "3880" }.ToBsonDocument()));
+        Assert.False(Matches(filter, new TicketInfo { creatorId = AccountId }.ToBsonDocument()));
+    }
+
+    [Fact]
+    public async Task SearchUsesResolvedOwnershipDespiteForgedCallerFlags()
+    {
+        await _service.SearchTicketsAsync(new TicketSearchRequest
+        {
+            ticketNumber = "TKT", requesterId = "someone-else", isTech = true, isRegistryOfficer = true,
+            supportRegistryCategory = TicketCategory.PatentDesignRegistry
+        }, AccountViewer());
+        Assert.True(Matches(_filter!, new TicketInfo { creatorId = "3880", Category = TicketCategory.TechnicalSupport }.ToBsonDocument()));
+        Assert.True(Matches(_filter!, new TicketInfo { creatorId = AccountId, Category = TicketCategory.TechnicalSupport }.ToBsonDocument()));
+        Assert.False(Matches(_filter!, new TicketInfo { creatorId = "someone-else", Category = TicketCategory.TechnicalSupport }.ToBsonDocument()));
+    }
+
+    [Fact]
+    public async Task CreationStampsTrustedCreatorIdAndAuthenticatedSender()
+    {
+        _collection.Setup(x => x.EstimatedDocumentCountAsync(It.IsAny<EstimatedDocumentCountOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(500);
+        _collection.Setup(x => x.InsertOneAsync(It.IsAny<TicketInfo>(), It.IsAny<InsertOneOptions>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var ticket = new TicketInfo
+        {
+            creatorId = "someone-else", Status = TicketState.AwaitingStaff,
+            Correspondences = [new TicketCorrespondence { SenderId = "forged", SenderName = "forged", Message = "Help" }]
+        };
+        await _service.CreateTicketAsync(ticket, AccountViewer());
+        Assert.Equal("3880", ticket.creatorId);
+        Assert.Equal(AccountId, Assert.Single(ticket.Correspondences).SenderId);
+        _collection.Verify(x => x.InsertOneAsync(ticket, It.IsAny<InsertOneOptions>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("3880")]
+    [InlineData(AccountId)]
+    public async Task OwnerWithDifferentCreatorIdCanReadAndReopenOwnTicket(string creatorId)
+    {
+        _ticket = new TicketInfo
+        {
+            id = "ticket", creatorId = creatorId, Status = TicketState.Resolved,
+            ResolvedAt = DateTime.UtcNow.AddMinutes(-5), StatusBeforeResolution = TicketState.AwaitingStaff
+        };
+        TicketMessageTracking.InitializeNewTicket(_ticket);
+        var viewer = AccountViewer();
+        Assert.NotNull(await _service.GetTicketAsync("ticket", viewer));
+        Assert.NotNull(await _service.MarkTicketReadAsync("ticket", 0, viewer));
+        var result = await _service.AddMessageAsync(Reply(), viewer);
+        Assert.Equal(TicketState.AwaitingStaff, result!.Status);
+        Assert.Null(result.ResolvedAt);
+        Assert.Equal(AccountId, Assert.Single(result.Correspondences!).SenderId);
     }
 
     [Fact]
@@ -355,6 +567,64 @@ public class TicketUnreadTests
         Assert.False(set.Contains("ResolvedAt"));
         Assert.False(set.Contains("ClosedAt"));
         Assert.False(set.Contains("IsEscalatedToDev"));
+    }
+
+    private static void AssertOnlyCategorizedTicketsMatch(BsonDocument filter)
+    {
+        var document = new TicketInfo { creatorId = "owner", TicketNumber = "TKT-00001" }.ToBsonDocument();
+        document[nameof(TicketInfo.Category)] = BsonNull.Value;
+        Assert.False(Matches(filter, document));
+        document.Remove(nameof(TicketInfo.Category));
+        Assert.False(Matches(filter, document));
+        foreach (var category in Enum.GetValues<TicketCategory>())
+        {
+            document[nameof(TicketInfo.Category)] = (int)category;
+            Assert.True(Matches(filter, document));
+        }
+    }
+
+    [Theory]
+    [InlineData(Roles.User)]
+    [InlineData(Roles.Tech)]
+    [InlineData(Roles.SuperAdmin)]
+    [InlineData(Roles.TrademarkSupport)]
+    [InlineData(Roles.PatentDesignSupport)]
+    public async Task SummariesExcludeNullAndMissingCategoriesForEveryAccessScope(Roles role)
+    {
+        await _service.GetTicketsSummariesAsync(new TicketsSummariesType(), Viewer("owner", role));
+        AssertOnlyCategorizedTicketsMatch(_filter!);
+    }
+
+    [Theory]
+    [InlineData(Roles.User)]
+    [InlineData(Roles.Tech)]
+    [InlineData(Roles.SuperAdmin)]
+    [InlineData(Roles.TrademarkSupport)]
+    [InlineData(Roles.PatentDesignSupport)]
+    public async Task SearchExcludesNullAndMissingCategoriesForEveryAccessScope(Roles role)
+    {
+        await _service.SearchTicketsAsync(new TicketSearchRequest { ticketNumber = "TKT" }, Viewer("owner", role));
+        AssertOnlyCategorizedTicketsMatch(_filter!);
+    }
+
+    [Theory]
+    [InlineData(Roles.User)]
+    [InlineData(Roles.Tech)]
+    [InlineData(Roles.SuperAdmin)]
+    [InlineData(Roles.TrademarkSupport)]
+    [InlineData(Roles.PatentDesignSupport)]
+    public async Task StatisticsExcludeNullAndMissingCategoriesForEveryAccessScope(Roles role)
+    {
+        IReadOnlyList<BsonDocument>? stages = null;
+        _collection.Setup(x => x.AggregateAsync(It.IsAny<PipelineDefinition<TicketInfo, BsonDocument>>(),
+                It.IsAny<AggregateOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((PipelineDefinition<TicketInfo, BsonDocument> pipeline, AggregateOptions _, CancellationToken token) =>
+            {
+                stages = pipeline.Render(BsonSerializer.LookupSerializer<TicketInfo>(), BsonSerializer.SerializerRegistry).Documents.ToArray();
+                return Task.FromResult(Cursor(Array.Empty<BsonDocument>()));
+            });
+        await _service.TicketStats(null, viewer: Viewer("owner", role));
+        AssertOnlyCategorizedTicketsMatch(stages![0]["$match"].AsBsonDocument);
     }
 
     [Fact]

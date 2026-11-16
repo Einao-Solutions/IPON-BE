@@ -13,7 +13,8 @@ namespace patentdesign.Controllers;
 [ApiController] [Route("api/tickets")]
 public class TicketController(TicketServices ticketService) :ControllerBase
 {
-    private TicketViewer Viewer => TicketViewer.FromPrincipal(User);
+    private TicketViewer Viewer => HttpContext.Features.Get<TicketViewer>()
+        ?? throw new InvalidOperationException("The authenticated ticket viewer has not been resolved.");
 
     #region Ticket lifecycle endpoints
     /// <summary>

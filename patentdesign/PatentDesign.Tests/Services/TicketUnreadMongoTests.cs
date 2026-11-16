@@ -1,4 +1,10 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -261,6 +267,72 @@ public class TicketUnreadMongoTests : IDisposable
         var stored = await _tickets.Find(x => x.id == "patent").FirstAsync();
         Assert.Empty(stored.ReadMessageSequences);
         Assert.Equal(1, stored.LatestMessageSequence);
+    }
+
+    [Fact]
+    public async Task RealMongoAccountCreatorIdRestoresLegacyTicketsWithoutGrantingCrossUserAccess()
+    {
+        const string accountId = "eee7b344-1a62-4817-8bbe-140850a8d028";
+        await _database.GetCollection<AppUser>("appUsers").InsertManyAsync(new[]
+        {
+            new AppUser { Id = accountId, CreatorId = "3880" },
+            new AppUser { Id = "other-account", CreatorId = "9999" }
+        });
+        await _tickets.InsertManyAsync(Enumerable.Range(0, 501)
+            .Select(i => Ticket($"legacy-{i:D3}", owner: "3880"))
+            .Concat(new[] { Ticket("guid-owner", owner: accountId), Ticket("other-owner", owner: "9999") }));
+
+        using var services = new ServiceCollection().AddSingleton<IMongoDatabase>(_database).BuildServiceProvider();
+        async Task<TicketViewer> ResolveViewer(string id)
+        {
+            var http = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, id) }, "test")),
+                RequestServices = services
+            };
+            var context = new ActionContext(http, new RouteData(), new ActionDescriptor());
+            var executing = new ActionExecutingContext(context, new List<IFilterMetadata>(), new Dictionary<string, object?>(), new object());
+            await new TicketAccessAttribute().OnActionExecutionAsync(executing,
+                () => Task.FromResult(new ActionExecutedContext(context, new List<IFilterMetadata>(), new object())));
+            Assert.Null(executing.Result);
+            return Assert.IsType<TicketViewer>(http.Features.Get<TicketViewer>());
+        }
+
+        var owner = await ResolveViewer(accountId);
+        var request = new TicketsSummariesType { creatorId = "3880", amount = 100000, startIndex = 0 };
+        var summaries = await _service.GetTicketsSummariesAsync(request, owner);
+        Assert.Equal(501, summaries.Count);
+        Assert.All(summaries, ticket => Assert.Equal("3880", ticket.Creator.Id));
+        Assert.Equal(501, (await _service.TicketStats("3880", viewer: owner)).total);
+        Assert.Equal(502, (await _service.TicketStats(null, viewer: owner)).total);
+        Assert.NotNull(await _service.GetTicketAsync("guid-owner", owner));
+        Assert.NotNull(await _service.MarkTicketReadAsync("legacy-000", 1, owner));
+        Assert.Null(await _service.GetTicketAsync("other-owner", owner));
+        Assert.Null(await _service.MarkTicketReadAsync("other-owner", 1, owner));
+        Assert.Empty(await _service.GetTicketsSummariesAsync(new TicketsSummariesType { creatorId = "9999" }, owner));
+        Assert.Equal(0, (await _service.TicketStats("9999", viewer: owner)).total);
+        var search = await _service.SearchTicketsAsync(new TicketSearchRequest
+        {
+            ticketNumber = "TKT", requesterId = "9999", isTech = true, isRegistryOfficer = true
+        }, owner);
+        Assert.Equal(100, search.Count);
+        Assert.All(search, ticket => Assert.True(owner.OwnsTicket(ticket.Creator.Id)));
+
+        var stranger = await ResolveViewer("other-account");
+        Assert.Empty(await _service.GetTicketsSummariesAsync(request, stranger));
+        Assert.Equal(0, (await _service.TicketStats("3880", viewer: stranger)).total);
+        Assert.Empty(await _service.SearchTicketsAsync(new TicketSearchRequest
+        {
+            ticketNumber = "TKT-legacy", requesterId = "3880", isTech = true,
+            supportRegistryCategory = TicketCategory.PatentDesignRegistry
+        }, stranger));
+        Assert.Null(await _service.GetTicketAsync("legacy-000", stranger));
+        Assert.Null(await _service.MarkTicketReadAsync("legacy-000", 1, stranger));
+
+        var created = Ticket("new-ticket", owner: "9999");
+        await _service.CreateTicketAsync(created, owner);
+        Assert.Equal("3880", created.creatorId);
+        Assert.Equal(502, (await _service.GetTicketsSummariesAsync(request, owner)).Count);
     }
 
     public void Dispose() => _client.DropDatabase(_databaseName);
