@@ -1,0 +1,38 @@
+# User role modules
+
+All endpoints below require a bearer token with the `SuperAdmin` role. Other authenticated users receive 403. The existing PUT route and request shape are preserved, but it now requires SuperAdmin.
+
+## Roles and current members
+
+- `GET /api/users/roles`: role options as `{ id, name }`. Use a role name or numeric ID in the next route.
+- `GET /api/users/roles/Finance/users?search=mary&skip=0&take=20`: current users in that role. Omit `search` to list all members.
+
+User items contain `id`, `name`, `email`, `phoneNumber`, `isVerified`, and `userRoles`. Passwords, tokens, signatures and documents are not returned. Verification is not an account-disabled/active status.
+
+## Assigners and their history
+
+- `GET /api/users/role-assigners?search=admin&skip=0&take=20`: unique users who actually added at least one role, their identity snapshots, `assignmentCount` (number of individual roles added), and `lastAssignedAt`.
+- After selecting an assigner: `GET /api/users/role-assignment-history?assignedById=USER_ID&skip=0&take=20`.
+- To view a recipient: `GET /api/users/role-assignment-history?assignedToId=USER_ID&skip=0&take=20`.
+
+History also supports `role=Finance`, `action=Added` or `action=Removed`, `search` (actor/recipient names and emails), and inclusive `from`/`to` ISO-8601 timestamps. Supply UTC timestamps with `Z`; URL-encode offsets containing `+`. Omit filters for the complete history.
+
+History items include `id`, `assignedById`, `assignedByName`, `assignedByEmail`, `assignedToId`, `assignedToName`, `assignedToEmail`, `role`, `action`, and `occurredAt` (UTC). Names and emails are snapshots at the time of the change, not live profile data. Assigners are grouped by user ID, so profile changes do not create duplicate assigners. Actors who only removed roles appear in history but not the assigners list.
+
+All three list endpoints return `{ items, totalCount, skip, take }`. Pagination defaults to skip 0/take 20; skip must be nonnegative and take must be 1–100. Search is case-insensitive literal matching, not a regular-expression language. Current members sort by first name, last name, then ID; assigners by last assignment descending, then ID; history by timestamp descending, then ID.
+
+## Updating roles
+
+`PUT /api/users/UpdateUserRoles` accepts the existing `userId`, `addRoles`, and `removeRoles` fields. The actor is always derived from the authenticated identity and checked against the database for SuperAdmin membership. Do not send an actor ID.
+
+Each actual role addition/removal creates one document in the new `roleAssignmentHistory` collection. Duplicate role requests and already-present/absent roles do not create audit records. A valid no-op returns 200. Empty changes, undefined role values and adding/removing the same role in one request return 400; a missing recipient returns 404. Concurrent edits are retried internally; if contention persists, 409 means refresh the user and retry.
+
+## Deployment and history limits
+
+- **Standalone MongoDB is supported; no transactions or replica-set configuration are required.** Membership, revision and pending audit events are saved atomically in the same user document.
+- Pending events are immediately exported to `roleAssignmentHistory` using insert-only upserts keyed by their persisted event IDs. Only exported events are removed from the pending list; retries do not duplicate or overwrite history.
+- If export fails, the role update still succeeds because its audit intent is durably stored. The hosted retry worker resumes pending exports on startup and every 30 seconds. History and assigner lists can briefly lag current membership; allow refresh/retry rather than showing an update failure after a successful role change.
+- MongoDB creates `roleAssignmentHistory` on first successful export; no historical role assignments are fabricated or backfilled. Do not remove pending events or delete their user document before export; monitor export-error logs and resolve persistent database write failures.
+- Validate on standalone MongoDB: normal updates, concurrent edits, export failure followed by application restart, and duplicate-free replay after history is saved but pending cleanup fails.
+- Existing JWT role claims refresh according to the application's existing token lifecycle; the update endpoint additionally checks the actor's current database roles.
+- For larger audit collections, provision indexes on `{ AssignedById: 1, OccurredAt: -1 }`, `{ AssignedToId: 1, OccurredAt: -1 }`, and `{ Action: 1, OccurredAt: -1 }` using the deployment's normal database administration process.

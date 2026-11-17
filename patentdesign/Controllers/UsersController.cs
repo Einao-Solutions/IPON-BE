@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Data;
 using System.Security.Claims;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
@@ -13,7 +14,7 @@ namespace patentdesign.Controllers;
 [Authorize]
 [ApiController] [Route("api/users")]
 
-public class UsersController(UsersService usersService) :ControllerBase
+public class UsersController(UsersService usersService, RoleManagementService roleManagementService) :ControllerBase
 {
     //[HttpPost("updateSignature")]
     //public async Task<IActionResult> UploadSignature([FromBody] UpdateSigReq userInfo)
@@ -60,14 +61,56 @@ public class UsersController(UsersService usersService) :ControllerBase
         return Ok(result);
     }
     [HttpPut("UpdateUserRoles")]
+    [Authorize(Roles = "SuperAdmin")]
     public async Task<IActionResult> UpdateUserRoles([FromBody] UserRoleDto request)
     {
-        var updated = await usersService.UpdateUserRoles(request);
-        if (!updated)
-            return NotFound(new { message = "User not found or no role changes provided." });
-
-        return Ok(new { message = "User roles updated successfully." });
+        var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(actorId))
+            return Unauthorized();
+        try
+        {
+            var updated = await roleManagementService.UpdateUserRoles(request, actorId, HttpContext.RequestAborted);
+            if (!updated)
+                return NotFound(new { message = "User not found." });
+            return Ok(new { message = "User roles updated successfully." });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (DBConcurrencyException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
     }
+
+    [HttpGet("roles")]
+    [Authorize(Roles = "SuperAdmin")]
+    public IActionResult GetRoles() => Ok(Enum.GetValues<Roles>().Select(role => new { id = (int)role, name = role.ToString() }));
+
+    [HttpGet("roles/{role}/users")]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<IActionResult> GetUsersByRole(Roles role, [FromQuery] RolePageQuery query)
+    {
+        if (!Enum.IsDefined(role))
+            return BadRequest(new { message = "Invalid role." });
+        return Ok(await roleManagementService.GetUsersByRole(role, query, HttpContext.RequestAborted));
+    }
+
+    [HttpGet("role-assigners")]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<IActionResult> GetRoleAssigners([FromQuery] RolePageQuery query) =>
+        Ok(await roleManagementService.GetAssigners(query, HttpContext.RequestAborted));
+
+    [HttpGet("role-assignment-history")]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<IActionResult> GetRoleAssignmentHistory([FromQuery] RoleHistoryQuery query) =>
+        Ok(await roleManagementService.GetHistory(query, HttpContext.RequestAborted));
+
     [HttpPost("GetAllUsers")]
     public async Task<IActionResult> GetAllUsers([FromBody] GetUsersDto request)
     {
