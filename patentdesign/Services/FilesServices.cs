@@ -465,6 +465,9 @@ public class FilesServices
             return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "You are not allowed to confirm this application.");
         }
 
+        if (!isCertificate && application.ApplicationType == FormApplicationTypes.WithdrawalRequest)
+            return await ResumeWithdrawalPayment(file, application, callerName, callerId);
+
         var expectedStatus = isCertificate ? ApplicationStatuses.AwaitingCertification : ApplicationStatuses.AwaitingPayment;
         if (application.CurrentStatus != expectedStatus)
         {
@@ -525,7 +528,47 @@ public class FilesServices
         return new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Payment confirmed.", file);
     }
 
-    // Existing RRR amount lookup for resuming payments. Only the owner (or staff) of an application holding
+    private async Task<ApplicantPaymentResult> ResumeWithdrawalPayment(Filling file, ApplicationInfo application,
+        string? callerName, string? callerId)
+    {
+        var beforeStatus = application.CurrentStatus;
+        var result = await WithdrawalPaymentResume.ResumeAsync(file, application.id, _paymentService.CheckPayment,
+            async (f, app, payment) =>
+            {
+                await _paymentService.AddPaymentRecord(new PaymentRecord
+                {
+                    PaymentType = WithdrawalPaymentResume.WithdrawalPaymentType,
+                    Date = DateTime.UtcNow,
+                    FileId = f.FileId,
+                    ApplicationId = app.id,
+                    FileType = f.Type.ToString(),
+                    RemitaResponse = payment
+                });
+                await _fillingCollection.ReplaceOneAsync(x => x.Id == f.Id, f);
+            },
+            callerName, callerId);
+
+        if (result.Outcome == ApplicantPaymentOutcome.Failed)
+            _log.LogWarning("Withdrawal payment resume failed for application {AppId} on file {FileId}: {Message}",
+                application.id, file.Id, result.Message);
+
+        if (result.Outcome == ApplicantPaymentOutcome.Confirmed)
+        {
+            try
+            {
+                await SendStatusUpdateNotificationAsync(file, application.id, application.ApplicationType, beforeStatus,
+                    application.CurrentStatus);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Status notification failed after withdrawal payment confirmation for application {AppId}", application.id);
+            }
+        }
+
+        return result;
+    }
+
+    // Existing RRR amount lookup for resuming payments.
     // the RRR can read its total; the amount is taken from Remita for that RRR, never recomputed from current fees.
     public async Task<RrrCostResult> GetApplicantRrrCost(string callerId, bool isStaff, string rrr)
     {
