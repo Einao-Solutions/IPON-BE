@@ -162,39 +162,6 @@ public class UsersService
         }
     }
 
-    public async Task<bool> UpdateUserRoles(UserRoleDto request)
-    {
-        _log.LogInformation("Updating roles for user {UserId}", request.UserId);
-
-        var filter = Builders<AppUser>.Filter.Eq(u => u.Id, request.UserId);
-        var matched = false;
-
-        if (request.RemoveRoles is { Count: > 0 })
-        {
-            var removeUpdate = Builders<AppUser>.Update
-                .PullAll(u => u.UserRoles, request.RemoveRoles)
-                .Set(u => u.LastUpdatedAt, DateTime.UtcNow);
-
-            var removeResult = await _userCollection.UpdateOneAsync(filter, removeUpdate);
-            matched |= removeResult.MatchedCount > 0;
-        }
-
-        if (request.AddRoles is { Count: > 0 })
-        {
-            var addUpdate = Builders<AppUser>.Update
-                .AddToSetEach(u => u.UserRoles, request.AddRoles)
-                .Set(u => u.LastUpdatedAt, DateTime.UtcNow);
-
-            var addResult = await _userCollection.UpdateOneAsync(filter, addUpdate);
-            matched |= addResult.MatchedCount > 0;
-        }
-
-        if (!matched && request.AddRoles is not { Count: > 0 } && request.RemoveRoles is not { Count: > 0 })
-            return false;
-
-        return matched;
-    }
-
     public async Task<AppUser> GetUserById(string id)
     {
         _log.LogInformation($"Getting User information for {id} ");
