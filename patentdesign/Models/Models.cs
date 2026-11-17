@@ -26,6 +26,11 @@ public class AppUser
     public NigerianStates? State { get; set; } = NigerianStates.None;
     public string PasswordHash { get; set; } = "";
     public List<Roles> UserRoles { get; set; } = new();
+    [JsonIgnore]
+    [BsonIgnoreIfNull]
+    public long? RoleRevision { get; set; }
+    [JsonIgnore]
+    public List<RoleAssignmentHistory> PendingRoleChanges { get; set; } = new();
     public bool isVerified { get; set; } = false;
     public string? Signature { get; set; }
     public AccountType? AccountType { get; set; }

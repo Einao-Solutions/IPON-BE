@@ -83,7 +83,7 @@ public class AvsFlowFixture : IDisposable
 
     public UsersController UsersController(string userId)
     {
-        var controller = new UsersController(Users);
+        var controller = new UsersController(Users, new RoleManagementService(Db, NullLogger<RoleManagementService>.Instance));
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = Principal(userId) } };
         return controller;
     }

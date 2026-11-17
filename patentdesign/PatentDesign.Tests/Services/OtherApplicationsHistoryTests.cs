@@ -419,6 +419,7 @@ public class OtherApplicationsHistoryTests
     private sealed class HistoryStore
     {
         private readonly UsersService _service;
+        private readonly RoleManagementService _roles;
         public List<BsonDocument> Filters { get; } = new();
 
         public HistoryStore(params BsonDocument[] documents)
@@ -441,9 +442,10 @@ public class OtherApplicationsHistoryTests
             database.Setup(db => db.GetCollection<AppUser>("appUsers", It.IsAny<MongoCollectionSettings>()))
                 .Returns(collection.Object);
             _service = new UsersService(database.Object, Options.Create(new PatentDesignDBSettings()), NullLogger<UsersService>.Instance);
+            _roles = new RoleManagementService(database.Object, NullLogger<RoleManagementService>.Instance);
         }
 
-        public UsersController Controller(ClaimsPrincipal caller) => new(_service)
+        public UsersController Controller(ClaimsPrincipal caller) => new(_service, _roles)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = caller } }
         };
