@@ -276,6 +276,7 @@ builder.Services.AddScoped<LettersServices>();
 builder.Services.AddScoped<TicketServices>();
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<RoleManagementService>();
+builder.Services.AddScoped<UserAccountService>();
 builder.Services.AddScoped<FinanceService>();
 builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<PaymentService>();
@@ -293,6 +294,7 @@ builder.Services.AddHostedService<NotificationJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
 builder.Services.AddHostedService<TicketAutoCloseService>();
 builder.Services.AddHostedService<RoleAuditRetryService>();
+builder.Services.AddHostedService<AccountTypeAuditRetryService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();

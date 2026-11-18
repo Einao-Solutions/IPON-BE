@@ -394,8 +394,12 @@ public class RoleManagementServiceTests
         Assert.Empty(legacy.PendingRoleChanges);
     }
 
-    private List<RoleAssignmentHistory> PendingChanges() => _roleWrites.Last()["$push"]["PendingRoleChanges"]["$each"].AsBsonArray
-        .Select(change => BsonSerializer.Deserialize<RoleAssignmentHistory>(change.AsBsonDocument)).ToList();
+    private List<RoleAssignmentHistory> PendingChanges()
+    {
+        var pushed = _roleWrites.Last()["$push"]["PendingRoleChanges"].AsBsonDocument;
+        var changes = pushed.TryGetValue("$each", out var each) ? each.AsBsonArray : new BsonArray { pushed };
+        return changes.Select(change => BsonSerializer.Deserialize<RoleAssignmentHistory>(change.AsBsonDocument)).ToList();
+    }
 
     private void SetupHistoryWrites()
     {
