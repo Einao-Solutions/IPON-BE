@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Data;
 using System.Security.Claims;
+using patentdesign.Dtos.Request;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
 using patentdesign.Models;
@@ -73,6 +74,50 @@ public class UsersController(UsersService usersService, RoleManagementService ro
             if (!updated)
                 return NotFound(new { message = "User not found." });
             return Ok(new { message = "User roles updated successfully." });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (DBConcurrencyException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
+    [HttpGet("account-types")]
+    [Authorize(Roles = "SuperAdmin")]
+    public IActionResult GetAccountTypes() => Ok(Enum.GetValues<AccountType>()
+        .Select(type => new { id = (int)type, name = type.ToString() }));
+
+    [HttpGet("{userId}/account-type")]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<IActionResult> GetAccountType(string userId, [FromServices] UserAccountService accountService)
+    {
+        var result = await accountService.GetAccountType(userId, HttpContext.RequestAborted);
+        if (result == null)
+            return NotFound(new { message = "User not found." });
+        return Ok(result);
+    }
+
+    [HttpPut("{userId}/account-type")]
+    [Authorize(Roles = "SuperAdmin")]
+    public async Task<IActionResult> UpdateAccountType(string userId, [FromBody] UpdateAccountTypeDto request,
+        [FromServices] UserAccountService accountService)
+    {
+        var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(actorId))
+            return Unauthorized();
+        try
+        {
+            var result = await accountService.UpdateAccountType(userId, request, actorId, HttpContext.RequestAborted);
+            if (result == null)
+                return NotFound(new { message = "User not found." });
+            return Ok(result);
         }
         catch (ArgumentException ex)
         {
