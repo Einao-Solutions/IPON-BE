@@ -326,9 +326,29 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 
 app.UseHttpsRedirection();
 
-app.UseRouting();
-
 app.UseCors(corsPolicy);
+
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
+    var ex = feature?.Error;
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("GlobalExceptionHandler");
+    logger.LogError(ex, "Unhandled exception on {Method} {Path}", context.Request.Method, feature?.Path);
+
+    var (status, message) = ex switch
+    {
+        ArgumentException or FormatException or System.Text.Json.JsonException or BadHttpRequestException
+            => (StatusCodes.Status400BadRequest, ex.Message),
+        KeyNotFoundException => (StatusCodes.Status404NotFound, ex.Message),
+        _ => (StatusCodes.Status500InternalServerError,
+            app.Environment.IsDevelopment() && ex != null ? ex.Message : "An unexpected error occurred.")
+    };
+    context.Response.StatusCode = status;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsJsonAsync(new { message });
+}));
+
+app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();

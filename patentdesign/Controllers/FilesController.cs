@@ -717,11 +717,19 @@ if (string.IsNullOrWhiteSpace(searchTerm))
     public async Task<IActionResult> GetPublicationStatusUpdateCost([FromQuery] string fileId, [FromQuery] FileTypes fileType)
     {
         var decodedFileId = Uri.UnescapeDataString(fileId);
-        var res = await fileService.GetPublicationStatusUpdateCost(decodedFileId, fileType);
+        RecordalDto? res;
+        try
+        {
+            res = await fileService.GetPublicationStatusUpdateCost(decodedFileId, fileType);
+        }
+        catch (RemitaUnavailableException ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = ex.Message });
+        }
 
         if (res == null)
         {
-            return NoContent();
+            return NotFound(new { message = "File or applicant not found." });
         }
 
         return Ok(res);
@@ -2148,7 +2156,11 @@ if (string.IsNullOrWhiteSpace(searchTerm))
     {
         var (success, message) = await fileService.PublicationStatusUpdateAsync(dto);
         if (!success)
-            return NotFound("File not found");
+        {
+            return message is "File not found." or "User Not found"
+                ? NotFound(new { message })
+                : BadRequest(new { message });
+        }
         return Ok("Publication date and attachments updated successfully.");
     }
 
