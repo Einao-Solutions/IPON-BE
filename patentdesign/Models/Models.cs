@@ -34,6 +34,11 @@ public class AppUser
     public bool isVerified { get; set; } = false;
     public string? Signature { get; set; }
     public AccountType? AccountType { get; set; }
+    [JsonIgnore]
+    [BsonIgnoreIfNull]
+    public long? AccountTypeRevision { get; set; }
+    [JsonIgnore]
+    public List<AccountTypeChangeHistory> PendingAccountTypeChanges { get; set; } = new();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastUpdatedAt { get; set; }
     public List<string>? Files { get; set; } = new();
