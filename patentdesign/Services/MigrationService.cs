@@ -1,8 +1,11 @@
-﻿using System.Security.Authentication;
+﻿using System.Linq.Expressions;
+using System.Security.Authentication;
+using System.Text.RegularExpressions;
 using CloudinaryDotNet.Actions;
 using Microsoft.AspNetCore.Server.HttpSys;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using patentdesign.Dtos.Response;
 using patentdesign.Enums;
@@ -286,13 +289,41 @@ public class MigrationService
             throw new Exception("Please provide a payment ID");
         try
         {
-            string searchId = paymentId.Contains('-') ? paymentId.Split('-', 2)[0] : paymentId;
-            _log.LogInformation("Payment lookup started for payment ID {PaymentId}. Pwallet search ID: {SearchId}", paymentId, searchId);
-            var payment = await _pwalletCollection.Find(p => p.TransactionId == searchId).FirstOrDefaultAsync();
-            _log.LogDebug("Pwallet lookup completed for search ID {SearchId}. Match found: {MatchFound}", searchId, payment != null);
-            var paid = await _paymentService.CheckPayment(paymentId);
-            _log.LogDebug("Remita payment lookup completed for payment ID {PaymentId}. Match found: {MatchFound}", paymentId, paid != null);
-           
+            var normalizedId = Uri.UnescapeDataString(paymentId).Trim();
+            var compactId = RemoveHyphens(normalizedId);
+            if (compactId.Length == 0)
+                throw new Exception("Please provide a payment ID");
+            var searchIds = BuildPaymentIdCandidates(normalizedId);
+            _log.LogInformation("Payment lookup started for payment ID {PaymentId}. Normalized: {NormalizedId}; compact: {CompactId}; candidate count: {CandidateCount}",
+                paymentId, normalizedId, compactId, searchIds.Count);
+
+            var payment = await FindByPaymentIdAsync(_pwalletCollection, p => p.TransactionId, searchIds);
+            _log.LogDebug("Pwallet lookup completed for payment ID {PaymentId}. Match found: {MatchFound}; matched transaction ID: {TransactionId}",
+                paymentId, payment != null, payment?.TransactionId);
+
+            var xpay = await FindByPaymentIdAsync(_xpayTwalletCollection, x => x.transID, searchIds);
+            _log.LogDebug("Xpay wallet lookup completed for payment ID {PaymentId}. Match found: {MatchFound}; matched transaction ID: {TransactionId}",
+                paymentId, xpay != null, xpay?.transID);
+
+            // Payment providers may store the ID with or without hyphens, so try each known form.
+            var verificationIds = new[] { normalizedId, compactId, xpay?.transID, payment?.TransactionId }
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id!.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            RemitaResponseClass? paid = null;
+            foreach (var verificationId in verificationIds)
+            {
+                paid = await _paymentService.CheckPayment(verificationId);
+                _log.LogDebug("Payment verification completed for ID {VerificationId}. Match found: {MatchFound}", verificationId, paid != null);
+                if (paid != null) break;
+            }
+
+            if (xpay == null && !string.IsNullOrWhiteSpace(paid?.rrr))
+            {
+                xpay = await FindByPaymentIdAsync(_xpayTwalletCollection, x => x.transID, BuildPaymentIdCandidates(paid.rrr));
+                _log.LogDebug("Xpay wallet lookup by verified RRR completed for payment ID {PaymentId}. Match found: {MatchFound}", paymentId, xpay != null);
+            }
+
             ApplicationStatuses status;
             switch (payment?.data_status)
             {
@@ -327,15 +358,6 @@ public class MigrationService
                     status = ApplicationStatuses.AwaitingSearch;
                     break;
             }
-            var xpaySearchIds = new List<string> { searchId, paymentId };
-            if (!string.IsNullOrWhiteSpace(paid?.rrr)) xpaySearchIds.Add(paid.rrr);
-
-            var xpay = await _xpayTwalletCollection
-                .Find(Builders<XpayTwallet>.Filter.In(x => x.transID, xpaySearchIds.Distinct()))
-                .FirstOrDefaultAsync();
-            _log.LogDebug("Xpay wallet lookup completed for payment ID {PaymentId}. Match found: {MatchFound}; searched ID count: {SearchIdCount}",
-                paymentId, xpay != null, xpaySearchIds.Distinct().Count());
-
             if (xpay == null && paid == null) throw new Exception("Payment Not Found");
 
             XpayApplicant applicant = null;
@@ -391,6 +413,48 @@ public class MigrationService
             _log.LogError(e, "Payment lookup failed for payment ID {PaymentId}", paymentId);
             throw;
         }
+    }
+
+    private static string RemoveHyphens(string value) =>
+        new string(value.Where(c => c != '-' && !char.IsWhiteSpace(c)).ToArray());
+
+    private static List<string> BuildPaymentIdCandidates(string paymentId)
+    {
+        var normalizedId = paymentId.Trim();
+        var compactId = RemoveHyphens(normalizedId);
+        var candidates = new List<string> { normalizedId, compactId };
+
+        // Legacy wallet IDs are stored as the first hyphen segment (typically 15 characters).
+        var firstSegment = normalizedId.Split('-', 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim();
+        if (!string.IsNullOrWhiteSpace(firstSegment)) candidates.Add(firstSegment);
+        if (compactId.Length > 15) candidates.Add(compactId[..15]);
+
+        return candidates
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string BuildHyphenInsensitivePattern(string id) =>
+        "^" + string.Join("-?", RemoveHyphens(id).Select(c => Regex.Escape(c.ToString()))) + "$";
+
+    private static async Task<T?> FindByPaymentIdAsync<T>(IMongoCollection<T> collection,
+        Expression<Func<T, string?>> field, IReadOnlyCollection<string> ids)
+    {
+        var filter = Builders<T>.Filter;
+        var exactMatch = await collection.Find(filter.In(field, ids)).FirstOrDefaultAsync();
+        if (exactMatch != null) return exactMatch;
+
+        var fieldDefinition = new ExpressionFieldDefinition<T>(field);
+        var regexFilters = ids
+            .Where(id => RemoveHyphens(id).Length > 0)
+            .Select(BuildHyphenInsensitivePattern)
+            .Distinct()
+            .Select(pattern => filter.Regex(fieldDefinition, new BsonRegularExpression(pattern, "i")))
+            .ToList();
+        if (regexFilters.Count == 0) return default;
+
+        return await collection.Find(filter.Or(regexFilters)).FirstOrDefaultAsync();
     }
     public async Task<bool> NewClaimRequest(ClaimRequestDto req)
         {
