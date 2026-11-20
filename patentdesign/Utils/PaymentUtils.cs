@@ -414,6 +414,14 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
     }
     
     public virtual async Task<string?> GenerateRemitaPaymentId(string total, string serviceFee,string serviceId, string description, 
+        string applicantName, string applicantEmail, string applicantNumber, CancellationToken cancellationToken = default)
+    {
+        var (rrr, _) = await GenerateRemitaPaymentIdCore(total, serviceFee, serviceId, description,
+            applicantName, applicantEmail, applicantNumber, cancellationToken);
+        return rrr;
+    }
+
+    private async Task<(string? Rrr, string? Error)> GenerateRemitaPaymentIdCore(string total, string serviceFee,string serviceId, string description, 
         string applicantName, string applicantEmail, string applicantNumber, CancellationToken cancellationToken = default) {
         if (string.IsNullOrWhiteSpace(total) || string.IsNullOrWhiteSpace(serviceFee))
         {
@@ -468,6 +476,8 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                  _paymentInfo.RemitaPaymentInitUrl);
              request.Headers.TryAddWithoutValidation("Authorization",$"remitaConsumerKey={merchantId},remitaConsumerToken={convertedHash}");
              request.Content = jsonContent;
+             _log.LogInformation("Remita paymentinit request: Url={Url}, MerchantId={MerchantId}, ServiceTypeId={ServiceTypeId}, Payload={Payload}",
+                 _paymentInfo.RemitaPaymentInitUrl, merchantId, serviceId, await jsonContent.ReadAsStringAsync(cancellationToken));
              var timeout = TimeSpan.FromSeconds(Math.Clamp(_paymentInfo.RemitaTimeoutSeconds, 1, 120));
              using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
              cts.CancelAfter(timeout);
@@ -490,107 +500,51 @@ public class PaymentUtils(IOptions<PaymentInfo> remitaPaymentDetails, ILogger<Pa
                  _log.LogError(e, "Remita paymentinit request failed after {ElapsedMs}ms", sw.ElapsedMilliseconds);
                  throw new RemitaUnavailableException("Remita is unreachable. Please try again.", e);
              }
-             _log.LogInformation("Remita paymentinit completed in {ElapsedMs}ms with status {Status}", sw.ElapsedMilliseconds, (int)status);
+             _log.LogInformation("Remita paymentinit completed in {ElapsedMs}ms with status {Status}, Response={Response}", sw.ElapsedMilliseconds, (int)status, dataMod);
              if ((int)status < 200 || (int)status >= 300)
              {
-                 _log.LogError("Remita paymentinit returned non-success status {Status}", (int)status);
-                 return null;
+                 _log.LogError("Remita paymentinit returned non-success status {Status} from {Url}: {Response}", (int)status, _paymentInfo.RemitaPaymentInitUrl, dataMod);
+                 return (null, $"Remita returned HTTP {(int)status}: {Truncate(dataMod)}");
              }
              try
              {
                  int startIndex = dataMod.IndexOf('{');
                  int stopIndex = dataMod.LastIndexOf('}') + 1;
-                 if (startIndex < 0 || stopIndex <= startIndex) return null;
+                 if (startIndex < 0 || stopIndex <= startIndex) return (null, $"Remita returned an unexpected response: {Truncate(dataMod)}");
                  using var doc = JsonDocument.Parse(dataMod.Substring(startIndex, stopIndex - startIndex));
-                 if (!doc.RootElement.TryGetProperty("RRR", out var rrrEl)) return null;
+                 if (!doc.RootElement.TryGetProperty("RRR", out var rrrEl))
+                 {
+                     var statusCode = doc.RootElement.TryGetProperty("statuscode", out var sc) ? sc.ToString() : null;
+                     var statusMessage = doc.RootElement.TryGetProperty("status", out var sm) ? sm.ToString() : null;
+                     return (null, $"Remita did not return an RRR (statuscode {statusCode ?? "n/a"}: {statusMessage ?? Truncate(dataMod)})");
+                 }
                  var rrr = rrrEl.ToString();
-                 return string.IsNullOrWhiteSpace(rrr) || !rrr.All(char.IsDigit) ? null : rrr;
+                 return string.IsNullOrWhiteSpace(rrr) || !rrr.All(char.IsDigit)
+                     ? (null, $"Remita returned an invalid RRR: {Truncate(dataMod)}")
+                     : (rrr, null);
              }
              catch (JsonException e)
              {
                  _log.LogError(e, "Remita paymentinit response could not be parsed");
-                 return null;
+                 return (null, $"Remita response could not be parsed: {Truncate(dataMod)}");
              }
     }
+
+    private static string Truncate(string? value, int max = 300) =>
+        string.IsNullOrEmpty(value) ? "<empty>" : value.Length <= max ? value : value[..max] + "...";
 
     public async Task<string?> GeneratePublicationStatusUpdateRemitaPaymentId(string total, string serviceFee, string serviceId, string description,
     string applicantName, string applicantEmail, string applicantNumber)
     {
-        if (string.IsNullOrWhiteSpace(total) || string.IsNullOrWhiteSpace(serviceFee))
-        {
-            throw new ArgumentException("Total or Service Fee cannot be null or empty.");
-        }
+        if (string.IsNullOrWhiteSpace(serviceId))
+            throw new RemitaUnavailableException("PaymentInfo:PublicationStatusUpdateServiceID is not configured.");
 
-        if (!int.TryParse(total, out int totalAmount) || !int.TryParse(serviceFee, out int serviceFeeAmount))
-        {
-            throw new ArgumentException("Total or Service Fee must be valid integers.");
-        }
-        var _client = httpClientFactory?.CreateClient(RemitaClientName) ?? FallbackClient;
-        var orderId = $"IPONMWD{DateTime.UtcNow.Ticks}";
-        // var serviceId = "4019135160";
-        var merchantId = "6230040240";
-        var apiKey = "192753";
-        using StringContent jsonContent = new(
-                 JsonSerializer.Serialize(new
-                 {
-                     serviceTypeId = serviceId,
-                     amount = total,
-                     orderId,
-                     payerName = applicantName,
-                     payerEmail = applicantEmail,
-                     payerPhone = applicantNumber,
-                     description,
-                     lineItems = new[]
-                     {
-                         new {
-                             lineItemsId= "itemid1",
-                             beneficiaryName= "Einao Solutions",
-                             beneficiaryAccount= "1013590643",
-                             bankCode= "057",
-                             //beneficiaryName= "Federal Ministry of Commerce",
-                             //beneficiaryAccount= "0020110961047",
-                             //bankCode= "000",
-                             beneficiaryAmount= (int.Parse(total) - int.Parse(serviceFee)).ToString(),
-                             deductFeeFrom= "1",
-                         },
-                         new {
-                             lineItemsId= "itemid2",
-                             beneficiaryName= "Einao Solutions",
-                             beneficiaryAccount= "1013590643",
-                             bankCode= "057",
-                             beneficiaryAmount= serviceFee,
-                             deductFeeFrom= "0",
-                         }
-                     }
-                 }),
-                 Encoding.UTF8,
-                 "application/json");
-        var test = merchantId + serviceId + orderId + total + apiKey;
-        var apiHash = SHA512.Create().ComputeHash(Encoding.UTF8.GetBytes(test));
-        var convertedHash = Convert.ToHexString(apiHash).ToLower();
-        Console.WriteLine(convertedHash);
-        var request = new HttpRequestMessage(HttpMethod.Post,
-            _paymentInfo.RemitaPaymentInitUrl);
-
-        request.Headers.TryAddWithoutValidation("Authorization", $"remitaConsumerKey={merchantId},remitaConsumerToken={convertedHash}");
-        request.Content = jsonContent;
-        var response = await _client.SendAsync(request);
-        var dataMod = await response.Content.ReadAsStringAsync();
-        Console.WriteLine(dataMod);
-        try
-        {
-            int startIndex = dataMod.IndexOf("{");
-            int stopIndex = dataMod.IndexOf("}") + 1;
-            var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(
-                dataMod.Substring(startIndex: startIndex, length: stopIndex - startIndex));
-            Console.WriteLine(dict);
-            string rrr = dict["RRR"].ToString();
-            return rrr;
-        }
-        catch (Exception e)
-        {
-            return null;
-        }
+        // Same configured Remita merchant/apiKey/URL/hash as the other flows; surface Remita's actual reason on failure
+        var (rrr, error) = await GenerateRemitaPaymentIdCore(total, serviceFee, serviceId, description,
+            applicantName, applicantEmail, applicantNumber);
+        if (string.IsNullOrWhiteSpace(rrr))
+            throw new RemitaUnavailableException($"Failed to generate Remita RRR for Publication Status Update. {error}");
+        return rrr;
     }
 
 

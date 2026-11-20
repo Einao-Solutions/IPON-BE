@@ -89,7 +89,10 @@ namespace patentdesign.pdfs
                 column.Item().Text(applicantAddress).FontFamily(Fonts.TimesNewRoman).AlignCenter();
 
                 column.Item().Height(7);
-                var date = model.DateCreated;
+                var date = model.ApplicationHistory?
+                    .FirstOrDefault(x => x.ApplicationType == FormApplicationTypes.NewApplication)?.ApplicationDate
+                    ?? model.ApplicationHistory?.FirstOrDefault()?.ApplicationDate
+                    ?? model.DateCreated;
                 column.Item()
                     .Text($"In class {model.TrademarkClass ?? 0} under No.{model.RtmNumber ?? "N/A"}-{model.ApplicationHistory?.FirstOrDefault()?.CertificatePaymentId ?? "N/A"} as Of {date:MMMM dd, yyyy} in Respect of")
                     .FontFamily(Fonts.TimesNewRoman).AlignCenter();

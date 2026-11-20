@@ -465,6 +465,9 @@ public class FilesServices
             return new ApplicantPaymentResult(ApplicantPaymentOutcome.Forbidden, "You are not allowed to confirm this application.");
         }
 
+        if (!isCertificate && application.ApplicationType == FormApplicationTypes.WithdrawalRequest)
+            return await ResumeWithdrawalPayment(file, application, callerName, callerId);
+
         var expectedStatus = isCertificate ? ApplicationStatuses.AwaitingCertification : ApplicationStatuses.AwaitingPayment;
         if (application.CurrentStatus != expectedStatus)
         {
@@ -525,7 +528,47 @@ public class FilesServices
         return new ApplicantPaymentResult(ApplicantPaymentOutcome.Confirmed, "Payment confirmed.", file);
     }
 
-    // Existing RRR amount lookup for resuming payments. Only the owner (or staff) of an application holding
+    private async Task<ApplicantPaymentResult> ResumeWithdrawalPayment(Filling file, ApplicationInfo application,
+        string? callerName, string? callerId)
+    {
+        var beforeStatus = application.CurrentStatus;
+        var result = await WithdrawalPaymentResume.ResumeAsync(file, application.id, _paymentService.CheckPayment,
+            async (f, app, payment) =>
+            {
+                await _paymentService.AddPaymentRecord(new PaymentRecord
+                {
+                    PaymentType = WithdrawalPaymentResume.WithdrawalPaymentType,
+                    Date = DateTime.UtcNow,
+                    FileId = f.FileId,
+                    ApplicationId = app.id,
+                    FileType = f.Type.ToString(),
+                    RemitaResponse = payment
+                });
+                await _fillingCollection.ReplaceOneAsync(x => x.Id == f.Id, f);
+            },
+            callerName, callerId);
+
+        if (result.Outcome == ApplicantPaymentOutcome.Failed)
+            _log.LogWarning("Withdrawal payment resume failed for application {AppId} on file {FileId}: {Message}",
+                application.id, file.Id, result.Message);
+
+        if (result.Outcome == ApplicantPaymentOutcome.Confirmed)
+        {
+            try
+            {
+                await SendStatusUpdateNotificationAsync(file, application.id, application.ApplicationType, beforeStatus,
+                    application.CurrentStatus);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Status notification failed after withdrawal payment confirmation for application {AppId}", application.id);
+            }
+        }
+
+        return result;
+    }
+
+    // Existing RRR amount lookup for resuming payments.
     // the RRR can read its total; the amount is taken from Remita for that RRR, never recomputed from current fees.
     public async Task<RrrCostResult> GetApplicantRrrCost(string callerId, bool isStaff, string rrr)
     {
@@ -7150,14 +7193,27 @@ case FormApplicationTypes.Merger:
 
             var applicant = fileInfo.applicants[0];
 
-            var paymentId = await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(
+            var existingApp = fileInfo.ApplicationHistory?
+                .FirstOrDefault(a => a.ApplicationType == FormApplicationTypes.PublicationStatusUpdate
+                                     && a.CurrentStatus == ApplicationStatuses.AwaitingPayment
+                                     && !string.IsNullOrWhiteSpace(a.PaymentId));
+
+            var paymentId = existingApp?.PaymentId ?? await _remitaPaymentUtils.GeneratePublicationStatusUpdateRemitaPaymentId(
                 data.Item1, data.Item3, data.Item2, "File Publication Status Update",
                 applicant.Name, applicant.Email, applicant.Phone);
+
+            if (string.IsNullOrWhiteSpace(paymentId))
+            {
+                _log.LogError("Publication Status Update RRR generation failed for FileId {FileId} (amount {Amount}, serviceTypeId {ServiceId})", fileId, data.Item1, data.Item2);
+                throw new RemitaUnavailableException("Failed to generate Remita RRR for Publication Status Update. Please try again.");
+            }
 
             var publicationStatusUpdateCost = new RecordalDto
             {
                 Amount = data.Item1,
                 rrr = paymentId,
+                HasExistingApplication = existingApp != null,
+                ExistingRRR = existingApp?.PaymentId,
                 FileId = fileId,
                 FileTitle = fileInfo.TitleOfTradeMark ?? "",
                 ApplicantName = applicant.Name,
@@ -9137,11 +9193,22 @@ case FormApplicationTypes.Merger:
 
     public async Task<(bool Success, string Message)> PublicationStatusUpdateAsync(PublicationUpdateDto dto)
     {
-        _log.LogInformation("Starting publication status update for FileId {FileId}, UserId {UserId}", dto.FileId, dto.UserId);
-        var file = await _fillingCollection.Find(x => x.FileId == dto.FileId).FirstOrDefaultAsync();
+        _log.LogInformation("Starting publication status update for FileId {FileId}, UserId {UserId}, RRR {RRR}", dto.FileId, dto.UserId, dto.PaymentRRR);
+        var fileNumber = dto.FileId?.Trim();
+        if (string.IsNullOrWhiteSpace(fileNumber))
+            return (false, "FileId is required.");
+        if (string.IsNullOrWhiteSpace(dto.UserId))
+            return (false, "UserId is required.");
+        if (string.IsNullOrWhiteSpace(dto.PaymentRRR))
+            return (false, "PaymentRRR is required.");
+        if (dto.PublicationDate == null)
+            return (false, "PublicationDate is required.");
+        var rrr = dto.PaymentRRR.Trim();
+
+        var file = await _fillingCollection.Find(x => x.FileId == fileNumber).FirstOrDefaultAsync();
         if (file == null)
         {
-            _log.LogWarning("Publication status update failed. File not found for FileId {FileId}", dto.FileId);
+            _log.LogWarning("Publication status update failed. File not found for FileId {FileId}", fileNumber);
             return (false, "File not found.");
         }
         var user = await _userCollection.Find(u => u.Id == dto.UserId).FirstOrDefaultAsync();
@@ -9153,52 +9220,52 @@ case FormApplicationTypes.Merger:
         // Check if publication has already been done
         if (file.PublicationDate != null)
         {
-            _log.LogWarning("Publication status update skipped. Publication already completed for FileId {FileId}", dto.FileId);
+            _log.LogWarning("Publication status update skipped. Publication already completed for FileId {FileId}", fileNumber);
             return (false, "Publication has already been done on the file.");
         }
 
-        // Proceed with publication update logic
-        // (existing logic for payment check, attachments, and history addition...)
-
-        if (dto.PaymentRRR != null)
+        file.ApplicationHistory ??= new List<ApplicationInfo>();
+        var existingApp = file.ApplicationHistory.FirstOrDefault(a =>
+            a.ApplicationType == FormApplicationTypes.PublicationStatusUpdate && a.PaymentId == rrr);
+        if (existingApp != null && existingApp.CurrentStatus != ApplicationStatuses.AwaitingPayment)
         {
-            RemitaResponseClass payDetails = await _remitaPaymentUtils.GetDetailsByRRR(dto.PaymentRRR);
-            if (payDetails == null || payDetails.status != "00")
-            {
-                throw new Exception($"Payment Not Found or Invalid RRR, ${dto.PaymentRRR}");
-            }
-            Console.WriteLine(payDetails);
-            var payment = new PaymentRecord
-            {
-                PaymentType = "Publication Status Update",
-                Date = DateTime.UtcNow,
-                FileId = file.FileId,
-                FileType = file.Type.ToString(),
-                RemitaResponse = payDetails
-            };
-            Console.WriteLine(payment);
-            await _paymentService.AddPaymentRecord(payment);
-        }
-        else if (dto.PaymentRRR == null)
-        {
-            throw new Exception("No Payment Id found");
+            _log.LogInformation("Publication status update already submitted for FileId {FileId} with RRR {RRR}", fileNumber, rrr);
+            return (true, "Publication status update has already been submitted.");
         }
 
-        // Update publication date
-        file.PublicationDate = dto.PublicationDate;
-        file.PublicationRequestDate = DateTime.UtcNow;
-        var applicant = file.applicants.FirstOrDefault();
+        RemitaResponseClass? payDetails = null;
+        try
+        {
+            payDetails = await _remitaPaymentUtils.GetDetailsByRRR(rrr);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Remita verification failed for RRR {RRR} (FileId {FileId})", rrr, fileNumber);
+        }
+        var isPaid = payDetails != null && (payDetails.status == "00" || payDetails.status == "01");
+        _log.LogInformation("Remita verification for RRR {RRR}: status {Status}, paid {Paid}", rrr, payDetails?.status ?? "null", isPaid);
 
-        // Handle attachments as files (TT), not just URLs
-        if (dto.AttachmentFiles != null && dto.AttachmentFiles.Any())
+        var applicant = file.applicants?.FirstOrDefault();
+
+        // Handle attachments
+        if (dto.AttachmentFiles != null && dto.AttachmentFiles.Any(a => a?.data != null))
         {
             // Upload files and get URLs
-            var publicationUrls = await UploadAttachment(dto.AttachmentFiles);
+            var attachmentsToUpload = dto.AttachmentFiles
+                .Where(a => a?.data != null)
+                .Select(a => a with
+                {
+                    fileName = string.IsNullOrWhiteSpace(a.fileName) ? "publication.pdf" : a.fileName,
+                    contentType = string.IsNullOrWhiteSpace(a.contentType) ? "application/pdf" : a.contentType
+                })
+                .ToList();
+            var publicationUrls = await UploadAttachment(attachmentsToUpload);
 
             file.Attachments ??= new List<AttachmentType>();
             var publicationAttachment = file.Attachments.FirstOrDefault(a => a.name == "publication");
             if (publicationAttachment != null)
             {
+                publicationAttachment.url ??= new List<string>();
                 // Add only new URLs if not already present
                 foreach (var url in publicationUrls)
                 {
@@ -9216,36 +9283,94 @@ case FormApplicationTypes.Merger:
             }
         }
 
-        var publicationStatusUpdateHistory = new ApplicationInfo
+        var requestedDate = dto.PublicationDate.Value.ToString("yyyy-MM-dd");
+
+        if (!isPaid)
         {
-            id = Guid.NewGuid().ToString(),
-            ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
-            CurrentStatus = ApplicationStatuses.AwaitingStatusUpdate,
-            ApplicationDate = DateTime.UtcNow,
-            PaymentId = dto.PaymentRRR,
-            FieldToChange = "Publication Status Update",
-            NewValue = "",
-            StatusHistory = new List<ApplicationHistory>
+            // Store the RRR and keep the request as Awaiting Payment until Remita confirms payment
+            if (existingApp == null)
             {
-                new ApplicationHistory
+                file.ApplicationHistory.Add(new ApplicationInfo
                 {
-                    Date = DateTime.UtcNow,
-                    beforeStatus = ApplicationStatuses.None,
-                    afterStatus = ApplicationStatuses.AwaitingStatusUpdate,
-                    Message = "Publication Status Update",
-                    User = user.Name,
-                    UserId = user.Id
-                }
+                    id = Guid.NewGuid().ToString(),
+                    ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
+                    CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                    ApplicationDate = DateTime.UtcNow,
+                    PaymentId = rrr,
+                    FieldToChange = "Publication Status Update",
+                    NewValue = requestedDate,
+                    StatusHistory = new List<ApplicationHistory>
+                    {
+                        new ApplicationHistory
+                        {
+                            Date = DateTime.UtcNow,
+                            beforeStatus = ApplicationStatuses.None,
+                            afterStatus = ApplicationStatuses.AwaitingPayment,
+                            Message = "Publication Status Update - awaiting payment confirmation",
+                            User = user.Name,
+                            UserId = user.Id
+                        }
+                    }
+                });
             }
+            else
+            {
+                existingApp.NewValue = requestedDate;
+            }
+
+            await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
+            _log.LogWarning("Publication status update for FileId {FileId} saved as Awaiting Payment; RRR {RRR} not yet confirmed by Remita", fileNumber, rrr);
+            return (true, "Publication status update saved. Awaiting payment confirmation.");
+        }
+
+        await _paymentService.AddPaymentRecord(new PaymentRecord
+        {
+            PaymentType = "Publication Status Update",
+            Date = DateTime.UtcNow,
+            FileId = file.FileId,
+            FileType = file.Type.ToString(),
+            RemitaResponse = payDetails
+        });
+
+        file.PublicationDate = dto.PublicationDate;
+        file.PublicationRequestDate = DateTime.UtcNow;
+
+        var paidHistory = new ApplicationHistory
+        {
+            Date = DateTime.UtcNow,
+            beforeStatus = existingApp?.CurrentStatus ?? ApplicationStatuses.None,
+            afterStatus = ApplicationStatuses.AwaitingStatusUpdate,
+            Message = "Publication Status Update",
+            User = user.Name,
+            UserId = user.Id
         };
 
-        file.ApplicationHistory ??= new List<ApplicationInfo>();
-        file.ApplicationHistory.Add(publicationStatusUpdateHistory);
+        if (existingApp != null)
+        {
+            existingApp.CurrentStatus = ApplicationStatuses.AwaitingStatusUpdate;
+            existingApp.NewValue = requestedDate;
+            existingApp.StatusHistory ??= new List<ApplicationHistory>();
+            existingApp.StatusHistory.Add(paidHistory);
+        }
+        else
+        {
+            file.ApplicationHistory.Add(new ApplicationInfo
+            {
+                id = Guid.NewGuid().ToString(),
+                ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
+                CurrentStatus = ApplicationStatuses.AwaitingStatusUpdate,
+                ApplicationDate = DateTime.UtcNow,
+                PaymentId = rrr,
+                FieldToChange = "Publication Status Update",
+                NewValue = requestedDate,
+                StatusHistory = new List<ApplicationHistory> { paidHistory }
+            });
+        }
 
         // Save changes
         await _fillingCollection.ReplaceOneAsync(x => x.Id == file.Id, file);
-        _log.LogInformation("Publication status update completed for FileId {FileId}", dto.FileId);
-        return (true, "Publication status updated successfully.");
+        _log.LogInformation("Publication status update completed for FileId {FileId}", fileNumber);
+        return (true, "Publication date and attachments updated successfully.");
     }
 
     public async Task<(bool Success, string Message)> WithdrawalRequestAsync(WithdrawalRequestDto dto)

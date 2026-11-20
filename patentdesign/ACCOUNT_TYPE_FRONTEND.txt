@@ -1,0 +1,52 @@
+FRONTEND IMPLEMENTATION PROMPT: SUPERADMIN ACCOUNT TYPE EDITOR
+
+Goal
+Add an account-type editor to the existing user-management page. Account type is independent of roles: changing it must NOT add, remove or replace any roles. Use the existing frontend framework, API client, bearer token, design system and notification patterns. Do not introduce a new UI framework or hardcode the backend hostname.
+
+Access
+Only SuperAdmin can see/use this editor. Send Authorization: Bearer <existing access token>. All three routes below require SuperAdmin. Client visibility does not replace server authorization.
+
+1. Load available account types
+GET /api/users/account-types
+Returns an array of { id, name }. Current values: 0 Individual, 1 Corporate, 2 Officer, 3 Tech. Populate the dropdown from this endpoint rather than hardcoding options. AccountType.Tech is NOT a role or permission grant.
+
+2. Load the selected user's current account type
+GET /api/users/{userId}/account-type
+Response: { "userId": "USER_ID", "accountType": 0, "accountTypeName": "Individual" }
+Legacy accounts can return accountType: null and accountTypeName: null. Display "Not set" and require selection of a valid type before saving. Null does not mean Individual. A nonexistent user returns 404. This safe endpoint does not expose passwords, tokens or pending audit records.
+
+3. Save a change
+PUT /api/users/{userId}/account-type
+Headers: Authorization: Bearer <existing access token>; Content-Type: application/json
+Body example: { "accountType": 2 }
+Send the numeric id returned by the options endpoint. Do not send userId in the body, roles, actor/admin identity, previous account type, names or profile fields. Missing, null and undefined account types are invalid; 0 is valid.
+Response: { "userId": "USER_ID", "accountType": 2, "accountTypeName": "Officer", "changed": true }
+Submitting the existing value returns 200 with changed: false and does not create history or update LastUpdatedAt. Changed types return changed: true. There is no separate message property; derive toast text from changed.
+
+UI behavior
+- Add an "Edit account type" action or section to the selected user's existing management view.
+- Fetch options and current value when opened. Show loading/error/retry states; do not assume a default before loading.
+- Use a single-select dropdown; disable Save until a valid value differs from the original.
+- Compare numeric values explicitly; do not use a truthiness check because Individual has id 0.
+- On Save, show confirmation naming the user and the old/new account types; state that existing roles will not change.
+- Disable duplicate submissions while saving.
+- On success, use the returned value to update the UI and invalidate/refetch affected user details/list caches. Show "Account type updated" for changed: true or "Account type is already set" for changed: false.
+- Keep role controls and role-update API calls separate. Do not invoke UpdateUserRoles or the general profile-update endpoint as part of this action.
+- Do not infer new permissions from an account type. AccountType.Tech and the Tech role are different concepts.
+
+Errors
+400: Show validation errors (message or validation-problem errors).
+401: Use the existing sign-in/token-expiry recovery flow.
+403: Show "Only SuperAdmin can change account types" and prevent further editing.
+404: Show "User not found" and refresh the user list.
+409: Another account-type update conflicted. Reload the current type, keep the user's intended choice visible, and ask them to review before resubmitting. Do not automatically overwrite with a blind retry.
+Network/5xx: Show a retryable failure and refetch current state before retrying an ambiguous save. A response timeout does not prove that the server failed to save.
+
+Backend behavior and scope
+This management endpoint changes AccountType and LastUpdatedAt without changing roles, verification status, names or other profile fields. It records actor/recipient snapshots, previous/new type and UTC time in accountTypeChangeHistory using durable pending events. Standalone MongoDB is supported. Exports are attempted immediately and retried at application startup and every 30 seconds; export outages do not invalidate a successfully saved change. No account-type history read endpoint is provided in this change, so do not build a history screen against invented APIs. Existing general-profile behavior is unchanged; this prompt describes the dedicated management endpoints.
+
+Acceptance criteria
+A SuperAdmin can load an existing or unset account type, select any valid type including Individual (0), confirm and save it, and see refreshed details without any role changes. Non-SuperAdmin users cannot access the editor. Loading, no-change, missing-user, permission, conflict and failure states are handled correctly.
+
+Deployment
+Build successfully and restart the API before testing new routes; do not run the last successful old build if compilation fails.

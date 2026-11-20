@@ -276,6 +276,7 @@ builder.Services.AddScoped<LettersServices>();
 builder.Services.AddScoped<TicketServices>();
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<RoleManagementService>();
+builder.Services.AddScoped<UserAccountService>();
 builder.Services.AddScoped<FinanceService>();
 builder.Services.AddScoped<AssignmentService>();
 builder.Services.AddScoped<PaymentService>();
@@ -293,6 +294,7 @@ builder.Services.AddHostedService<NotificationJob>();
 builder.Services.AddHostedService<OppositionDeadlineService>();
 builder.Services.AddHostedService<TicketAutoCloseService>();
 builder.Services.AddHostedService<RoleAuditRetryService>();
+builder.Services.AddHostedService<AccountTypeAuditRetryService>();
 
 // ------------------ Build App ------------------
 var app = builder.Build();
@@ -324,9 +326,29 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 
 app.UseHttpsRedirection();
 
-app.UseRouting();
-
 app.UseCors(corsPolicy);
+
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
+    var ex = feature?.Error;
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("GlobalExceptionHandler");
+    logger.LogError(ex, "Unhandled exception on {Method} {Path}", context.Request.Method, feature?.Path);
+
+    var (status, message) = ex switch
+    {
+        ArgumentException or FormatException or System.Text.Json.JsonException or BadHttpRequestException
+            => (StatusCodes.Status400BadRequest, ex.Message),
+        KeyNotFoundException => (StatusCodes.Status404NotFound, ex.Message),
+        _ => (StatusCodes.Status500InternalServerError,
+            app.Environment.IsDevelopment() && ex != null ? ex.Message : "An unexpected error occurred.")
+    };
+    context.Response.StatusCode = status;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsJsonAsync(new { message });
+}));
+
+app.UseRouting();
 
 app.UseAuthentication();
 app.UseAuthorization();
