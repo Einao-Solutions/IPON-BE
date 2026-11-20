@@ -535,8 +535,30 @@ public class MigrationService
         try
         {
             var claimRequests = await _claimRequestsCollection
-                .Find(c => c.IsMigrated == false)
+                .Find(c => c.IsMigrated != true)
                 .ToListAsync();
+
+            // A claim whose file already exists in the files collection has been migrated, even if its flag was never set
+            // (e.g. migrated before the flag was written). MigrateFile applies the same rule.
+            var claimFileIds = claimRequests
+                .Select(c => c.FileId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct()
+                .ToList();
+            if (claimFileIds.Count > 0)
+            {
+                var migratedFileIds = (await _fillingCollection
+                        .Find(Builders<Filling>.Filter.In(f => f.FileId, claimFileIds))
+                        .Project(f => f.FileId)
+                        .ToListAsync())
+                    .ToHashSet();
+                if (migratedFileIds.Count > 0)
+                {
+                    _log.LogWarning("Excluding {MigratedCount} claim file(s) already present in the files collection but not flagged as migrated: {FileNumbers}",
+                        migratedFileIds.Count, string.Join(", ", migratedFileIds));
+                    claimRequests = claimRequests.Where(c => !migratedFileIds.Contains(c.FileId)).ToList();
+                }
+            }
             _log.LogInformation("Retrieved {ClaimRequestCount} unmigrated claim request(s)", claimRequests.Count);
 
             var result = claimRequests.Select(c => new ClaimDetailsDto()
