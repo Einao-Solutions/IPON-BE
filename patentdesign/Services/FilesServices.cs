@@ -7208,6 +7208,36 @@ case FormApplicationTypes.Merger:
                 throw new RemitaUnavailableException("Failed to generate Remita RRR for Publication Status Update. Please try again.");
             }
 
+            if (existingApp == null)
+            {
+                var awaitingPaymentApp = new ApplicationInfo
+                {
+                    id = Guid.NewGuid().ToString(),
+                    ApplicationType = FormApplicationTypes.PublicationStatusUpdate,
+                    CurrentStatus = ApplicationStatuses.AwaitingPayment,
+                    ApplicationDate = DateTime.UtcNow,
+                    PaymentId = paymentId,
+                    FieldToChange = "Publication Status Update",
+                    StatusHistory = new List<ApplicationHistory>
+                    {
+                        new ApplicationHistory
+                        {
+                            Date = DateTime.UtcNow,
+                            beforeStatus = ApplicationStatuses.None,
+                            afterStatus = ApplicationStatuses.AwaitingPayment,
+                            Message = "Publication Status Update - awaiting payment",
+                            User = applicant.Name
+                        }
+                    }
+                };
+
+                var historyUpdate = fileInfo.ApplicationHistory == null
+                    ? Builders<Filling>.Update.Set(f => f.ApplicationHistory, new List<ApplicationInfo> { awaitingPaymentApp })
+                    : Builders<Filling>.Update.Push(f => f.ApplicationHistory, awaitingPaymentApp);
+
+                await _fillingCollection.UpdateOneAsync(Builders<Filling>.Filter.Eq(f => f.FileId, fileId), historyUpdate);
+            }
+
             var publicationStatusUpdateCost = new RecordalDto
             {
                 Amount = data.Item1,
