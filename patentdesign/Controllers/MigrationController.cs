@@ -41,13 +41,21 @@ public class MigrationController(MigrationService migrationService) : Controller
     }
     //[Authorize]
     [HttpPost("ClaimRequest")]
-    public async Task<IActionResult> ClaimRequest([FromForm] List<IFormFile> attachments, [FromForm] string markInfo)
+    public async Task<IActionResult> ClaimRequest([FromForm] List<IFormFile> attachments, [FromForm] string markInfo,
+        [FromForm] string? correspondenceName = null, [FromForm] string? correspondenceEmail = null,
+        [FromForm] string? correspondencePhone = null, [FromForm] string? correspondenceNationality = null,
+        [FromForm] string? correspondenceAddress = null)
     {
         var markData = JsonConvert.DeserializeObject<List<MarkInfoDto>>(markInfo);
         var dto = new ClaimRequestDto
         {
             Attachments = attachments,
-            MarkInfo = markData
+            MarkInfo = markData,
+            CorrespondenceName = correspondenceName,
+            CorrespondenceEmail = correspondenceEmail,
+            CorrespondencePhone = correspondencePhone,
+            CorrespondenceNationality = correspondenceNationality,
+            CorrespondenceAddress = correspondenceAddress
         };
 
         await migrationService.NewClaimRequest(dto);

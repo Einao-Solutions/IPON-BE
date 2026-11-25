@@ -131,19 +131,7 @@ public class MigrationService
                     logo = TradeMarkLogo.WordandDevice;
                 }
 
-                string countryName = string.Empty;
-                if (mark.ApplicantNationality.HasValue)
-                {
-                    countryName = ((CldxCountry)mark.ApplicantNationality.Value).ToString();
-                }
-                var applicant = new ApplicantInfo
-                {
-                    Name = mark.ApplicantName,
-                    Email = mark.ApplicantEmail,
-                    Phone = mark.ApplicantPhone?.ToString() ?? string.Empty,
-                    Address = mark.ApplicantAddress,
-                    country = countryName
-                };
+                var applicant = MapIpoApplicant(mark);
                 var applicants = new List<ApplicantInfo>();
                 var apps = new List<ApplicationInfo>();
                 applicants.Add(applicant);
@@ -184,13 +172,7 @@ public class MigrationService
                         status = ApplicationStatuses.None;
                         break;
                 }
-                var corr = new CorrespondenceType
-                {
-                    name = mark.AttorneyName,
-                    email = mark.AttorneyEmail,
-                    Nationality = mark.AttorneyCountry,
-                    address = mark.ApplicantAddress
-                };
+                var corr = MapIpoCorrespondence(mark);
                 var newApp = new ApplicationInfo
                 {
                     ApplicationType = FormApplicationTypes.NewApplication,
@@ -487,15 +469,22 @@ public class MigrationService
                 var mark = req.MarkInfo?.FirstOrDefault();
                 if (mark == null)
                     throw new Exception("Mark information is required to submit a claim request.");
-                CorrespondenceType corr = new CorrespondenceType
+                // Explicit form fields take precedence; otherwise keep the correspondence returned by the mark lookup.
+                var corr = new CorrespondenceType
                 {
-                    Nationality = req.CorrespondenceNationality,
-                    name = req.CorrespondenceName,
-                    email = req.CorrespondenceEmail,
-                    address = req.CorrespondenceAddress,
-                    phone = req.CorrespondencePhone
+                    Nationality = FirstNonEmpty(req.CorrespondenceNationality, mark.Correspondence?.Nationality),
+                    name = FirstNonEmpty(req.CorrespondenceName, mark.Correspondence?.name),
+                    email = FirstNonEmpty(req.CorrespondenceEmail, mark.Correspondence?.email),
+                    address = FirstNonEmpty(req.CorrespondenceAddress, mark.Correspondence?.address),
+                    phone = FirstNonEmpty(req.CorrespondencePhone, mark.Correspondence?.phone),
+                    state = mark.Correspondence?.state
                 };
-                
+                var applicants = mark.Applicants?.Where(a => HasData(a)).ToList() ?? new List<ApplicantInfo>();
+                if (applicants.Count == 0)
+                    _log.LogWarning("Claim request for file number {FileNumber} has no applicant information", mark.FileNumber);
+                if (!HasData(corr))
+                    _log.LogWarning("Claim request for file number {FileNumber} has no correspondence information", mark.FileNumber);
+
                 _log.LogDebug("Building claim request for file number {FileNumber}", mark.FileNumber);
                 ClaimRequests data = new ClaimRequests
                 {
@@ -513,7 +502,8 @@ public class MigrationService
                     TrademarkLogo = mark.Logo,
                     DateCreated = DateTime.UtcNow,
                     ApplicationHistory = mark.ApplicationHistory,
-                    applicants = mark.Applicants,
+                    applicants = applicants,
+                    TrademarkDisclaimer = mark.Disclaimer,
                     Comment = "claim request",
                     ClaimDocuments = claimDocs,
                     Correspondence = corr
@@ -620,22 +610,24 @@ public class MigrationService
             _log.LogDebug("Claim lookup for migration completed for file number {FileNumber}. Match found: {MatchFound}", fileId, claim != null);
             if (claim == null) throw new Exception("No Claim Found");
 
+            var (applicants, correspondence) = await ResolveMigrationParties(claim);
+
             var file = new Filling
             {
                 Id = claim.Id,
                 FileId = claim.FileId ?? "",
                 LastRequestDate = claim.LastRequestDate ?? DateTime.UtcNow,
                 CreatorAccount = claim.CreatorAccount ?? "",
-                FileStatus = claim.FileStatus ?? ApplicationStatuses.None,
+                FileStatus = claim.FileStatus ?? ApplicationStatuses.AwaitingSearch,
                 DateCreated = claim.DateCreated ?? DateTime.UtcNow,
                 Type = claim.Type ?? FileTypes.TradeMark,
                 FilingCountry = claim.FilingCountry ?? string.Empty,
                 FileOrigin = claim.FileOrigin,
                 TitleOfInvention = claim.TitleOfInvention,
                 PatentAbstract = claim.PatentAbstract ?? "",
-                Correspondence = claim.Correspondence,
+                Correspondence = correspondence,
                 LastRequest = claim.LastRequest ?? DateTime.UtcNow,
-                applicants = claim.applicants ?? new List<ApplicantInfo>(),
+                applicants = applicants,
                 PatentApplicationType = claim.PatentApplicationType,
                 Revisions = claim.Revisions ?? new List<Revision>(),
                 PatentType = claim.PatentType,
@@ -679,6 +671,7 @@ public class MigrationService
             else
             {
                 _log.LogWarning("File {FileNumber} already exists in the files collection; skipping insert and only flagging the claim(s) as migrated.", file.FileId);
+                await RepairMissingParties(existingFile, applicants, correspondence);
             }
 
             // Flag every claim sharing this FileId, not just the first match, and verify the write actually happened.
@@ -704,6 +697,80 @@ public class MigrationService
             throw;
         }
     }
+
+    // Older claims were saved with empty applicant/correspondence data, so fall back to the IPO Nigeria source record.
+    private async Task<(List<ApplicantInfo> Applicants, CorrespondenceType? Correspondence)> ResolveMigrationParties(ClaimRequests claim)
+    {
+        var applicants = claim.applicants?.Where(a => HasData(a)).ToList() ?? new List<ApplicantInfo>();
+        var correspondence = HasData(claim.Correspondence) ? claim.Correspondence : null;
+        if (applicants.Count > 0 && correspondence != null) return (applicants, correspondence);
+
+        _log.LogWarning("Claim {ClaimId} for file number {FileNumber} is missing data (applicants: {HasApplicants}, correspondence: {HasCorrespondence}); attempting backfill from IPO Nigeria",
+            claim.Id, claim.FileId, applicants.Count > 0, correspondence != null);
+        try
+        {
+            var source = await _ipoNgMarkInformationsCollection.Find(m => m.RegistrationNumber == claim.FileId).FirstOrDefaultAsync();
+            if (source == null)
+            {
+                _log.LogWarning("No IPO Nigeria record found to backfill file number {FileNumber}", claim.FileId);
+            }
+            else
+            {
+                var sourceApplicant = MapIpoApplicant(source);
+                if (applicants.Count == 0 && HasData(sourceApplicant)) applicants.Add(sourceApplicant);
+                var sourceCorrespondence = MapIpoCorrespondence(source);
+                if (correspondence == null && HasData(sourceCorrespondence)) correspondence = sourceCorrespondence;
+                _log.LogInformation("Backfill from IPO Nigeria for file number {FileNumber} completed (applicants: {HasApplicants}, correspondence: {HasCorrespondence})",
+                    claim.FileId, applicants.Count > 0, correspondence != null);
+            }
+        }
+        catch (Exception e)
+        {
+            _log.LogWarning(e, "Backfill from IPO Nigeria failed for file number {FileNumber}; continuing with claim data", claim.FileId);
+        }
+
+        return (applicants, correspondence ?? claim.Correspondence);
+    }
+
+    private async Task RepairMissingParties(Filling existingFile, List<ApplicantInfo> applicants, CorrespondenceType? correspondence)
+    {
+        var update = Builders<Filling>.Update;
+        var updates = new List<UpdateDefinition<Filling>>();
+        if (applicants.Count > 0 && (existingFile.applicants == null || !existingFile.applicants.Any(a => HasData(a))))
+            updates.Add(update.Set(f => f.applicants, applicants));
+        if (HasData(correspondence) && !HasData(existingFile.Correspondence))
+            updates.Add(update.Set(f => f.Correspondence, correspondence));
+        if (updates.Count == 0) return;
+
+        await _fillingCollection.UpdateOneAsync(f => f.FileId == existingFile.FileId, update.Combine(updates));
+        _log.LogInformation("Repaired {FieldCount} missing party field(s) on existing file {FileNumber}", updates.Count, existingFile.FileId);
+    }
+
+    private static ApplicantInfo MapIpoApplicant(IpoNgMarkInformations mark) => new ApplicantInfo
+    {
+        Name = mark.ApplicantName,
+        Email = mark.ApplicantEmail,
+        Phone = mark.ApplicantPhone ?? string.Empty,
+        Address = mark.ApplicantAddress,
+        country = mark.ApplicantNationality.HasValue ? ((CldxCountry)mark.ApplicantNationality.Value).ToString() : string.Empty
+    };
+
+    private static CorrespondenceType MapIpoCorrespondence(IpoNgMarkInformations mark) => new CorrespondenceType
+    {
+        name = mark.AttorneyName,
+        email = mark.AttorneyEmail,
+        Nationality = mark.AttorneyCountry,
+        address = FirstNonEmpty(mark.AttorneyAddress, mark.ApplicantAddress)
+    };
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+
+    private static bool HasData(ApplicantInfo? applicant) =>
+        applicant != null && new[] { applicant.Name, applicant.Email, applicant.Phone, applicant.Address }.Any(v => !string.IsNullOrWhiteSpace(v));
+
+    private static bool HasData(CorrespondenceType? correspondence) =>
+        correspondence != null && new[] { correspondence.name, correspondence.email, correspondence.phone, correspondence.address }.Any(v => !string.IsNullOrWhiteSpace(v));
     
     //Superadmin
     public async Task<bool> AdminUploadAttach(AdminUploadAttachmentDto req)
